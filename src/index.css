@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-100 text-slate-900 font-sans antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+/* Custom scrollbars for clean ERP tables and sidebars */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* High-fidelity A4 Print Styles for Official Tax Invoices */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-size: 10pt;
+  }
+
+  aside, header, .print\:hidden {
+    display: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  #tax-invoice-sheet {
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 auto !important;
+    padding: 5mm 8mm !important;
+    width: 100% !important;
+    max-width: 210mm !important;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 6mm;
+  }
+}

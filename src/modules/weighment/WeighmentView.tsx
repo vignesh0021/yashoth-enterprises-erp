@@ -1,0 +1,289 @@
+import React, { useState } from 'react';
+import { useERP } from '../../context/ERPContext.tsx';
+import { Weighment, WeighingMethod } from '../../types/index.ts';
+import { StatusBadge } from '../../components/common/StatusBadge.tsx';
+import { Modal } from '../../components/common/Modal.tsx';
+import { 
+  calcNetWeight, 
+  calcPayableWeight, 
+  formatWeight 
+} from '../../utils/calculations.ts';
+import { 
+  Scale, 
+  Plus, 
+  FileText, 
+  AlertTriangle, 
+  CheckCircle, 
+  Camera, 
+  Clock, 
+  ShieldCheck 
+} from 'lucide-react';
+
+export const WeighmentView: React.FC = () => {
+  const { weighments, recordWeighment, currentUser } = useERP();
+
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedWeighment, setSelectedWeighment] = useState<Weighment | null>(null);
+
+  // Form State
+  const [method, setMethod] = useState<WeighingMethod>('WEIGHBRIDGE_SLIP');
+  const [slipRef, setSlipRef] = useState('WB-2026-9901');
+  const [vehicleReg, setVehicleReg] = useState('TN 18 BY 0420');
+  const [grossWeight, setGrossWeight] = useState(12500);
+  const [tareWeight, setTareWeight] = useState(4500);
+  const [deductions, setDeductions] = useState(100);
+  const [notes, setNotes] = useState('Gummidipoondi Public Weighbridge slip verified');
+
+  let netWeight = 0;
+  let payableWeight = 0;
+  let errorMsg = '';
+
+  try {
+    netWeight = calcNetWeight(grossWeight, tareWeight);
+    payableWeight = calcPayableWeight(grossWeight, tareWeight, deductions);
+  } catch (err: any) {
+    errorMsg = err.message;
+  }
+
+  // Duplicate slip reference check
+  const duplicateSlipWarning = weighments.some(
+    (w) => w.slipReference && w.slipReference.trim().toUpperCase() === slipRef.trim().toUpperCase()
+  );
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (errorMsg) return;
+
+    recordWeighment({
+      weighingMethod: method,
+      slipReference: slipRef,
+      vehicleRegistration: vehicleReg,
+      grossWeight,
+      tareWeight,
+      approvedDeductions: deductions,
+      unit: 'KG',
+      firstWeightTime: new Date(Date.now() - 30 * 60000).toISOString(),
+      secondWeightTime: new Date().toISOString(),
+      operatorName: currentUser.fullName,
+      verificationStatus: duplicateSlipWarning ? 'FLAGGED' : 'VERIFIED',
+      notes,
+    });
+
+    setIsModalOpen(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-black text-slate-900 tracking-tight">Weighment Engine & Slip Register</h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Precision scale and weighbridge slips. Net Weight = Gross - Tare. Payable Weight = Net - Deductions.
+          </p>
+        </div>
+
+        <button
+          onClick={() => setIsModalOpen(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all self-start sm:self-auto"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Record Weighment Slip</span>
+        </button>
+      </div>
+
+      {/* Weighment Ledger Table */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
+                <th className="py-3 px-4">Weighment No</th>
+                <th className="py-3 px-4">Time</th>
+                <th className="py-3 px-4">Method / Slip Ref</th>
+                <th className="py-3 px-4">Vehicle Reg</th>
+                <th className="py-3 px-4 text-right">Gross Wt</th>
+                <th className="py-3 px-4 text-right">Tare Wt</th>
+                <th className="py-3 px-4 text-right">Net Wt</th>
+                <th className="py-3 px-4 text-right">Deductions</th>
+                <th className="py-3 px-4 text-right">Payable Wt</th>
+                <th className="py-3 px-4 text-center">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {weighments.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="py-12 text-center text-slate-400 italic">
+                    No weighment records entered. Click "Record Weighment Slip" to register truck weight.
+                  </td>
+                </tr>
+              ) : (
+                weighments.map((w) => (
+                  <tr key={w.id} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="py-3 px-4 font-mono font-bold text-slate-900">{w.weighmentNo}</td>
+                    <td className="py-3 px-4 text-slate-600">{new Date(w.createdAt).toLocaleTimeString()}</td>
+                    <td className="py-3 px-4">
+                      <span className="font-semibold text-slate-800 block">{w.weighingMethod.replace('_', ' ')}</span>
+                      {w.slipReference && (
+                        <span className="text-[10px] text-slate-500 font-mono">Slip: {w.slipReference}</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 font-mono font-bold text-slate-800">{w.vehicleRegistration || '—'}</td>
+                    <td className="py-3 px-4 text-right font-mono text-slate-700">{formatWeight(w.grossWeight)}</td>
+                    <td className="py-3 px-4 text-right font-mono text-slate-700">{formatWeight(w.tareWeight)}</td>
+                    <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">{formatWeight(w.netWeight)}</td>
+                    <td className="py-3 px-4 text-right font-mono text-rose-600 font-medium">{formatWeight(w.approvedDeductions)}</td>
+                    <td className="py-3 px-4 text-right font-mono font-black text-red-600">{formatWeight(w.payableWeight)}</td>
+                    <td className="py-3 px-4 text-center">
+                      <StatusBadge status={w.verificationStatus} />
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* New Weighment Modal */}
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title="Record Weight Entry / Weighbridge Slip"
+        subtitle="Automatic calculation of Net and Payable weight with non-negative constraints."
+      >
+        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+          {errorMsg && (
+            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
+          )}
+
+          {duplicateSlipWarning && (
+            <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-amber-600" />
+              <span>Warning: Weighbridge slip reference '{slipRef}' already exists in ledger!</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Weighing Method</label>
+              <select
+                value={method}
+                onChange={(e) => setMethod(e.target.value as any)}
+                className="w-full p-2 border border-slate-200 rounded-lg bg-white"
+              >
+                <option value="WEIGHBRIDGE_SLIP">Weighbridge Slip Entry</option>
+                <option value="MANUAL_SCALE">Manual Scale Reading</option>
+                <option value="HARDWARE_LINK">Hardware Serial Port (Direct)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Weighbridge Slip Ref #</label>
+              <input
+                type="text"
+                value={slipRef}
+                onChange={(e) => setSlipRef(e.target.value)}
+                className="w-full p-2 border border-slate-200 rounded-lg font-mono uppercase"
+                placeholder="e.g. WB-40291"
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Vehicle Registration #</label>
+              <input
+                type="text"
+                value={vehicleReg}
+                onChange={(e) => setVehicleReg(e.target.value)}
+                className="w-full p-2 border border-slate-200 rounded-lg font-mono uppercase"
+                placeholder="e.g. TN 18 BY 0420"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Gross Weight (KG) *</label>
+              <input
+                type="number"
+                value={grossWeight}
+                onChange={(e) => setGrossWeight(parseFloat(e.target.value) || 0)}
+                className="w-full p-2 border border-slate-200 rounded-lg font-mono text-sm"
+                step="0.5"
+                min="0"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Tare Weight (KG) *</label>
+              <input
+                type="number"
+                value={tareWeight}
+                onChange={(e) => setTareWeight(parseFloat(e.target.value) || 0)}
+                className="w-full p-2 border border-slate-200 rounded-lg font-mono text-sm"
+                step="0.5"
+                min="0"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Deductions / Moisture (KG)</label>
+              <input
+                type="number"
+                value={deductions}
+                onChange={(e) => setDeductions(parseFloat(e.target.value) || 0)}
+                className="w-full p-2 border border-slate-200 rounded-lg font-mono text-sm"
+                step="0.5"
+                min="0"
+              />
+            </div>
+          </div>
+
+          {/* Automatic Calculation Preview */}
+          <div className="grid grid-cols-2 gap-4 p-4 rounded-xl bg-slate-900 text-white font-mono">
+            <div>
+              <span className="text-[10px] text-slate-400 block uppercase">Net Weight (Gross - Tare)</span>
+              <span className="text-xl font-bold text-emerald-400">{formatWeight(netWeight)}</span>
+            </div>
+            <div>
+              <span className="text-[10px] text-slate-400 block uppercase">Payable Weight (Net - Deductions)</span>
+              <span className="text-xl font-bold text-red-400">{formatWeight(payableWeight)}</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="font-bold text-slate-700 block mb-1">Verification Notes</label>
+            <input
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="w-full p-2 border border-slate-200 rounded-lg"
+              placeholder="e.g. Weighbridge slip stamped and operator signature verified"
+            />
+          </div>
+
+          <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(false)}
+              className="px-4 py-2 border border-slate-200 rounded-lg text-slate-700 font-semibold"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!!errorMsg}
+              className="px-5 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg font-bold shadow-sm"
+            >
+              Confirm Weighment Slip
+            </button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  );
+};

@@ -1,50 +1,50 @@
 import { describe, it, expect } from 'vitest';
-import { AttendanceEntry, Employee } from '../src/types/index.ts';
+import type { AttendanceEntry, Employee } from '../src/types/index.ts';
 
 describe('Universal CRUD & Double Shift / Overtime Calculations', () => {
   it('calculates double shift as 2 full shifts and custom overtime hours at 1.5x rate', () => {
     const emp: Employee = {
       id: 'emp-101',
-      code: 'EMP-001',
+      employeeCode: 'EMP-001',
       fullName: 'Ramesh Kumar',
       phone: '9840123456',
-      role: 'YARD_SUPERVISOR',
-      assignedYardId: 'yd-1',
-      baseDailyWage: 800,
+      designation: 'Yard Supervisor',
+      department: 'Operations',
+      joiningDate: '2024-01-01',
+      dailyWageRate: 800,
+      monthlySalary: 0,
       overtimeHourlyRate: 150,
-      advanceBalance: 0,
-      hireDate: '2024-01-01',
+      currentAdvanceBalance: 0,
       isActive: true,
-      createdAt: '2024-01-01T00:00:00.000Z',
     };
 
     const attendance: AttendanceEntry[] = [
       {
         id: 'att-1',
         employeeId: 'emp-101',
-        date: '2026-10-01',
+        attendanceDate: '2026-10-01',
         status: 'PRESENT',
         overtimeHours: 2,
-        recordedBy: 'Admin',
-        createdAt: '2026-10-01T00:00:00.000Z',
+        markedBy: 'Admin',
+        isCorrected: false,
       },
       {
         id: 'att-2',
         employeeId: 'emp-101',
-        date: '2026-10-02',
+        attendanceDate: '2026-10-02',
         status: 'DOUBLE_SHIFT',
         overtimeHours: 4, // Double shift plus 4 extra OT hours
-        recordedBy: 'Admin',
-        createdAt: '2026-10-02T00:00:00.000Z',
+        markedBy: 'Admin',
+        isCorrected: false,
       },
       {
         id: 'att-3',
         employeeId: 'emp-101',
-        date: '2026-10-03',
+        attendanceDate: '2026-10-03',
         status: 'HALF_DAY',
         overtimeHours: 0,
-        recordedBy: 'Admin',
-        createdAt: '2026-10-03T00:00:00.000Z',
+        markedBy: 'Admin',
+        isCorrected: false,
       },
     ];
 
@@ -54,8 +54,9 @@ describe('Universal CRUD & Double Shift / Overtime Calculations', () => {
     const effectiveDays = presentDays + doubleShiftDays * 2 + halfDays * 0.5;
     const totalOtHours = attendance.reduce((s, a) => s + (a.overtimeHours || 0), 0);
 
-    const baseEarned = effectiveDays * emp.baseDailyWage;
-    const otPay = totalOtHours * emp.overtimeHourlyRate * 1.5;
+    const baseEarned = effectiveDays * emp.dailyWageRate;
+    const otRate = emp.overtimeHourlyRate ?? (emp.dailyWageRate / 8);
+    const otPay = totalOtHours * otRate * 1.5;
     const grossSalary = baseEarned + otPay;
 
     // effectiveDays: 1 + (1 * 2) + 0.5 = 3.5 days

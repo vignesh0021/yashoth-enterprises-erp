@@ -1,7 +1,7 @@
 // Yasoth Enterprises Scrap ERP — Sales, Dispatch & Invoice Generation Rules Engine
 // Enforces stock availability checks, FIFO lot allocation, COGS computation, and immutable invoice snapshot creation
 
-import { 
+import type { 
   SalesHeader, 
   InventoryLot, 
   StockMovement, 

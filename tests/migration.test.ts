@@ -1,7 +1,7 @@
 // Data Migration Engine Tests
 import { describe, it, expect } from 'vitest';
 import { migrateParties, migrateOpeningStock } from '../backend/business-rules/dataMigration.ts';
-import { Party, Material, Yard } from '../src/types/index.ts';
+import type { Party, Material, Yard } from '../src/types/index.ts';
 
 describe('Data Migration Engine', () => {
   const existingParty: Party = {

@@ -1,7 +1,7 @@
 // Yasoth Enterprises Scrap ERP — Controlled Data Migration Engine
 // Handles CSV/XLSX row validation, duplicate detection, dry-run simulations, and error reporting
 
-import { Party, Material, Yard, InventoryLot, StockMovement } from '../../src/types/index.ts';
+import type { Party, Material, Yard, InventoryLot, StockMovement } from '../../src/types/index.ts';
 import { roundTo2, roundTo3 } from '../../src/utils/calculations.ts';
 
 export interface MigrationRowError {

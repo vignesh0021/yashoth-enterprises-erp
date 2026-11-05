@@ -7,7 +7,7 @@ import {
 import { postPurchaseTransaction } from '../backend/business-rules/purchaseEngine.ts';
 import { dispatchSalesTransaction } from '../backend/business-rules/salesEngine.ts';
 import { reverseStockMovement } from '../backend/business-rules/inventoryEngine.ts';
-import { 
+import type { 
   CashBankAccount, 
   AccountTransaction, 
   InventoryLot, 

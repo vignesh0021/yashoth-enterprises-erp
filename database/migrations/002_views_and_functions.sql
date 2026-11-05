@@ -88,7 +88,11 @@ SELECT
     a.opening_balance,
     COALESCE(SUM(CASE WHEN at.direction = 'DEBIT' THEN at.amount ELSE 0 END), 0) AS total_debits,
     COALESCE(SUM(CASE WHEN at.direction = 'CREDIT' THEN at.amount ELSE 0 END), 0) AS total_credits,
-    ROUND(a.opening_balance 
+    ROUND(
+        CASE 
+            WHEN BOOL_OR(at.transaction_type = 'OPENING_BALANCE') THEN 0.00 
+            ELSE a.opening_balance 
+        END 
         + COALESCE(SUM(CASE WHEN at.direction = 'DEBIT' THEN at.amount ELSE 0 END), 0) 
         - COALESCE(SUM(CASE WHEN at.direction = 'CREDIT' THEN at.amount ELSE 0 END), 0)
     , 2) AS current_reconciled_balance

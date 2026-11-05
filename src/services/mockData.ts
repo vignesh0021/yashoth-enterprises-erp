@@ -1,7 +1,7 @@
 // Yasoth Enterprises Scrap ERP — Default Seed Fixtures
 // Sourced from company letterhead and confirmed operational baseline
 
-import { 
+import type { 
   CompanySettings, 
   Yard, 
   Material, 

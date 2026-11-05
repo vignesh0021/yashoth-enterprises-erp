@@ -1,7 +1,7 @@
 // Yasoth Enterprises Scrap ERP — Finance & Accounting Rules Engine
 // Enforces payment allocation limits, party ledger derivation, and contra-account integrity
 
-import { 
+import type { 
   Payment, 
   Invoice, 
   PurchaseHeader, 

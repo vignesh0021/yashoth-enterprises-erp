@@ -6,7 +6,7 @@ import {
   createStockMovement, 
   reverseStockMovement 
 } from '../backend/business-rules/inventoryEngine.ts';
-import { InventoryLot, StockMovement } from '../src/types/index.ts';
+import type { InventoryLot, StockMovement } from '../src/types/index.ts';
 
 describe('Inventory & Stock Ledger Engine', () => {
   const materialId = 'mat-steel-01';

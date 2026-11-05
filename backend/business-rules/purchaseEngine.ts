@@ -1,7 +1,7 @@
 // Yasoth Enterprises Scrap ERP — Purchase Posting Rules Engine
 // Enforces approval workflow, idempotent stock inward generation, and supplier balance linkage
 
-import { PurchaseHeader, InventoryLot, StockMovement } from '../../src/types/index.ts';
+import type { PurchaseHeader, InventoryLot, StockMovement } from '../../src/types/index.ts';
 import { roundTo2, roundTo3 } from '../../src/utils/calculations.ts';
 import { createStockMovement } from './inventoryEngine.ts';
 

@@ -439,6 +439,7 @@ export interface Employee {
   joiningDate: string;
   dailyWageRate: number;
   monthlySalary: number;
+  overtimeHourlyRate?: number;
   currentAdvanceBalance: number;
   isActive: boolean;
 }
@@ -493,3 +494,5 @@ export interface AuditLog {
   newState?: string;
   timestamp: string;
 }
+
+export const DOMAIN_TYPE_REGISTRY = 'YE_DOMAIN_TYPES_V1';

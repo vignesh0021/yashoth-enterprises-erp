@@ -1,7 +1,7 @@
 // Sales & Invoicing Rules Engine Tests
 import { describe, it, expect } from 'vitest';
 import { dispatchSalesTransaction } from '../backend/business-rules/salesEngine.ts';
-import { 
+import type { 
   SalesHeader, 
   InventoryLot, 
   StockMovement, 

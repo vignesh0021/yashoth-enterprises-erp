@@ -1,7 +1,7 @@
 // Yasoth Enterprises Scrap ERP — Inventory & Stock Ledger Business Rules Engine
 // Enforces append-only immutable stock movements, FIFO lot allocation, and non-negative stock guards
 
-import { InventoryLot, StockMovement, MovementType } from '../../src/types/index.ts';
+import type { InventoryLot, StockMovement, MovementType } from '../../src/types/index.ts';
 import { roundTo2, roundTo3 } from '../../src/utils/calculations.ts';
 
 export interface LotAllocationResult {

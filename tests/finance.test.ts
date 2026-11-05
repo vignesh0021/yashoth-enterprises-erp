@@ -6,7 +6,7 @@ import {
   calculateReconciledAccountBalance, 
   calculatePartyNetBalance 
 } from '../backend/business-rules/financeEngine.ts';
-import { 
+import type { 
   Party, 
   CashBankAccount, 
   Invoice, 

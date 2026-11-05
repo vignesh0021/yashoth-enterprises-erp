@@ -1,7 +1,7 @@
 // Purchase Workflow & Posting Tests
 import { describe, it, expect } from 'vitest';
 import { postPurchaseTransaction } from '../backend/business-rules/purchaseEngine.ts';
-import { PurchaseHeader, StockMovement } from '../src/types/index.ts';
+import type { PurchaseHeader, StockMovement } from '../src/types/index.ts';
 
 describe('Purchase Workflow & Stock Posting', () => {
   const dummyPurchase: PurchaseHeader = {

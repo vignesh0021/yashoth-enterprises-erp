@@ -55,6 +55,34 @@ export function expect(actual) {
     },
     toHaveLength(expected) {
       assert.strictEqual(actual.length, expected);
+    },
+    not: {
+      toBe(expected) {
+        assert.notStrictEqual(actual, expected);
+      },
+      toEqual(expected) {
+        assert.notDeepStrictEqual(actual, expected);
+      },
+      toBeDefined() {
+        assert.strictEqual(actual, undefined);
+      },
+      toBeUndefined() {
+        assert.notStrictEqual(actual, undefined);
+      },
+      toBeTruthy() {
+        assert.ok(!actual);
+      },
+      toBeFalsy() {
+        assert.ok(actual);
+      },
+      toThrow() {
+        assert.doesNotThrow(actual);
+      },
+      toContain(expected) {
+        if (typeof actual === 'string' || Array.isArray(actual)) {
+          assert.ok(!actual.includes(expected), `${JSON.stringify(actual)} contains ${expected}`);
+        }
+      }
     }
   };
 }

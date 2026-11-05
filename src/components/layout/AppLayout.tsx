@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useERP } from '../../context/ERPContext.tsx';
 import { UserRole } from '../../types/index.ts';
+import { AuthModal } from '../auth/AuthModal.tsx';
 import { 
   LayoutDashboard, 
   ShoppingCart, 
@@ -24,7 +25,10 @@ import {
   Plus, 
   Shield, 
   RotateCcw,
-  Search
+  Search,
+  LogIn,
+  LogOut,
+  UserCircle
 } from 'lucide-react';
 
 export const AppLayout: React.FC = () => {
@@ -32,6 +36,7 @@ export const AppLayout: React.FC = () => {
     company, 
     currentUser, 
     switchRole, 
+    logout,
     vehicleDocuments, 
     purchases, 
     invoices, 
@@ -40,6 +45,7 @@ export const AppLayout: React.FC = () => {
   
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const navigate = useNavigate();
 
   // Calculate live operational alerts count
@@ -236,31 +242,44 @@ export const AppLayout: React.FC = () => {
 
             <div className="h-5 w-px bg-slate-200"></div>
 
-            {/* Role Switcher Dropdown (Essential for testing all roles) */}
-            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1">
-              <Shield className="w-3.5 h-3.5 text-red-600" />
-              <div className="text-left">
-                <span className="text-[9px] uppercase tracking-wider text-slate-400 font-bold block leading-none">
-                  Active Role
-                </span>
-                <select
-                  value={currentUser.role}
-                  onChange={(e) => switchRole(e.target.value as UserRole)}
-                  className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
-                >
-                  {roleOptions.map((opt) => (
-                    <option key={opt.role} value={opt.role}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
+            {/* Authenticated Identity & Role Security */}
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1">
+              <button
+                onClick={() => setIsAuthModalOpen(true)}
+                className="flex items-center gap-2 hover:opacity-80 transition-opacity text-left cursor-pointer"
+                title="Manage Identity / Switch User"
+              >
+                <div className="w-7 h-7 rounded-lg bg-red-600/10 text-red-600 flex items-center justify-center font-bold text-xs border border-red-200">
+                  {currentUser.fullName ? currentUser.fullName.substring(0, 2).toUpperCase() : 'US'}
+                </div>
+                <div className="hidden sm:block">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-bold text-xs text-slate-900 leading-tight block">
+                      {currentUser.fullName}
+                    </span>
+                    <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-slate-200 text-slate-800 uppercase">
+                      {currentUser.role.replace('_', ' ')}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-500 font-mono block leading-none">
+                    {currentUser.email}
+                  </span>
+                </div>
+              </button>
+
+              <button
+                onClick={logout}
+                className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors ml-1 cursor-pointer"
+                title="Sign Out of ERP"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
             </div>
 
             {/* Notifications Indicator */}
             <button
               onClick={() => navigate('/')}
-              className="relative p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors"
+              className="relative p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors cursor-pointer"
               title={`${totalAlerts} Operational Alerts`}
             >
               <Bell className="w-4 h-4" />
@@ -276,6 +295,9 @@ export const AppLayout: React.FC = () => {
           <Outlet />
         </main>
       </div>
+
+      {/* Global Authentication & Session Modal */}
+      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
     </div>
   );
 };

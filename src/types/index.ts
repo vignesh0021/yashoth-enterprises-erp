@@ -17,6 +17,21 @@ export interface UserSession {
   email: string;
   fullName: string;
   role: UserRole;
+  companyId?: string;
+  token?: string;
+  expiresAt?: number;
+  lastActiveAt?: number;
+}
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  fullName: string;
+  role: UserRole;
+  companyId?: string;
+  passwordHash?: string;
+  isActive: boolean;
+  createdAt: string;
 }
 
 export interface CompanySettings {

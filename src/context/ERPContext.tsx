@@ -1,8 +1,8 @@
-// Yasoth Enterprises Scrap ERP — Global Application State & Business Orchestration Context
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { 
+import type { 
   CompanySettings, 
   UserRole, 
+  UserSession,
   Yard, 
   Material, 
   MaterialGrade, 
@@ -27,6 +27,15 @@ import {
   CollectionStatus, 
   AttendanceStatus 
 } from '../types/index.ts';
+
+import { authService } from '../services/authService.ts';
+import { 
+  hasPermission, 
+  enforceAuthorization, 
+  PermissionAction, 
+  AuthorizationError,
+  createSecurityAuditLog 
+} from '../../backend/business-rules/authEngine.ts';
 
 import { 
   INITIAL_COMPANY_SETTINGS, 
@@ -53,8 +62,13 @@ import { createStockMovement } from '../../backend/business-rules/inventoryEngin
 import { calcNetWeight, calcPayableWeight, roundTo2, roundTo3 } from '../utils/calculations.ts';
 
 interface ERPContextType {
-  currentUser: { id: string; fullName: string; role: UserRole };
+  currentUser: UserSession;
+  login: (email: string, password: string) => Promise<{ session: UserSession | null; error: string | null }>;
+  logout: () => void;
+  register: (params: Parameters<typeof authService.signUp>[0]) => ReturnType<typeof authService.signUp>;
+  requestPasswordRecovery: (email: string) => ReturnType<typeof authService.requestPasswordRecovery>;
   switchRole: (role: UserRole) => void;
+  checkPermission: (action: PermissionAction) => boolean;
   company: CompanySettings;
   updateCompanySettings: (settings: Partial<CompanySettings>) => void;
   yards: Yard[];
@@ -141,10 +155,18 @@ const ERPContext = createContext<ERPContextType | undefined>(undefined);
 const STORAGE_PREFIX = 'yasoth_erp_v1_';
 
 export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<{ id: string; fullName: string; role: UserRole }>({
-    id: 'usr-admin-1',
-    fullName: 'Yasoth Admin',
-    role: 'owner_admin',
+  const [currentUser, setCurrentUser] = useState<UserSession>(() => {
+    const existing = authService.getSession();
+    return existing || {
+      id: 'usr-admin-01',
+      email: 'admin@yasoth.com',
+      fullName: 'Yasoth Owner Admin',
+      role: 'owner_admin',
+      companyId: 'a0000000-0000-0000-0000-000000000001',
+      token: 'tok_default_admin',
+      expiresAt: Date.now() + 8 * 3600 * 1000,
+      lastActiveAt: Date.now(),
+    };
   });
 
   const load = <T,>(key: string, fallback: T): T => {
@@ -231,13 +253,61 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAuditLogs((prev) => [entry, ...prev]);
   };
 
+  const login = async (email: string, password: string) => {
+    const res = await authService.signIn(email, password);
+    if (res.session) {
+      setCurrentUser(res.session);
+      logAudit('LOGIN_SUCCESS', 'SECURITY_AUTH', res.session.id, null, { email: res.session.email, role: res.session.role });
+    } else {
+      logAudit('LOGIN_FAILED', 'SECURITY_AUTH', 'anonymous', null, { email, error: res.error });
+    }
+    return res;
+  };
+
+  const logout = () => {
+    const prevUser = currentUser;
+    authService.signOut();
+    const guestSession: UserSession = {
+      id: 'usr-guest',
+      email: 'guest@yasoth.com',
+      fullName: 'Signed Out (Guest)',
+      role: 'auditor',
+      expiresAt: Date.now() + 3600 * 1000,
+      lastActiveAt: Date.now(),
+    };
+    setCurrentUser(guestSession);
+    logAudit('LOGOUT', 'SECURITY_AUTH', prevUser.id, { user: prevUser.email }, null);
+  };
+
+  const register = async (params: Parameters<typeof authService.signUp>[0]) => {
+    const res = await authService.signUp(params);
+    if (res.user) {
+      logAudit('REGISTER_USER', 'SECURITY_AUTH', res.user.id, null, { email: res.user.email, role: res.user.role });
+    }
+    return res;
+  };
+
+  const requestPasswordRecovery = async (email: string) => {
+    const res = await authService.requestPasswordRecovery(email);
+    logAudit('PASSWORD_RECOVERY_REQUEST', 'SECURITY_AUTH', email, null, res);
+    return res;
+  };
+
   const switchRole = (role: UserRole) => {
+    if (currentUser.role !== 'owner_admin' && role === 'owner_admin') {
+      logAudit('ROLE_ELEVATION_REJECTED', 'SECURITY_AUTH', currentUser.id, { role: currentUser.role }, { requested: role });
+      throw new AuthorizationError('Role elevation to owner_admin requires administrative credentials.', 'FORBIDDEN');
+    }
     setCurrentUser((prev) => ({
       ...prev,
       role,
       fullName: role === 'owner_admin' ? 'Yasoth Admin' : role.replace('_', ' ').toUpperCase(),
     }));
     logAudit('SWITCH_ROLE', 'USER', currentUser.id, null, { role });
+  };
+
+  const checkPermission = (action: PermissionAction): boolean => {
+    return hasPermission(currentUser.role, action);
   };
 
   const updateCompanySettings = (settings: Partial<CompanySettings>) => {
@@ -437,6 +507,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const postPurchase = (purchaseId: string) => {
+    enforceAuthorization(currentUser, 'purchase:post', company.id);
     const purchase = purchases.find((p) => p.id === purchaseId);
     if (!purchase) throw new Error('Purchase record not found');
 
@@ -501,6 +572,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const dispatchSalesOrder = (salesId: string) => {
+    enforceAuthorization(currentUser, 'sales:dispatch', company.id);
     const salesOrder = sales.find((s) => s.id === salesId);
     if (!salesOrder) throw new Error('Sales order not found');
 
@@ -855,6 +927,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteTaxInvoice = (id: string): { success: boolean; message?: string } => {
+    enforceAuthorization(currentUser, 'invoice:delete', company.id);
     const existing = invoices.find((inv) => inv.id === id);
     if (!existing) return { success: false, message: 'Invoice not found.' };
     setInvoices((prev) => prev.filter((inv) => inv.id !== id));
@@ -871,6 +944,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deletePayment = (id: string): { success: boolean; message?: string } => {
+    enforceAuthorization(currentUser, 'finance:delete', company.id);
     const existing = payments.find((p) => p.id === id);
     if (!existing) return { success: false, message: 'Payment voucher not found.' };
     setPayments((prev) => prev.filter((p) => p.id !== id));
@@ -967,6 +1041,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const resetToDemoData = () => {
+    enforceAuthorization(currentUser, 'admin:full', company.id);
     setCompany(INITIAL_COMPANY_SETTINGS);
     setYards(INITIAL_YARDS);
     setMaterials(INITIAL_MATERIALS);
@@ -1054,7 +1129,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <ERPContext.Provider
       value={{
         currentUser,
+        login,
+        logout,
+        register,
+        requestPasswordRecovery,
         switchRole,
+        checkPermission,
         company,
         updateCompanySettings,
         yards,

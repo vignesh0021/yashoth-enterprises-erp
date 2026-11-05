@@ -203,12 +203,17 @@ export function executeContraTransfer(
 
 /**
  * Reconciles an account balance from its opening balance and transactions.
+ * If transactions already include an OPENING_BALANCE transaction, the opening balance
+ * is already recorded in the ledger, so we do not double-count account.openingBalance.
  */
 export function calculateReconciledAccountBalance(
   account: CashBankAccount,
   transactions: AccountTransaction[]
 ): number {
   const accountTxs = transactions.filter((t) => t.accountId === account.id);
+  const hasOpeningTx = accountTxs.some((t) => t.transactionType === 'OPENING_BALANCE');
+  const baseBalance = hasOpeningTx ? 0 : account.openingBalance;
+
   const debits = accountTxs
     .filter((t) => t.direction === 'DEBIT')
     .reduce((sum, t) => sum + t.amount, 0);
@@ -216,7 +221,7 @@ export function calculateReconciledAccountBalance(
     .filter((t) => t.direction === 'CREDIT')
     .reduce((sum, t) => sum + t.amount, 0);
 
-  return roundTo2(account.openingBalance + debits - credits);
+  return roundTo2(baseBalance + debits - credits);
 }
 
 /**

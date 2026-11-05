@@ -8,6 +8,7 @@ import {
   Truck, 
   Scale, 
   Boxes, 
+  Layers,
   Send, 
   FileText, 
   Users, 
@@ -57,6 +58,7 @@ export const AppLayout: React.FC = () => {
     { name: 'Purchases', path: '/purchases', icon: ShoppingCart, badge: pendingPurchasesCount > 0 ? pendingPurchasesCount : undefined },
     { name: 'Collections', path: '/collections', icon: Truck },
     { name: 'Weighment', path: '/weighment', icon: Scale },
+    { name: 'Materials & Scrap', path: '/inventory?tab=MATERIALS', icon: Layers },
     { name: 'Inventory & Lots', path: '/inventory', icon: Boxes },
     { name: 'Sales & Dispatch', path: '/sales', icon: Send },
     { name: 'Invoices & Bills', path: '/invoices', icon: FileText, badge: unpaidInvoicesCount > 0 ? unpaidInvoicesCount : undefined },
@@ -90,23 +92,37 @@ export const AppLayout: React.FC = () => {
         }`}
       >
         {/* Company Identity in Sidebar */}
-        <div className="flex items-center gap-3 px-4 py-4 border-b border-slate-800">
-          <img
-            src="/yasoth-logo.png"
-            alt="Yasoth Logo"
-            className="w-9 h-9 object-contain bg-white rounded-lg p-0.5 shadow-sm shrink-0"
-            onError={(e) => {
-              (e.target as HTMLElement).style.display = 'none';
-            }}
-          />
-          {!sidebarCollapsed && (
-            <div className="overflow-hidden">
-              <span className="font-extrabold text-sm tracking-wide text-white block truncate">
-                {company.companyName}
-              </span>
-              <span className="text-[10px] uppercase font-semibold text-red-400 block tracking-widest">
-                Scrap ERP
-              </span>
+        <div className="p-3 border-b border-slate-800">
+          {!sidebarCollapsed ? (
+            <div className="bg-slate-800/90 p-2.5 rounded-xl border border-slate-700/60 flex items-center gap-3 shadow-inner">
+              <div className="bg-white p-1 rounded-lg shrink-0 shadow-sm flex items-center justify-center">
+                <img
+                  src="/yasoth-logo.png"
+                  alt="Yasoth Enterprises Logo"
+                  className="h-10 w-auto object-contain"
+                />
+              </div>
+              <div className="overflow-hidden min-w-0">
+                <span className="font-black text-xs tracking-tight text-white block truncate uppercase">
+                  {company.companyName}
+                </span>
+                <span className="text-[10px] uppercase font-bold text-red-400 block tracking-wider">
+                  Scrap ERP & GST
+                </span>
+                <span className="text-[9px] text-slate-400 block truncate">
+                  Gummidipoondi, TN
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="flex justify-center">
+              <div className="bg-white p-1.5 rounded-lg shadow-sm">
+                <img
+                  src="/yasoth-logo.png"
+                  alt="Yasoth Logo"
+                  className="h-7 w-7 object-contain"
+                />
+              </div>
             </div>
           )}
         </div>
@@ -160,9 +176,27 @@ export const AppLayout: React.FC = () => {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header Bar */}
-        <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between shadow-sm z-20">
-          <div className="flex items-center gap-4 flex-1 max-w-md">
-            <div className="relative w-full">
+        <header className="bg-white border-b border-slate-200 px-6 py-2.5 flex items-center justify-between shadow-xs z-20">
+          <div className="flex items-center gap-5 flex-1 max-w-xl">
+            {/* Top Brand Badge */}
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="bg-white p-1 rounded-lg border border-slate-200 shadow-xs flex items-center justify-center">
+                <img
+                  src="/yasoth-logo.png"
+                  alt="Yasoth Logo"
+                  className="h-8 w-auto object-contain"
+                />
+              </div>
+              <div className="hidden lg:block">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-black text-xs text-slate-900 tracking-tight">YASOTH ENTERPRISES</span>
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-red-100 text-red-700 border border-red-200">ERP</span>
+                </div>
+                <span className="text-[10px] text-slate-500 block leading-tight font-medium">Scrap Metals & GST Billing · Gummidipoondi</span>
+              </div>
+            </div>
+
+            <div className="relative w-full max-w-xs">
               <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
               <input
                 type="text"

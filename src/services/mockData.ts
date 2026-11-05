@@ -540,3 +540,95 @@ export const INITIAL_ACCOUNT_TRANSACTIONS: AccountTransaction[] = [
     createdAt: '2026-10-01T08:00:00Z',
   },
 ];
+
+// Seeded verified Tax Invoice matching INVOICE_03.pdf
+export const INITIAL_INVOICES: Invoice[] = [
+  {
+    id: 'inv-verified-03',
+    invoiceNo: '03',
+    invoiceDate: '15-Oct-2026',
+    customerPartyId: 'pty-cust-01',
+    customerName: 'TEJAS STEEL',
+    billingAddress: 'SERV.NO: 596/3B1B, SHOP.NO.7, G.N.T ROAD, ALINJIVAKKAM, CHENNAI, Tamil Nadu - 600067',
+    shippingAddress: 'SERV.NO: 596/3B1B, SHOP.NO.7, G.N.T ROAD, ALINJIVAKKAM, CHENNAI, Tamil Nadu - 600067',
+    customerGstin: '33ADFP06345L1ZA',
+    customerStateName: 'Tamil Nadu',
+    customerStateCode: '33',
+    placeOfSupply: 'Tamil Nadu (33)',
+    ewayBillNo: '5417 9765 5717',
+    deliveryNote: '',
+    vehicleRegistration: 'TN 05 Y 1936',
+    lines: [
+      {
+        id: 'invl-03-1',
+        serialNo: 1,
+        descriptionOfGoods: 'MS SCRAP',
+        hsnSac: '7204',
+        unit: 'KG',
+        quantity: 4430.00,
+        rate: 28.00,
+        taxableValue: 124040.00,
+      },
+    ],
+    subtotalTaxable: 124040.00,
+    cgstRate: 9,
+    cgstAmount: 11163.60,
+    sgstRate: 9,
+    sgstAmount: 11163.60,
+    igstRate: 0,
+    igstAmount: 0,
+    roundOff: -0.20,
+    grandTotal: 146367.00,
+    amountInWords: 'INR One Lakh Forty Six Thousand Three Hundred Sixty Seven Only',
+    taxAmountInWords: 'INR Twenty Two Thousand Three Hundred Twenty Seven and Twenty Paise Only',
+    paymentStatus: 'UNPAID',
+    amountPaid: 0,
+    outstandingBalance: 146367.00,
+    immutableSnapshotJson: JSON.stringify({
+      invoiceNo: '03',
+      invoiceDate: '15-Oct-2026',
+      customerName: 'TEJAS STEEL',
+      grandTotal: 146367.00,
+    }),
+    isCancelled: false,
+    createdBy: 'Yasoth Admin',
+    createdAt: '2026-10-15T12:45:00.000Z',
+  },
+];
+
+// Rich seeded attendance log across October 2026 for individual performance tracking
+export const INITIAL_ATTENDANCE: AttendanceEntry[] = [
+  // P. Murugan (Daily wage worker - Yard Sorter)
+  { id: 'att-m-01', employeeId: 'emp-04', attendanceDate: '2026-10-01', status: 'PRESENT', overtimeHours: 0, markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-m-02', employeeId: 'emp-04', attendanceDate: '2026-10-02', status: 'PRESENT', overtimeHours: 1.5, remarks: 'Assisted late lorry unloading', markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-m-03', employeeId: 'emp-04', attendanceDate: '2026-10-03', status: 'PRESENT', overtimeHours: 0, markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-m-04', employeeId: 'emp-04', attendanceDate: '2026-10-04', status: 'PRESENT', overtimeHours: 2, markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-m-05', employeeId: 'emp-04', attendanceDate: '2026-10-05', status: 'PRESENT', overtimeHours: 0, markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-m-06', employeeId: 'emp-04', attendanceDate: '2026-10-06', status: 'PRESENT', overtimeHours: 0, markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-m-07', employeeId: 'emp-04', attendanceDate: '2026-10-07', status: 'PRESENT', overtimeHours: 1, markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-m-08', employeeId: 'emp-04', attendanceDate: '2026-10-08', status: 'HALF_DAY', overtimeHours: 0, remarks: 'Family medical visit in afternoon', markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-m-09', employeeId: 'emp-04', attendanceDate: '2026-10-09', status: 'PRESENT', overtimeHours: 2.5, markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-m-10', employeeId: 'emp-04', attendanceDate: '2026-10-10', status: 'OVERTIME', overtimeHours: 3, remarks: 'Heavy HMS-1 shearing shift', markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-m-11', employeeId: 'emp-04', attendanceDate: '2026-10-11', status: 'PRESENT', overtimeHours: 0, markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-m-12', employeeId: 'emp-04', attendanceDate: '2026-10-12', status: 'ABSENT', overtimeHours: 0, remarks: 'Informed leave', markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-m-13', employeeId: 'emp-04', attendanceDate: '2026-10-13', status: 'PRESENT', overtimeHours: 0, markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-m-14', employeeId: 'emp-04', attendanceDate: '2026-10-14', status: 'PRESENT', overtimeHours: 2, markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-m-15', employeeId: 'emp-04', attendanceDate: '2026-10-15', status: 'PRESENT', overtimeHours: 0, markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-m-16', employeeId: 'emp-04', attendanceDate: '2026-10-16', status: 'PRESENT', overtimeHours: 0, markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-m-17', employeeId: 'emp-04', attendanceDate: '2026-10-17', status: 'PRESENT', overtimeHours: 0, markedBy: 'Yasoth Admin', isCorrected: false },
+
+  // S. Rajan (Supervisor)
+  { id: 'att-r-15', employeeId: 'emp-01', attendanceDate: '2026-10-15', status: 'PRESENT', overtimeHours: 0, markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-r-16', employeeId: 'emp-01', attendanceDate: '2026-10-16', status: 'PRESENT', overtimeHours: 0, markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-r-17', employeeId: 'emp-01', attendanceDate: '2026-10-17', status: 'PRESENT', overtimeHours: 0, markedBy: 'Yasoth Admin', isCorrected: false },
+
+  // M. Kumar (Weighbridge Operator)
+  { id: 'att-k-15', employeeId: 'emp-02', attendanceDate: '2026-10-15', status: 'PRESENT', overtimeHours: 2, markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-k-16', employeeId: 'emp-02', attendanceDate: '2026-10-16', status: 'PRESENT', overtimeHours: 0, markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-k-17', employeeId: 'emp-02', attendanceDate: '2026-10-17', status: 'PRESENT', overtimeHours: 0, markedBy: 'Yasoth Admin', isCorrected: false },
+
+  // K. Senthil (Senior Driver)
+  { id: 'att-s-15', employeeId: 'emp-03', attendanceDate: '2026-10-15', status: 'PRESENT', overtimeHours: 3, remarks: 'Tejas Steel Delivery Run', markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-s-16', employeeId: 'emp-03', attendanceDate: '2026-10-16', status: 'PRESENT', overtimeHours: 0, markedBy: 'Yasoth Admin', isCorrected: false },
+  { id: 'att-s-17', employeeId: 'emp-03', attendanceDate: '2026-10-17', status: 'PRESENT', overtimeHours: 0, markedBy: 'Yasoth Admin', isCorrected: false },
+];

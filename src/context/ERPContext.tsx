@@ -40,7 +40,9 @@ import {
   INITIAL_ACCOUNTS, 
   INITIAL_LOTS, 
   INITIAL_STOCK_MOVEMENTS, 
-  INITIAL_ACCOUNT_TRANSACTIONS 
+  INITIAL_ACCOUNT_TRANSACTIONS,
+  INITIAL_INVOICES,
+  INITIAL_ATTENDANCE 
 } from '../services/mockData.ts';
 
 import { postPurchaseTransaction } from '../../backend/business-rules/purchaseEngine.ts';
@@ -77,9 +79,21 @@ interface ERPContextType {
   stockCounts: StockCount[];
   auditLogs: AuditLog[];
 
-  // Core Business Actions
+  // Core Business Actions & CRUD
   addParty: (partyData: Omit<Party, 'id'>) => Party;
+  updateParty: (id: string, updates: Partial<Party>) => void;
+  deleteParty: (id: string) => { success: boolean; message?: string };
   addMaterial: (matData: Omit<Material, 'id'>) => Material;
+  updateMaterial: (id: string, updates: Partial<Material>) => void;
+  deleteMaterial: (id: string) => { success: boolean; message?: string };
+  addVehicle: (vehData: Omit<Vehicle, 'id'>) => Vehicle;
+  updateVehicle: (id: string, updates: Partial<Vehicle>) => void;
+  deleteVehicle: (id: string) => { success: boolean; message?: string };
+  addEmployee: (empData: Omit<Employee, 'id'>) => Employee;
+  updateEmployee: (id: string, updates: Partial<Employee>) => void;
+  deleteEmployee: (id: string) => { success: boolean; message?: string };
+  updatePurchase: (id: string, updates: Partial<PurchaseHeader>) => void;
+  deletePurchase: (id: string) => { success: boolean; message?: string };
   recordWeighment: (data: Omit<Weighment, 'id' | 'weighmentNo' | 'netWeight' | 'payableWeight' | 'createdAt'>) => Weighment;
   createPurchase: (purchaseData: Omit<PurchaseHeader, 'id' | 'purchaseNo' | 'createdAt'>) => PurchaseHeader;
   postPurchase: (purchaseId: string) => void;
@@ -87,10 +101,31 @@ interface ERPContextType {
   updateCollectionStatus: (jobId: string, status: CollectionStatus, actualWeight?: number, transportExpenses?: number) => void;
   createSalesOrder: (salesData: Omit<SalesHeader, 'id' | 'salesNo' | 'createdAt'>) => SalesHeader;
   dispatchSalesOrder: (salesId: string) => Invoice;
+  createTaxInvoice: (invoiceData: Omit<Invoice, 'id' | 'createdAt'>) => Invoice;
   recordPayment: (paymentParams: Parameters<typeof postPaymentVoucher>[0]) => Payment;
+  updatePayment: (id: string, updates: Partial<Payment>) => void;
+  deletePayment: (id: string) => { success: boolean; message?: string };
   recordContraTransfer: (sourceAccountId: string, destAccountId: string, amount: number, referenceNo: string) => void;
   recordExpense: (expenseData: Omit<Expense, 'id' | 'voucherNo' | 'createdAt'>) => Expense;
+  updateExpense: (id: string, updates: Partial<Expense>) => void;
+  deleteExpense: (id: string) => { success: boolean; message?: string };
+  addAccount: (accData: Omit<CashBankAccount, 'id'>) => CashBankAccount;
+  updateAccount: (id: string, updates: Partial<CashBankAccount>) => void;
+  deleteAccount: (id: string) => { success: boolean; message?: string };
+  updateAccountTransaction: (id: string, updates: Partial<AccountTransaction>) => void;
+  deleteAccountTransaction: (id: string) => { success: boolean; message?: string };
+  updateWeighment: (id: string, updates: Partial<Weighment>) => void;
+  deleteWeighment: (id: string) => { success: boolean; message?: string };
+  updateCollectionJob: (id: string, updates: Partial<CollectionJob>) => void;
+  deleteCollectionJob: (id: string) => { success: boolean; message?: string };
+  updateSalesOrder: (id: string, updates: Partial<SalesHeader>) => void;
+  deleteSalesOrder: (id: string) => { success: boolean; message?: string };
+  updateTaxInvoice: (id: string, updates: Partial<Invoice>) => void;
+  deleteTaxInvoice: (id: string) => { success: boolean; message?: string };
   markAttendance: (employeeId: string, date: string, status: AttendanceStatus, overtimeHours?: number, remarks?: string) => void;
+  updateAttendanceEntry: (id: string, updates: Partial<AttendanceEntry>) => void;
+  deleteAttendanceEntry: (id: string) => { success: boolean; message?: string };
+  addAttendanceRecord: (entryData: Omit<AttendanceEntry, 'id'>) => AttendanceEntry;
   reconcileStockCount: (yardId: string, lines: { materialId: string; physicalQuantity: number; reason?: string }[], notes?: string) => StockCount;
   
   // Data Migration & Backups
@@ -129,7 +164,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [vehicles, setVehicles] = useState<Vehicle[]>(() => load('vehicles', INITIAL_VEHICLES));
   const [vehicleDocuments, setVehicleDocuments] = useState<VehicleDocument[]>(() => load('vehicleDocuments', INITIAL_VEHICLE_DOCS));
   const [employees, setEmployees] = useState<Employee[]>(() => load('employees', INITIAL_EMPLOYEES));
-  const [attendance, setAttendance] = useState<AttendanceEntry[]>(() => load('attendance', []));
+  const [attendance, setAttendance] = useState<AttendanceEntry[]>(() => load('attendance', INITIAL_ATTENDANCE));
   const [accounts, setAccounts] = useState<CashBankAccount[]>(() => load('accounts', INITIAL_ACCOUNTS));
   const [accountTransactions, setAccountTransactions] = useState<AccountTransaction[]>(() => load('accountTransactions', INITIAL_ACCOUNT_TRANSACTIONS));
   const [expenses, setExpenses] = useState<Expense[]>(() => load('expenses', []));
@@ -139,7 +174,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [inventoryLots, setInventoryLots] = useState<InventoryLot[]>(() => load('inventoryLots', INITIAL_LOTS));
   const [stockMovements, setStockMovements] = useState<StockMovement[]>(() => load('stockMovements', INITIAL_STOCK_MOVEMENTS));
   const [sales, setSales] = useState<SalesHeader[]>(() => load('sales', []));
-  const [invoices, setInvoices] = useState<Invoice[]>(() => load('invoices', []));
+  const [invoices, setInvoices] = useState<Invoice[]>(() => {
+    const loaded = load<Invoice[]>('invoices', []);
+    return loaded && loaded.length > 0 ? loaded : INITIAL_INVOICES;
+  });
   const [payments, setPayments] = useState<Payment[]>(() => load('payments', []));
   const [stockCounts, setStockCounts] = useState<StockCount[]>(() => load('stockCounts', []));
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => load('auditLogs', []));
@@ -217,6 +255,37 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newParty;
   };
 
+  const updateParty = (id: string, updates: Partial<Party>) => {
+    const existing = parties.find((p) => p.id === id);
+    if (!existing) return;
+    const updated = { ...existing, ...updates };
+    setParties((prev) => prev.map((p) => (p.id === id ? updated : p)));
+    logAudit('UPDATE_PARTY', 'PARTY', id, existing, updated);
+  };
+
+  const deleteParty = (id: string): { success: boolean; message?: string } => {
+    const existing = parties.find((p) => p.id === id);
+    if (!existing) return { success: false, message: 'Party not found.' };
+
+    const hasPurchases = purchases.some((p) => p.supplierPartyId === id);
+    const hasSales = sales.some((s) => s.customerPartyId === id);
+    const hasInvoices = invoices.some((i) => i.customerPartyId === id);
+    const hasPayments = payments.some((p) => p.partyId === id);
+
+    if (hasPurchases || hasSales || hasInvoices || hasPayments) {
+      setParties((prev) => prev.map((p) => (p.id === id ? { ...p, isActive: false } : p)));
+      logAudit('DEACTIVATE_PARTY', 'PARTY', id, existing, { isActive: false });
+      return {
+        success: true,
+        message: `Party "${existing.legalName}" has transaction history so it has been marked Inactive to preserve audit trails.`,
+      };
+    }
+
+    setParties((prev) => prev.filter((p) => p.id !== id));
+    logAudit('DELETE_PARTY', 'PARTY', id, existing, null);
+    return { success: true, message: `Party "${existing.legalName}" deleted successfully.` };
+  };
+
   const addMaterial = (matData: Omit<Material, 'id'>) => {
     const newMat: Material = {
       ...matData,
@@ -225,6 +294,112 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setMaterials((prev) => [newMat, ...prev]);
     logAudit('CREATE_MATERIAL', 'MATERIAL', newMat.id, null, newMat);
     return newMat;
+  };
+
+  const updateMaterial = (id: string, updates: Partial<Material>) => {
+    const existing = materials.find((m) => m.id === id);
+    if (!existing) return;
+    const updated = { ...existing, ...updates };
+    setMaterials((prev) => prev.map((m) => (m.id === id ? updated : m)));
+    logAudit('UPDATE_MATERIAL', 'MATERIAL', id, existing, updated);
+  };
+
+  const deleteMaterial = (id: string): { success: boolean; message?: string } => {
+    const existing = materials.find((m) => m.id === id);
+    if (!existing) return { success: false, message: 'Material not found.' };
+
+    const hasLots = inventoryLots.some((l) => l.materialId === id && l.remainingQuantity > 0);
+    const hasMovements = stockMovements.some((m) => m.materialId === id);
+    const hasPurchases = purchases.some((p) => p.lines.some((l) => l.materialId === id));
+    const hasSales = sales.some((s) => s.lines.some((l) => l.materialId === id));
+
+    if (hasLots || hasMovements || hasPurchases || hasSales) {
+      setMaterials((prev) => prev.map((m) => (m.id === id ? { ...m, isActive: false } : m)));
+      logAudit('DEACTIVATE_MATERIAL', 'MATERIAL', id, existing, { isActive: false });
+      return {
+        success: true,
+        message: `Material "${existing.name}" is linked to existing stock or transactions. It has been deactivated instead of permanently deleted.`,
+      };
+    }
+
+    setMaterials((prev) => prev.filter((m) => m.id !== id));
+    logAudit('DELETE_MATERIAL', 'MATERIAL', id, existing, null);
+    return { success: true, message: `Material "${existing.name}" deleted successfully.` };
+  };
+
+  const addVehicle = (vehData: Omit<Vehicle, 'id'>) => {
+    const newVeh: Vehicle = {
+      ...vehData,
+      id: 'veh-' + Math.random().toString(36).substring(2, 11),
+    };
+    setVehicles((prev) => [newVeh, ...prev]);
+    logAudit('CREATE_VEHICLE', 'VEHICLE', newVeh.id, null, newVeh);
+    return newVeh;
+  };
+
+  const updateVehicle = (id: string, updates: Partial<Vehicle>) => {
+    const existing = vehicles.find((v) => v.id === id);
+    if (!existing) return;
+    const updated = { ...existing, ...updates };
+    setVehicles((prev) => prev.map((v) => (v.id === id ? updated : v)));
+    logAudit('UPDATE_VEHICLE', 'VEHICLE', id, existing, updated);
+  };
+
+  const deleteVehicle = (id: string): { success: boolean; message?: string } => {
+    const existing = vehicles.find((v) => v.id === id);
+    if (!existing) return { success: false, message: 'Vehicle not found.' };
+    setVehicles((prev) => prev.filter((v) => v.id !== id));
+    setVehicleDocuments((prev) => prev.filter((d) => d.vehicleId !== id));
+    logAudit('DELETE_VEHICLE', 'VEHICLE', id, existing, null);
+    return { success: true, message: `Vehicle "${existing.registrationNo}" deleted successfully.` };
+  };
+
+  const addEmployee = (empData: Omit<Employee, 'id'>) => {
+    const newEmp: Employee = {
+      ...empData,
+      id: 'emp-' + Math.random().toString(36).substring(2, 11),
+    };
+    setEmployees((prev) => [newEmp, ...prev]);
+    logAudit('CREATE_EMPLOYEE', 'EMPLOYEE', newEmp.id, null, newEmp);
+    return newEmp;
+  };
+
+  const updateEmployee = (id: string, updates: Partial<Employee>) => {
+    const existing = employees.find((e) => e.id === id);
+    if (!existing) return;
+    const updated = { ...existing, ...updates };
+    setEmployees((prev) => prev.map((e) => (e.id === id ? updated : e)));
+    logAudit('UPDATE_EMPLOYEE', 'EMPLOYEE', id, existing, updated);
+  };
+
+  const deleteEmployee = (id: string): { success: boolean; message?: string } => {
+    const existing = employees.find((e) => e.id === id);
+    if (!existing) return { success: false, message: 'Employee not found.' };
+    setEmployees((prev) => prev.filter((e) => e.id !== id));
+    logAudit('DELETE_EMPLOYEE', 'EMPLOYEE', id, existing, null);
+    return { success: true, message: `Employee "${existing.fullName}" deleted successfully.` };
+  };
+
+  const updatePurchase = (id: string, updates: Partial<PurchaseHeader>) => {
+    const existing = purchases.find((p) => p.id === id);
+    if (!existing) return;
+    if (existing.status === 'POSTED') {
+      throw new Error('Posted purchases cannot be modified as stock has already moved into inventory.');
+    }
+    const updated = { ...existing, ...updates };
+    setPurchases((prev) => prev.map((p) => (p.id === id ? updated : p)));
+    logAudit('UPDATE_PURCHASE', 'PURCHASE', id, existing, updated);
+  };
+
+  const deletePurchase = (id: string): { success: boolean; message?: string } => {
+    const existing = purchases.find((p) => p.id === id);
+    if (!existing) return { success: false, message: 'Purchase not found.' };
+    if (existing.status === 'POSTED') {
+      return { success: false, message: 'Posted purchases have affected stock ledgers and cannot be deleted.' };
+    }
+    setPurchases((prev) => prev.filter((p) => p.id !== id));
+    logAudit('DELETE_PURCHASE', 'PURCHASE', id, existing, null);
+    return { success: true, message: `Purchase "${existing.purchaseNo}" deleted.` };
   };
 
   const recordWeighment = (data: Omit<Weighment, 'id' | 'weighmentNo' | 'netWeight' | 'payableWeight' | 'createdAt'>) => {
@@ -355,6 +530,21 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return result.generatedInvoice;
   };
 
+  const createTaxInvoice = (invoiceData: Omit<Invoice, 'id' | 'createdAt'>): Invoice => {
+    const now = new Date().toISOString();
+    const newInvoice: Invoice = {
+      ...invoiceData,
+      id: 'inv-' + Math.random().toString(36).substring(2, 11),
+      createdAt: now,
+      immutableSnapshotJson: '',
+    };
+    newInvoice.immutableSnapshotJson = JSON.stringify(newInvoice);
+
+    setInvoices((prev) => [newInvoice, ...prev]);
+    logAudit('CREATE_TAX_INVOICE', 'INVOICE', newInvoice.id, null, newInvoice);
+    return newInvoice;
+  };
+
   const recordPayment = (params: Parameters<typeof postPaymentVoucher>[0]) => {
     const result = postPaymentVoucher({
       ...params,
@@ -477,6 +667,218 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     logAudit('MARK_ATTENDANCE', 'ATTENDANCE', `${employeeId}-${date}`, null, { status, overtimeHours });
   };
 
+  const updateAttendanceEntry = (id: string, updates: Partial<AttendanceEntry>) => {
+    const existing = attendance.find((a) => a.id === id);
+    if (!existing) return;
+    const updated = {
+      ...existing,
+      ...updates,
+      isCorrected: true,
+      correctionReason: updates.correctionReason || 'Amended by Supervisor',
+    };
+    setAttendance((prev) => prev.map((a) => (a.id === id ? updated : a)));
+    logAudit('UPDATE_ATTENDANCE', 'ATTENDANCE', id, existing, updated);
+  };
+
+  const deleteAttendanceEntry = (id: string): { success: boolean; message?: string } => {
+    const existing = attendance.find((a) => a.id === id);
+    if (!existing) return { success: false, message: 'Attendance record not found.' };
+    setAttendance((prev) => prev.filter((a) => a.id !== id));
+    logAudit('DELETE_ATTENDANCE', 'ATTENDANCE', id, existing, null);
+    return { success: true, message: 'Attendance record deleted successfully.' };
+  };
+
+  const addAttendanceRecord = (entryData: Omit<AttendanceEntry, 'id'>): AttendanceEntry => {
+    const newEntry: AttendanceEntry = {
+      ...entryData,
+      id: 'att-' + Math.random().toString(36).substring(2, 9),
+      markedBy: currentUser.fullName,
+      isCorrected: false,
+    };
+    setAttendance((prev) => [newEntry, ...prev]);
+    logAudit('CREATE_ATTENDANCE', 'ATTENDANCE', newEntry.id, null, newEntry);
+    return newEntry;
+  };
+
+  const addAccount = (accData: Omit<CashBankAccount, 'id'>): CashBankAccount => {
+    const newAcc: CashBankAccount = {
+      ...accData,
+      id: 'acc-' + Math.random().toString(36).substring(2, 9),
+    };
+    setAccounts((prev) => [...prev, newAcc]);
+    logAudit('CREATE_ACCOUNT', 'ACCOUNT', newAcc.id, null, newAcc);
+    return newAcc;
+  };
+
+  const updateAccount = (id: string, updates: Partial<CashBankAccount>) => {
+    const existing = accounts.find((a) => a.id === id);
+    if (!existing) return;
+    const updated = { ...existing, ...updates };
+    setAccounts((prev) => prev.map((a) => (a.id === id ? updated : a)));
+    logAudit('UPDATE_ACCOUNT', 'ACCOUNT', id, existing, updated);
+  };
+
+  const deleteAccount = (id: string): { success: boolean; message?: string } => {
+    const existing = accounts.find((a) => a.id === id);
+    if (!existing) return { success: false, message: 'Account not found.' };
+    const hasTx = accountTransactions.some((tx) => tx.accountId === id);
+    if (hasTx) {
+      setAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, isActive: false } : a)));
+      return { success: true, message: `Account "${existing.accountName}" has financial history and was deactivated instead of permanently deleted.` };
+    }
+    setAccounts((prev) => prev.filter((a) => a.id !== id));
+    logAudit('DELETE_ACCOUNT', 'ACCOUNT', id, existing, null);
+    return { success: true, message: `Account "${existing.accountName}" deleted.` };
+  };
+
+  const updateExpense = (id: string, updates: Partial<Expense>) => {
+    const existing = expenses.find((e) => e.id === id);
+    if (!existing) return;
+    const updated = { ...existing, ...updates };
+    setExpenses((prev) => prev.map((e) => (e.id === id ? updated : e)));
+    setAccountTransactions((prev) =>
+      prev.map((tx) => {
+        if (tx.referenceNo === existing.voucherNo) {
+          return {
+            ...tx,
+            amount: updates.amount !== undefined ? updates.amount : tx.amount,
+            accountId: updates.accountId !== undefined ? updates.accountId : tx.accountId,
+            transactionDate: updates.expenseDate !== undefined ? updates.expenseDate : tx.transactionDate,
+            description: `Expense: ${updates.category || existing.category} - ${updates.paidTo || existing.paidTo}`,
+          };
+        }
+        return tx;
+      })
+    );
+    logAudit('UPDATE_EXPENSE', 'EXPENSE', id, existing, updated);
+  };
+
+  const deleteExpense = (id: string): { success: boolean; message?: string } => {
+    const existing = expenses.find((e) => e.id === id);
+    if (!existing) return { success: false, message: 'Expense voucher not found.' };
+    setExpenses((prev) => prev.filter((e) => e.id !== id));
+    setAccountTransactions((prev) => prev.filter((tx) => tx.referenceNo !== existing.voucherNo));
+    logAudit('DELETE_EXPENSE', 'EXPENSE', id, existing, null);
+    return { success: true, message: `Expense voucher "${existing.voucherNo}" deleted and ledger reversed.` };
+  };
+
+  const updateAccountTransaction = (id: string, updates: Partial<AccountTransaction>) => {
+    const existing = accountTransactions.find((tx) => tx.id === id);
+    if (!existing) return;
+    const updated = { ...existing, ...updates };
+    setAccountTransactions((prev) => prev.map((tx) => (tx.id === id ? updated : tx)));
+    logAudit('UPDATE_ACCOUNT_TX', 'ACCOUNT_TRANSACTION', id, existing, updated);
+  };
+
+  const deleteAccountTransaction = (id: string): { success: boolean; message?: string } => {
+    const existing = accountTransactions.find((tx) => tx.id === id);
+    if (!existing) return { success: false, message: 'Transaction not found.' };
+    setAccountTransactions((prev) => prev.filter((tx) => tx.id !== id));
+    logAudit('DELETE_ACCOUNT_TX', 'ACCOUNT_TRANSACTION', id, existing, null);
+    return { success: true, message: 'Transaction record deleted.' };
+  };
+
+  const updateWeighment = (id: string, updates: Partial<Weighment>) => {
+    const existing = weighments.find((w) => w.id === id);
+    if (!existing) return;
+    const gross = updates.grossWeight !== undefined ? updates.grossWeight : existing.grossWeight;
+    const tare = updates.tareWeight !== undefined ? updates.tareWeight : existing.tareWeight;
+    const ded = updates.approvedDeductions !== undefined ? updates.approvedDeductions : existing.approvedDeductions;
+    const netWeight = calcNetWeight(gross, tare);
+    const payableWeight = calcPayableWeight(gross, tare, ded);
+    const updated: Weighment = {
+      ...existing,
+      ...updates,
+      grossWeight: gross,
+      tareWeight: tare,
+      approvedDeductions: ded,
+      netWeight,
+      payableWeight,
+    };
+    setWeighments((prev) => prev.map((w) => (w.id === id ? updated : w)));
+    logAudit('UPDATE_WEIGHMENT', 'WEIGHMENT', id, existing, updated);
+  };
+
+  const deleteWeighment = (id: string): { success: boolean; message?: string } => {
+    const existing = weighments.find((w) => w.id === id);
+    if (!existing) return { success: false, message: 'Weighment slip not found.' };
+    setWeighments((prev) => prev.filter((w) => w.id !== id));
+    logAudit('DELETE_WEIGHMENT', 'WEIGHMENT', id, existing, null);
+    return { success: true, message: `Weighment slip "${existing.weighmentNo}" deleted.` };
+  };
+
+  const updateCollectionJob = (id: string, updates: Partial<CollectionJob>) => {
+    const existing = collectionJobs.find((j) => j.id === id);
+    if (!existing) return;
+    const updated = { ...existing, ...updates };
+    setCollectionJobs((prev) => prev.map((j) => (j.id === id ? updated : j)));
+    logAudit('UPDATE_COLLECTION_JOB', 'COLLECTION_JOB', id, existing, updated);
+  };
+
+  const deleteCollectionJob = (id: string): { success: boolean; message?: string } => {
+    const existing = collectionJobs.find((j) => j.id === id);
+    if (!existing) return { success: false, message: 'Collection request not found.' };
+    setCollectionJobs((prev) => prev.filter((j) => j.id !== id));
+    logAudit('DELETE_COLLECTION_JOB', 'COLLECTION_JOB', id, existing, null);
+    return { success: true, message: `Collection request "${existing.jobNo}" deleted.` };
+  };
+
+  const updateSalesOrder = (id: string, updates: Partial<SalesHeader>) => {
+    const existing = sales.find((s) => s.id === id);
+    if (!existing) return;
+    if (existing.status === 'DISPATCHED' || existing.status === 'INVOICED') {
+      throw new Error('Dispatched sales orders cannot be edited.');
+    }
+    const updated = { ...existing, ...updates };
+    setSales((prev) => prev.map((s) => (s.id === id ? updated : s)));
+    logAudit('UPDATE_SALES_ORDER', 'SALES_HEADER', id, existing, updated);
+  };
+
+  const deleteSalesOrder = (id: string): { success: boolean; message?: string } => {
+    const existing = sales.find((s) => s.id === id);
+    if (!existing) return { success: false, message: 'Sales order not found.' };
+    if (existing.status === 'DISPATCHED' || existing.status === 'INVOICED') {
+      return { success: false, message: 'Dispatched sales orders cannot be deleted as inventory lots have been consumed.' };
+    }
+    setSales((prev) => prev.filter((s) => s.id !== id));
+    logAudit('DELETE_SALES_ORDER', 'SALES_HEADER', id, existing, null);
+    return { success: true, message: `Sales order "${existing.salesNo}" deleted.` };
+  };
+
+  const updateTaxInvoice = (id: string, updates: Partial<Invoice>) => {
+    const existing = invoices.find((inv) => inv.id === id);
+    if (!existing) return;
+    const updated = { ...existing, ...updates };
+    updated.immutableSnapshotJson = JSON.stringify(updated);
+    setInvoices((prev) => prev.map((inv) => (inv.id === id ? updated : inv)));
+    logAudit('UPDATE_TAX_INVOICE', 'INVOICE', id, existing, updated);
+  };
+
+  const deleteTaxInvoice = (id: string): { success: boolean; message?: string } => {
+    const existing = invoices.find((inv) => inv.id === id);
+    if (!existing) return { success: false, message: 'Invoice not found.' };
+    setInvoices((prev) => prev.filter((inv) => inv.id !== id));
+    logAudit('DELETE_TAX_INVOICE', 'INVOICE', id, existing, null);
+    return { success: true, message: `Invoice "${existing.invoiceNo}" deleted.` };
+  };
+
+  const updatePayment = (id: string, updates: Partial<Payment>) => {
+    const existing = payments.find((p) => p.id === id);
+    if (!existing) return;
+    const updated = { ...existing, ...updates };
+    setPayments((prev) => prev.map((p) => (p.id === id ? updated : p)));
+    logAudit('UPDATE_PAYMENT', 'PAYMENT', id, existing, updated);
+  };
+
+  const deletePayment = (id: string): { success: boolean; message?: string } => {
+    const existing = payments.find((p) => p.id === id);
+    if (!existing) return { success: false, message: 'Payment voucher not found.' };
+    setPayments((prev) => prev.filter((p) => p.id !== id));
+    setAccountTransactions((prev) => prev.filter((tx) => tx.referenceNo !== existing.paymentNo));
+    logAudit('DELETE_PAYMENT', 'PAYMENT', id, existing, null);
+    return { success: true, message: `Payment voucher "${existing.paymentNo}" deleted.` };
+  };
+
   const reconcileStockCount = (
     yardId: string,
     lines: { materialId: string; physicalQuantity: number; reason?: string }[],
@@ -573,7 +975,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setVehicles(INITIAL_VEHICLES);
     setVehicleDocuments(INITIAL_VEHICLE_DOCS);
     setEmployees(INITIAL_EMPLOYEES);
-    setAttendance([]);
+    setAttendance(INITIAL_ATTENDANCE);
     setAccounts(INITIAL_ACCOUNTS);
     setAccountTransactions(INITIAL_ACCOUNT_TRANSACTIONS);
     setExpenses([]);
@@ -583,7 +985,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setInventoryLots(INITIAL_LOTS);
     setStockMovements(INITIAL_STOCK_MOVEMENTS);
     setSales([]);
-    setInvoices([]);
+    setInvoices(INITIAL_INVOICES);
     setPayments([]);
     setStockCounts([]);
     setAuditLogs([]);
@@ -677,7 +1079,19 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         stockCounts,
         auditLogs,
         addParty,
+        updateParty,
+        deleteParty,
         addMaterial,
+        updateMaterial,
+        deleteMaterial,
+        addVehicle,
+        updateVehicle,
+        deleteVehicle,
+        addEmployee,
+        updateEmployee,
+        deleteEmployee,
+        updatePurchase,
+        deletePurchase,
         recordWeighment,
         createPurchase,
         postPurchase,
@@ -685,10 +1099,31 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateCollectionStatus,
         createSalesOrder,
         dispatchSalesOrder,
+        createTaxInvoice,
         recordPayment,
+        updatePayment,
+        deletePayment,
         recordContraTransfer,
         recordExpense,
+        updateExpense,
+        deleteExpense,
+        addAccount,
+        updateAccount,
+        deleteAccount,
+        updateAccountTransaction,
+        deleteAccountTransaction,
+        updateWeighment,
+        deleteWeighment,
+        updateCollectionJob,
+        deleteCollectionJob,
+        updateSalesOrder,
+        deleteSalesOrder,
+        updateTaxInvoice,
+        deleteTaxInvoice,
         markAttendance,
+        updateAttendanceEntry,
+        deleteAttendanceEntry,
+        addAttendanceRecord,
         reconcileStockCount,
         importParties,
         importOpeningStock,

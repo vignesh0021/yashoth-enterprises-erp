@@ -15,6 +15,8 @@ export const StatusBadge: React.FC<StatusBadgeProps> = ({ status }) => {
     colorClasses = 'bg-amber-50 text-amber-700 border-amber-200';
   } else if (['SUBMITTED', 'CONFIRMED', 'ASSIGNED', 'IN_TRANSIT', 'DISPATCHED', 'PARTIALLY_PAID', 'HALF_DAY', 'OVERTIME'].includes(s)) {
     colorClasses = 'bg-blue-50 text-blue-700 border-blue-200';
+  } else if (['DOUBLE_SHIFT'].includes(s)) {
+    colorClasses = 'bg-purple-50 text-purple-700 border-purple-200';
   } else if (['CANCELLED', 'REJECTED', 'FLAGGED', 'ABSENT', 'STOCK_LOSS'].includes(s)) {
     colorClasses = 'bg-rose-50 text-rose-700 border-rose-200';
   }

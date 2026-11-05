@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useERP } from '../../context/ERPContext.tsx';
-import { PaymentDirection, PaymentMethod } from '../../types/index.ts';
+import { PaymentDirection, PaymentMethod, Payment } from '../../types/index.ts';
 import { Modal } from '../../components/common/Modal.tsx';
 import { formatINR } from '../../utils/calculations.ts';
 import { 
@@ -10,7 +10,9 @@ import {
   ArrowUpRight, 
   CheckCircle, 
   Clock, 
-  AlertCircle 
+  AlertCircle,
+  Edit2,
+  Trash2 
 } from 'lucide-react';
 
 export const PaymentsView: React.FC = () => {
@@ -21,6 +23,8 @@ export const PaymentsView: React.FC = () => {
     invoices, 
     purchases, 
     recordPayment, 
+    updatePayment,
+    deletePayment,
     currentUser 
   } = useERP();
 
@@ -33,6 +37,15 @@ export const PaymentsView: React.FC = () => {
   const [referenceNo, setReferenceNo] = useState('UTR-' + Math.floor(100000 + Math.random() * 900000));
   const [notes, setNotes] = useState('Payment settlement');
   const [allocatedInvoiceId, setAllocatedInvoiceId] = useState('');
+
+  // Edit Payment State
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
+  const [editDate, setEditDate] = useState('');
+  const [editAccountId, setEditAccountId] = useState('');
+  const [editAmount, setEditAmount] = useState<number>(0);
+  const [editMethod, setEditMethod] = useState<PaymentMethod>('NEFT_RTGS');
+  const [editReferenceNo, setEditReferenceNo] = useState('');
+  const [editNotes, setEditNotes] = useState('');
 
   // Unpaid invoices for the selected customer
   const eligibleInvoices = invoices.filter(
@@ -81,6 +94,39 @@ export const PaymentsView: React.FC = () => {
     setIsModalOpen(false);
   };
 
+  const handleOpenEdit = (pay: Payment) => {
+    setEditingPayment(pay);
+    setEditDate(pay.paymentDate);
+    setEditAccountId(pay.accountId);
+    setEditAmount(pay.totalAmount);
+    setEditMethod(pay.paymentMethod);
+    setEditReferenceNo(pay.referenceNo || '');
+    setEditNotes(pay.notes || '');
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPayment) return;
+    updatePayment(editingPayment.id, {
+      paymentDate: editDate,
+      accountId: editAccountId,
+      totalAmount: editAmount,
+      paymentMethod: editMethod,
+      referenceNo: editReferenceNo,
+      notes: editNotes,
+    });
+    setEditingPayment(null);
+  };
+
+  const handleDeletePayment = (pay: Payment) => {
+    if (window.confirm(`Are you sure you want to delete Payment Voucher "${pay.paymentNo}" for ${formatINR(pay.totalAmount)}? This will remove the voucher and reverse the account ledger.`)) {
+      const res = deletePayment(pay.id);
+      if (!res.success) {
+        alert(res.message);
+      }
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -115,12 +161,13 @@ export const PaymentsView: React.FC = () => {
                 <th className="py-3 px-4">Method & Ref</th>
                 <th className="py-3 px-4 text-right">Total Amount</th>
                 <th className="py-3 px-4 text-right">Unallocated</th>
+                <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {payments.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400 italic">
+                  <td colSpan={9} className="py-12 text-center text-slate-400 italic">
                     No payment vouchers recorded yet. Click "Record Payment Voucher" to log collections or payouts.
                   </td>
                 </tr>
@@ -155,6 +202,24 @@ export const PaymentsView: React.FC = () => {
                       </td>
                       <td className="py-3 px-4 text-right font-mono text-slate-500">
                         {pay.unallocatedAmount > 0 ? formatINR(pay.unallocatedAmount) : '—'}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => handleOpenEdit(pay)}
+                            className="p-1 hover:bg-amber-50 text-amber-600 rounded transition-colors"
+                            title="Edit Payment Voucher"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeletePayment(pay)}
+                            className="p-1 hover:bg-rose-50 text-rose-600 rounded transition-colors"
+                            title="Delete Payment Voucher"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -305,6 +370,114 @@ export const PaymentsView: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      {/* Edit Payment Modal */}
+      {editingPayment && (
+        <Modal
+          isOpen={!!editingPayment}
+          onClose={() => setEditingPayment(null)}
+          title={`Edit Payment Voucher — ${editingPayment.paymentNo}`}
+          subtitle="Update voucher date, settlement account, amount, and payment details."
+          maxWidth="2xl"
+        >
+          <form onSubmit={handleSaveEdit} className="space-y-4 text-xs">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Voucher Date *</label>
+                <input
+                  type="date"
+                  value={editDate}
+                  onChange={(e) => setEditDate(e.target.value)}
+                  className="w-full p-2 border border-slate-200 rounded-lg bg-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Settlement Account *</label>
+                <select
+                  value={editAccountId}
+                  onChange={(e) => setEditAccountId(e.target.value)}
+                  className="w-full p-2 border border-slate-200 rounded-lg bg-white"
+                  required
+                >
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.accountName} ({a.accountType})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Payment Method</label>
+                <select
+                  value={editMethod}
+                  onChange={(e) => setEditMethod(e.target.value as any)}
+                  className="w-full p-2 border border-slate-200 rounded-lg bg-white"
+                >
+                  <option value="NEFT_RTGS">NEFT / RTGS Bank Transfer</option>
+                  <option value="CASH">Cash Currency</option>
+                  <option value="UPI">UPI Digital Payment</option>
+                  <option value="CHEQUE">Cheque / Demand Draft</option>
+                  <option value="IMPS">IMPS Immediate Transfer</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Voucher Amount (₹) *</label>
+                <input
+                  type="number"
+                  value={editAmount}
+                  onChange={(e) => setEditAmount(parseFloat(e.target.value) || 0)}
+                  className="w-full p-2 border border-slate-200 rounded-lg font-mono text-sm font-bold"
+                  min="1"
+                  step="0.01"
+                  required
+                />
+              </div>
+
+              <div className="col-span-2">
+                <label className="font-bold text-slate-700 block mb-1">External Reference / UTR #</label>
+                <input
+                  type="text"
+                  value={editReferenceNo}
+                  onChange={(e) => setEditReferenceNo(e.target.value)}
+                  className="w-full p-2 border border-slate-200 rounded-lg font-mono"
+                  placeholder="e.g. UTR-20261015-889"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Notes / Description</label>
+              <input
+                type="text"
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+                className="w-full p-2 border border-slate-200 rounded-lg"
+                placeholder="e.g. Bank settlement against dispatch"
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setEditingPayment(null)}
+                className="px-4 py-2 border border-slate-200 rounded-lg text-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold shadow-sm"
+              >
+                Save Changes
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 };

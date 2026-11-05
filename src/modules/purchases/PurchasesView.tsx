@@ -21,8 +21,11 @@ import {
   FileCheck, 
   Scale, 
   AlertCircle,
-  Eye
+  Eye,
+  Trash2,
+  Edit3
 } from 'lucide-react';
+import { ScrapCategory } from '../../types/index.ts';
 
 export const PurchasesView: React.FC = () => {
   const { 
@@ -31,13 +34,26 @@ export const PurchasesView: React.FC = () => {
     materials, 
     yards, 
     createPurchase, 
-    postPurchase, 
+    updatePurchase,
+    postPurchase,
+    deletePurchase,
+    addMaterial,
     currentUser 
   } = useERP();
 
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [editingPurchase, setEditingPurchase] = useState<PurchaseHeader | null>(null);
   const [selectedPurchase, setSelectedPurchase] = useState<PurchaseHeader | null>(null);
+
+  // Quick Add Material sub-modal state
+  const [isAddMaterialModalOpen, setIsAddMaterialModalOpen] = useState(false);
+  const [newMatName, setNewMatName] = useState('');
+  const [newMatCategory, setNewMatCategory] = useState<ScrapCategory>('Steel');
+  const [newMatHsn, setNewMatHsn] = useState('7204');
+  const [newMatBuyRate, setNewMatBuyRate] = useState<number>(28);
+  const [newMatSellRate, setNewMatSellRate] = useState<number>(31.5);
+  const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
 
   // Form State for new purchase
   const [supplierId, setSupplierId] = useState(parties.find((p) => p.partyType === 'SUPPLIER' || p.partyType === 'BOTH')?.id || '');
@@ -70,43 +86,142 @@ export const PurchasesView: React.FC = () => {
     errorMsg = err.message;
   }
 
+  const handleOpenCreatePurchase = () => {
+    setEditingPurchase(null);
+    setSupplierId(parties.find((p) => p.partyType === 'SUPPLIER' || p.partyType === 'BOTH')?.id || '');
+    setSourceType('DIRECT_SUPPLIER');
+    setYardId(yards[0]?.id || '');
+    setVehicleReg('TN 18 BY 0420');
+    setMaterialId(materials[0]?.id || '');
+    setGrossWeight(10000);
+    setTareWeight(4000);
+    setDeductions(150);
+    setRatePerUnit(materials[0]?.defaultPurchaseRate || 28);
+    setIsCreateModalOpen(true);
+  };
+
+  const handleOpenEditPurchase = (pur: PurchaseHeader) => {
+    setEditingPurchase(pur);
+    setSupplierId(pur.supplierPartyId);
+    setSourceType(pur.sourceType);
+    setYardId(pur.yardId);
+    setVehicleReg(pur.vehicleRegistration || '');
+    if (pur.lines && pur.lines[0]) {
+      const line = pur.lines[0];
+      setMaterialId(line.materialId);
+      setGrossWeight(line.grossWeight);
+      setTareWeight(line.tareWeight);
+      setDeductions(line.deductions);
+      setRatePerUnit(line.ratePerUnit);
+    }
+    setIsCreateModalOpen(true);
+  };
+
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     if (errorMsg) return;
 
-    createPurchase({
-      transactionDate: new Date().toISOString(),
-      supplierPartyId: supplierId,
-      sourceType,
-      yardId,
-      vehicleRegistration: vehicleReg,
-      lines: [
-        {
-          id: 'pline-' + Math.random().toString(36).substring(2, 9),
-          materialId,
-          grossWeight,
-          tareWeight,
-          netWeight,
-          deductions,
-          payableWeight,
-          ratePerUnit,
-          gstRate: 18,
-          taxableAmount: lineTaxable,
-          gstAmount: gstBreakdown.totalTax,
-          totalAmount: gstBreakdown.grandTotal,
-        },
-      ],
-      subtotalAmount: lineTaxable,
-      taxAmount: gstBreakdown.totalTax,
-      otherCharges: 0,
-      totalAmount: gstBreakdown.grandTotal,
-      amountPaid: 0,
-      outstandingBalance: gstBreakdown.grandTotal,
-      status: 'APPROVED', // Default to approved so operator can directly post stock inward
-      createdBy: currentUser.fullName,
-    });
+    if (editingPurchase) {
+      updatePurchase(editingPurchase.id, {
+        supplierPartyId: supplierId,
+        sourceType,
+        yardId,
+        vehicleRegistration: vehicleReg,
+        lines: [
+          {
+            id: editingPurchase.lines?.[0]?.id || ('pline-' + Math.random().toString(36).substring(2, 9)),
+            materialId,
+            grossWeight,
+            tareWeight,
+            netWeight,
+            deductions,
+            payableWeight,
+            ratePerUnit,
+            gstRate: 18,
+            taxableAmount: lineTaxable,
+            gstAmount: gstBreakdown.totalTax,
+            totalAmount: gstBreakdown.grandTotal,
+          },
+        ],
+        subtotalAmount: lineTaxable,
+        taxAmount: gstBreakdown.totalTax,
+        totalAmount: gstBreakdown.grandTotal,
+        outstandingBalance: gstBreakdown.grandTotal,
+      });
+      setFeedbackMsg(`Purchase order "${editingPurchase.purchaseNo}" updated successfully.`);
+    } else {
+      createPurchase({
+        transactionDate: new Date().toISOString(),
+        supplierPartyId: supplierId,
+        sourceType,
+        yardId,
+        vehicleRegistration: vehicleReg,
+        lines: [
+          {
+            id: 'pline-' + Math.random().toString(36).substring(2, 9),
+            materialId,
+            grossWeight,
+            tareWeight,
+            netWeight,
+            deductions,
+            payableWeight,
+            ratePerUnit,
+            gstRate: 18,
+            taxableAmount: lineTaxable,
+            gstAmount: gstBreakdown.totalTax,
+            totalAmount: gstBreakdown.grandTotal,
+          },
+        ],
+        subtotalAmount: lineTaxable,
+        taxAmount: gstBreakdown.totalTax,
+        otherCharges: 0,
+        totalAmount: gstBreakdown.grandTotal,
+        amountPaid: 0,
+        outstandingBalance: gstBreakdown.grandTotal,
+        status: 'APPROVED',
+        createdBy: currentUser.fullName,
+      });
+      setFeedbackMsg('New purchase order created successfully.');
+    }
 
     setIsCreateModalOpen(false);
+    setTimeout(() => setFeedbackMsg(null), 4000);
+  };
+
+  const handleQuickAddMaterial = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMatName.trim()) return;
+    const nextSeq = materials.length + 1;
+    const created = addMaterial({
+      code: `MAT-SCRAP-${String(nextSeq).padStart(3, '0')}`,
+      name: newMatName.trim(),
+      category: newMatCategory,
+      baseUnit: 'KG',
+      hsnCode: newMatHsn.trim() || '7204',
+      defaultPurchaseRate: Number(newMatBuyRate),
+      defaultSalesRate: Number(newMatSellRate),
+      defaultGstRate: 18,
+      minStockAlert: 500,
+      isActive: true,
+    });
+    setMaterialId(created.id);
+    setRatePerUnit(created.defaultPurchaseRate);
+    setIsAddMaterialModalOpen(false);
+    setNewMatName('');
+    setFeedbackMsg(`Scrap material "${created.name}" added and selected.`);
+    setTimeout(() => setFeedbackMsg(null), 4000);
+  };
+
+  const handleDeletePurchase = (pur: PurchaseHeader) => {
+    if (confirm(`Are you sure you want to delete purchase order "${pur.purchaseNo}"?`)) {
+      const res = deletePurchase(pur.id);
+      if (res.success) {
+        setFeedbackMsg(res.message || 'Purchase order deleted.');
+      } else {
+        alert(res.message);
+      }
+      setTimeout(() => setFeedbackMsg(null), 4000);
+    }
   };
 
   const filteredPurchases = purchases.filter((p) => {
@@ -126,8 +241,8 @@ export const PurchasesView: React.FC = () => {
         </div>
 
         <button
-          onClick={() => setIsCreateModalOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all self-start sm:self-auto"
+          onClick={handleOpenCreatePurchase}
+          className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all self-start sm:self-auto cursor-pointer"
         >
           <Plus className="w-4 h-4" />
           <span>New Purchase Order</span>
@@ -215,6 +330,24 @@ export const PurchasesView: React.FC = () => {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
+                          {pur.status !== 'POSTED' && (
+                            <>
+                              <button
+                                onClick={() => handleOpenEditPurchase(pur)}
+                                className="p-1 rounded text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
+                                title="Edit Purchase Order"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeletePurchase(pur)}
+                                className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                title="Delete Purchase Order"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -309,7 +442,17 @@ export const PurchasesView: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
               <div className="md:col-span-2">
-                <label className="font-semibold text-slate-600 block mb-1">Material Scrap Type</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-semibold text-slate-600">Material Scrap Type *</label>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddMaterialModalOpen(true)}
+                    className="text-[11px] font-bold text-red-600 hover:text-red-700 flex items-center gap-0.5 hover:underline"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>+ New Material</span>
+                  </button>
+                </div>
                 <select
                   value={materialId}
                   onChange={(e) => {
@@ -318,7 +461,7 @@ export const PurchasesView: React.FC = () => {
                     const mat = materials.find((m) => m.id === mId);
                     if (mat) setRatePerUnit(mat.defaultPurchaseRate);
                   }}
-                  className="w-full p-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-red-500"
+                  className="w-full p-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-red-500 font-medium"
                 >
                   {materials.map((m) => (
                     <option key={m.id} value={m.id}>
@@ -455,16 +598,19 @@ export const PurchasesView: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {selectedPurchase.lines.map((l, i) => (
-                    <tr key={i} className="border-b border-slate-100">
-                      <td className="p-2 font-semibold">MS Boring Scrap</td>
-                      <td className="p-2 text-right font-mono">{l.grossWeight} KG</td>
-                      <td className="p-2 text-right font-mono">{l.tareWeight} KG</td>
-                      <td className="p-2 text-right font-mono font-bold">{l.payableWeight} KG</td>
-                      <td className="p-2 text-right font-mono">₹{l.ratePerUnit}</td>
-                      <td className="p-2 text-right font-bold text-red-600">{formatINR(l.totalAmount)}</td>
-                    </tr>
-                  ))}
+                  {selectedPurchase.lines.map((l, i) => {
+                    const lineMat = materials.find((m) => m.id === l.materialId);
+                    return (
+                      <tr key={i} className="border-b border-slate-100">
+                        <td className="p-2 font-semibold">{lineMat?.name || 'Scrap Material'}</td>
+                        <td className="p-2 text-right font-mono">{l.grossWeight} KG</td>
+                        <td className="p-2 text-right font-mono">{l.tareWeight} KG</td>
+                        <td className="p-2 text-right font-mono font-bold">{l.payableWeight} KG</td>
+                        <td className="p-2 text-right font-mono">₹{l.ratePerUnit}</td>
+                        <td className="p-2 text-right font-bold text-red-600">{formatINR(l.totalAmount)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -485,6 +631,101 @@ export const PurchasesView: React.FC = () => {
           </div>
         </Modal>
       )}
+
+      {/* Quick Add Material Sub-Modal */}
+      <Modal
+        isOpen={isAddMaterialModalOpen}
+        onClose={() => setIsAddMaterialModalOpen(false)}
+        title="Quick Add Scrap Material"
+        subtitle="Define new scrap grade commodity so you can immediately select it for this purchase."
+        maxWidth="lg"
+      >
+        <form onSubmit={handleQuickAddMaterial} className="space-y-4 text-xs">
+          <div>
+            <label className="font-bold text-slate-700 block mb-1">Scrap Material Name *</label>
+            <input
+              type="text"
+              value={newMatName}
+              onChange={(e) => setNewMatName(e.target.value)}
+              className="w-full p-2 border border-slate-200 rounded-lg text-xs"
+              placeholder="e.g. Copper Wire Armature Scrap"
+              autoFocus
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Category *</label>
+              <select
+                value={newMatCategory}
+                onChange={(e) => setNewMatCategory(e.target.value as ScrapCategory)}
+                className="w-full p-2 border border-slate-200 rounded-lg bg-white"
+              >
+                {['Steel', 'Iron', 'Aluminium', 'Copper', 'Brass', 'Plastic', 'Other'].map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">HSN Code *</label>
+              <input
+                type="text"
+                value={newMatHsn}
+                onChange={(e) => setNewMatHsn(e.target.value)}
+                className="w-full p-2 border border-slate-200 rounded-lg font-mono"
+                placeholder="7204"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Default Buy Rate (₹/KG) *</label>
+              <input
+                type="number"
+                value={newMatBuyRate}
+                onChange={(e) => setNewMatBuyRate(parseFloat(e.target.value) || 0)}
+                className="w-full p-2 border border-slate-200 rounded-lg font-mono"
+                step="0.25"
+                min="0"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Default Sell Rate (₹/KG) *</label>
+              <input
+                type="number"
+                value={newMatSellRate}
+                onChange={(e) => setNewMatSellRate(parseFloat(e.target.value) || 0)}
+                className="w-full p-2 border border-slate-200 rounded-lg font-mono"
+                step="0.25"
+                min="0"
+                required
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsAddMaterialModalOpen(false)}
+              className="px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-1.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-sm"
+            >
+              Save & Select Material
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

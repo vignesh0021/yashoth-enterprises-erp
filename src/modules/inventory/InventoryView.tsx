@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useERP } from '../../context/ERPContext.tsx';
 import { StatusBadge } from '../../components/common/StatusBadge.tsx';
 import { Modal } from '../../components/common/Modal.tsx';
 import { formatINR, formatWeight, roundTo2, roundTo3 } from '../../utils/calculations.ts';
+import { MaterialsMasterTab } from './MaterialsMasterTab.tsx';
 import { 
   Boxes, 
   Layers, 
@@ -24,7 +26,23 @@ export const InventoryView: React.FC = () => {
     currentUser 
   } = useERP();
 
-  const [activeTab, setActiveTab] = useState<'SUMMARY' | 'LOTS' | 'MOVEMENTS'>('SUMMARY');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTab = (searchParams.get('tab') as any) || 'SUMMARY';
+  const [activeTab, setActiveTab] = useState<'SUMMARY' | 'MATERIALS' | 'LOTS' | 'MOVEMENTS'>(
+    initialTab === 'MATERIALS' ? 'MATERIALS' : 'SUMMARY'
+  );
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'MATERIALS') {
+      setActiveTab('MATERIALS');
+    }
+  }, [searchParams]);
+
+  const handleTabChange = (tab: 'SUMMARY' | 'MATERIALS' | 'LOTS' | 'MOVEMENTS') => {
+    setActiveTab(tab);
+    setSearchParams(tab === 'MATERIALS' ? { tab: 'MATERIALS' } : {});
+  };
   const [selectedYardId, setSelectedYardId] = useState<string>('ALL');
   const [isReconcileModalOpen, setIsReconcileModalOpen] = useState(false);
 
@@ -96,10 +114,10 @@ export const InventoryView: React.FC = () => {
 
       {/* Control Bar: Tabs & Yard Filter */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-3 rounded-xl border border-slate-200">
-        <div className="flex items-center gap-2 text-xs font-semibold">
+        <div className="flex items-center gap-2 text-xs font-semibold overflow-x-auto pb-1">
           <button
-            onClick={() => setActiveTab('SUMMARY')}
-            className={`px-3 py-1.5 rounded-lg transition-all ${
+            onClick={() => handleTabChange('SUMMARY')}
+            className={`px-3 py-1.5 rounded-lg transition-all whitespace-nowrap ${
               activeTab === 'SUMMARY'
                 ? 'bg-red-600 text-white shadow-sm'
                 : 'text-slate-600 hover:bg-slate-100'
@@ -108,8 +126,22 @@ export const InventoryView: React.FC = () => {
             Material Balances
           </button>
           <button
-            onClick={() => setActiveTab('LOTS')}
-            className={`px-3 py-1.5 rounded-lg transition-all ${
+            onClick={() => handleTabChange('MATERIALS')}
+            className={`px-3 py-1.5 rounded-lg transition-all flex items-center gap-1.5 whitespace-nowrap ${
+              activeTab === 'MATERIALS'
+                ? 'bg-red-600 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>Materials Catalog & Scrap Master</span>
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-red-100 text-red-800 font-bold">
+              {materials.length}
+            </span>
+          </button>
+          <button
+            onClick={() => handleTabChange('LOTS')}
+            className={`px-3 py-1.5 rounded-lg transition-all whitespace-nowrap ${
               activeTab === 'LOTS'
                 ? 'bg-red-600 text-white shadow-sm'
                 : 'text-slate-600 hover:bg-slate-100'
@@ -118,8 +150,8 @@ export const InventoryView: React.FC = () => {
             Active FIFO Lots
           </button>
           <button
-            onClick={() => setActiveTab('MOVEMENTS')}
-            className={`px-3 py-1.5 rounded-lg transition-all ${
+            onClick={() => handleTabChange('MOVEMENTS')}
+            className={`px-3 py-1.5 rounded-lg transition-all whitespace-nowrap ${
               activeTab === 'MOVEMENTS'
                 ? 'bg-red-600 text-white shadow-sm'
                 : 'text-slate-600 hover:bg-slate-100'
@@ -129,7 +161,7 @@ export const InventoryView: React.FC = () => {
           </button>
         </div>
 
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-2 text-xs shrink-0">
           <span className="text-slate-500 font-medium">Yard:</span>
           <select
             value={selectedYardId}
@@ -147,6 +179,7 @@ export const InventoryView: React.FC = () => {
       </div>
 
       {/* Tab Content */}
+      {activeTab === 'MATERIALS' && <MaterialsMasterTab />}
       {activeTab === 'SUMMARY' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <table className="w-full text-left text-xs">
@@ -170,7 +203,11 @@ export const InventoryView: React.FC = () => {
                 const inward = roundTo3(movs.filter((m) => m.quantity > 0).reduce((s, m) => s + m.quantity, 0));
                 const outward = roundTo3(Math.abs(movs.filter((m) => m.quantity < 0).reduce((s, m) => s + m.quantity, 0)));
                 const balance = roundTo3(inward - outward);
-                const valuation = roundTo2(balance * mat.defaultPurchaseRate);
+                const matLots = inventoryLots.filter(
+                  (l) => l.materialId === mat.id && !l.isExhausted && (selectedYardId === 'ALL' || l.yardId === selectedYardId)
+                );
+                const valuation = roundTo2(matLots.reduce((sum, l) => sum + l.remainingQuantity * l.unitCost, 0));
+                const avgUnitCost = balance > 0 ? roundTo2(valuation / balance) : mat.defaultPurchaseRate;
                 const isLow = balance <= mat.minStockAlert;
 
                 return (
@@ -194,7 +231,7 @@ export const InventoryView: React.FC = () => {
                       {formatWeight(balance)}
                     </td>
                     <td className="py-3 px-4 text-right font-mono text-slate-600">
-                      {formatINR(mat.defaultPurchaseRate)}/KG
+                      {formatINR(avgUnitCost)}/KG
                     </td>
                     <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
                       {formatINR(valuation)}

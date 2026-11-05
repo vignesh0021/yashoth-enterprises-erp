@@ -164,6 +164,26 @@ export const SettingsView: React.FC = () => {
 
           <form onSubmit={handleProfileSubmit} className="space-y-4 text-xs">
             <h3 className="font-bold text-slate-900 text-sm">Official Letterhead & Invoice Details</h3>
+
+            {/* Official Logo Display */}
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center gap-4">
+              <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-xs flex items-center justify-center">
+                <img
+                  src="/yasoth-logo.png"
+                  alt="Yasoth Enterprises Logo"
+                  className="h-16 w-auto object-contain"
+                />
+              </div>
+              <div>
+                <span className="font-black text-sm text-slate-900 block">Official Logo & Corporate Brand Identity</span>
+                <span className="text-xs text-slate-600 block mt-0.5">
+                  Authoritative high-resolution red-wing emblem extracted from TEJAS Invoice Template. Featured across GST Tax Invoices, Weighbridge Slips, and Dashboard.
+                </span>
+                <span className="text-[10px] font-mono text-slate-400 mt-1 block">
+                  File: /public/yasoth-logo.png · Format: High-Res PNG
+                </span>
+              </div>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="font-bold text-slate-700 block mb-1">Company Trade Name *</label>

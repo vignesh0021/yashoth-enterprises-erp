@@ -1,17 +1,85 @@
 import React, { useState } from 'react';
 import { useERP } from '../../context/ERPContext.tsx';
-import { Invoice } from '../../types/index.ts';
+import { Invoice, InvoiceLine, Party, Material } from '../../types/index.ts';
 import { StatusBadge } from '../../components/common/StatusBadge.tsx';
 import { Modal } from '../../components/common/Modal.tsx';
 import { InvoiceRenderer } from '../../components/invoice/InvoiceRenderer.tsx';
-import { formatINR, formatWeight } from '../../utils/calculations.ts';
-import { FileText, Printer, Eye, Search, Filter, ShieldCheck } from 'lucide-react';
+import { 
+  formatINR, 
+  formatWeight, 
+  formatTon, 
+  roundTo2, 
+  roundTo3, 
+  calcGstBreakdown, 
+  numberToIndianWords, 
+  kgToTon, 
+  tonToKg 
+} from '../../utils/calculations.ts';
+import { 
+  FileText, 
+  Printer, 
+  Eye, 
+  Search, 
+  Plus, 
+  Trash2, 
+  Edit2,
+  CheckCircle, 
+  AlertCircle, 
+  ArrowRightLeft, 
+  Calculator,
+  ShieldCheck,
+  Truck
+} from 'lucide-react';
+
+interface EditableInvoiceLine {
+  id: string;
+  materialName: string;
+  hsnSac: string;
+  unit: 'KG' | 'TON';
+  quantity: number;
+  rate: number;
+  taxableValue: number;
+}
 
 export const InvoicesView: React.FC = () => {
-  const { invoices, company } = useERP();
+  const { invoices, company, parties, materials, vehicles, createTaxInvoice, updateTaxInvoice, deleteTaxInvoice } = useERP();
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Form State for creating direct Tax Invoice
+  const [selectedPartyId, setSelectedPartyId] = useState<string>('');
+  const [customCustomerName, setCustomCustomerName] = useState('TEJAS STEEL');
+  const [billingAddress, setBillingAddress] = useState('SERV.NO: 596/3B1B, SHOP.NO.7, G.N.T ROAD, ALINJIVAKKAM, CHENNAI, Tamil Nadu - 600067');
+  const [shippingAddress, setShippingAddress] = useState('SERV.NO: 596/3B1B, SHOP.NO.7, G.N.T ROAD, ALINJIVAKKAM, CHENNAI, Tamil Nadu - 600067');
+  const [customerGstin, setCustomerGstin] = useState('33ADFP06345L1ZA');
+  const [customerStateCode, setCustomerStateCode] = useState('33');
+  const [customerStateName, setCustomerStateName] = useState('Tamil Nadu');
+  const [invoiceNo, setInvoiceNo] = useState('');
+  const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split('T')[0]);
+  const [ewayBillNo, setEwayBillNo] = useState('');
+  const [vehicleReg, setVehicleReg] = useState('TN 05 Y 1936');
+  const [destination, setDestination] = useState('Alinjivakkam, Chennai');
+  const [deliveryNote, setDeliveryNote] = useState('');
+  const [isInterState, setIsInterState] = useState(false);
+
+  // Multi-line scrap materials state
+  const [lines, setLines] = useState<EditableInvoiceLine[]>([
+    {
+      id: 'line-1',
+      materialName: 'MS SCRAP',
+      hsnSac: '7204',
+      unit: 'KG',
+      quantity: 4430,
+      rate: 28.00,
+      taxableValue: 124040.00,
+    },
+  ]);
+
+  const customerParties = parties.filter((p) => p.partyType === 'CUSTOMER' || p.partyType === 'BOTH');
 
   const filteredInvoices = invoices.filter((inv) => {
     if (filterStatus !== 'ALL' && inv.paymentStatus !== filterStatus) return false;
@@ -23,17 +91,361 @@ export const InvoicesView: React.FC = () => {
     return true;
   });
 
+  const handleOpenCreateModal = () => {
+    const nextSeq = invoices.length + 1;
+    setInvoiceNo(String(nextSeq).padStart(2, '0'));
+    setInvoiceDate(new Date().toISOString().split('T')[0]);
+    setEwayBillNo(`5417 ${Math.floor(1000 + Math.random() * 9000)} ${Math.floor(1000 + Math.random() * 9000)}`);
+    setVehicleReg('TN 05 Y 1936');
+    setDestination('Alinjivakkam, Chennai');
+    setDeliveryNote('');
+    setIsInterState(false);
+
+    // Pre-fill Tejas Steel if available, or first customer
+    const tejas = parties.find((p) => p.legalName.toUpperCase().includes('TEJAS'));
+    if (tejas) {
+      setSelectedPartyId(tejas.id);
+      setCustomCustomerName(tejas.legalName);
+      setBillingAddress(`${tejas.addressLine1}, ${tejas.city}, ${tejas.stateName}`);
+      setShippingAddress(`${tejas.addressLine1}, ${tejas.city}, ${tejas.stateName}`);
+      setCustomerGstin(tejas.gstin || '33ADFP06345L1ZA');
+      setCustomerStateCode(tejas.stateCode || '33');
+      setCustomerStateName(tejas.stateName || 'Tamil Nadu');
+    } else if (customerParties.length > 0) {
+      const first = customerParties[0];
+      setSelectedPartyId(first.id);
+      setCustomCustomerName(first.legalName);
+      setBillingAddress(`${first.addressLine1}, ${first.city}, ${first.stateName}`);
+      setShippingAddress(`${first.addressLine1}, ${first.city}, ${first.stateName}`);
+      setCustomerGstin(first.gstin || '');
+      setCustomerStateCode(first.stateCode || '33');
+      setCustomerStateName(first.stateName || 'Tamil Nadu');
+    }
+
+    setLines([
+      {
+        id: 'line-' + Math.random().toString(36).substring(2, 7),
+        materialName: 'MS SCRAP',
+        hsnSac: '7204',
+        unit: 'KG',
+        quantity: 4430,
+        rate: 28.00,
+        taxableValue: 124040.00,
+      },
+    ]);
+
+    setIsCreateModalOpen(true);
+  };
+
+  const handleOpenEditModal = (inv: Invoice) => {
+    setEditingInvoice(inv);
+    setSelectedPartyId(inv.customerPartyId || '');
+    setCustomCustomerName(inv.customerName);
+    setBillingAddress(inv.billingAddress);
+    setShippingAddress(inv.shippingAddress);
+    setCustomerGstin(inv.customerGstin || '');
+    setCustomerStateCode(inv.customerStateCode || '33');
+    setCustomerStateName(inv.customerStateName || 'Tamil Nadu');
+    setInvoiceNo(inv.invoiceNo);
+    setInvoiceDate(inv.invoiceDate);
+    setEwayBillNo(inv.ewayBillNo || '');
+    setVehicleReg(inv.vehicleRegistration || 'TN 05 Y 1936');
+    setDestination(inv.destination || 'Alinjivakkam, Chennai');
+    setDeliveryNote(inv.deliveryNote || '');
+    setIsInterState(inv.igstAmount > 0);
+
+    setLines(
+      inv.lines.map((l) => ({
+        id: l.id,
+        materialName: l.descriptionOfGoods,
+        hsnSac: l.hsnSac,
+        unit: (l.unit as 'KG' | 'TON') || 'KG',
+        quantity: l.quantity,
+        rate: l.rate,
+        taxableValue: l.taxableValue,
+      }))
+    );
+
+    setIsCreateModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setIsCreateModalOpen(false);
+    setEditingInvoice(null);
+  };
+
+  const handleDeleteInvoice = (inv: Invoice) => {
+    if (window.confirm(`Are you sure you want to delete Tax Invoice #${inv.invoiceNo} for ${inv.customerName}?`)) {
+      const res = deleteTaxInvoice(inv.id);
+      if (res.success) {
+        if (selectedInvoice?.id === inv.id) {
+          setSelectedInvoice(null);
+        }
+        setFeedbackMsg({ type: 'success', text: res.message || 'Invoice deleted.' });
+        setTimeout(() => setFeedbackMsg(null), 5000);
+      } else {
+        alert(res.message);
+      }
+    }
+  };
+
+  const handleCustomerChange = (partyId: string) => {
+    setSelectedPartyId(partyId);
+    const p = parties.find((item) => item.id === partyId);
+    if (p) {
+      setCustomCustomerName(p.legalName);
+      setBillingAddress(`${p.addressLine1}, ${p.city}, ${p.stateName}`);
+      setShippingAddress(`${p.addressLine1}, ${p.city}, ${p.stateName}`);
+      setCustomerGstin(p.gstin || '');
+      setCustomerStateCode(p.stateCode || '33');
+      setCustomerStateName(p.stateName || 'Tamil Nadu');
+      setIsInterState(p.stateCode !== company.stateCode);
+    }
+  };
+
+  // Line item handlers
+  const handleAddLine = () => {
+    const newLine: EditableInvoiceLine = {
+      id: 'line-' + Math.random().toString(36).substring(2, 7),
+      materialName: materials[0]?.name || 'HEAVY MELTING SCRAP (HMS-1)',
+      hsnSac: '7204',
+      unit: 'KG',
+      quantity: 1000,
+      rate: 32.00,
+      taxableValue: 32000.00,
+    };
+    setLines([...lines, newLine]);
+  };
+
+  const handleRemoveLine = (idx: number) => {
+    if (lines.length <= 1) return;
+    setLines(lines.filter((_, i) => i !== idx));
+  };
+
+  const handleLineUpdate = (idx: number, updates: Partial<EditableInvoiceLine>) => {
+    setLines((prev) => {
+      const copy = [...prev];
+      const cur = { ...copy[idx], ...updates };
+
+      // Recalculate taxable value
+      // Rate is per unit (per KG or per TON)
+      cur.taxableValue = roundTo2(cur.quantity * cur.rate);
+      copy[idx] = cur;
+      return copy;
+    });
+  };
+
+  const handleUnitToggle = (idx: number) => {
+    setLines((prev) => {
+      const copy = [...prev];
+      const cur = copy[idx];
+      if (cur.unit === 'KG') {
+        // Convert KG to TON
+        const newQty = kgToTon(cur.quantity);
+        const newRate = roundTo2(cur.rate * 1000);
+        copy[idx] = {
+          ...cur,
+          unit: 'TON',
+          quantity: newQty,
+          rate: newRate,
+          taxableValue: roundTo2(newQty * newRate),
+        };
+      } else {
+        // Convert TON to KG
+        const newQty = tonToKg(cur.quantity);
+        const newRate = roundTo2(cur.rate / 1000);
+        copy[idx] = {
+          ...cur,
+          unit: 'KG',
+          quantity: newQty,
+          rate: newRate,
+          taxableValue: roundTo2(newQty * newRate),
+        };
+      }
+      return copy;
+    });
+  };
+
+  // Calculations
+  const taxableSum = lines.reduce((sum, l) => sum + (l.taxableValue || 0), 0);
+  const gstBreakdown = calcGstBreakdown(taxableSum, 18, isInterState);
+  const totalTax = gstBreakdown.cgstAmount + gstBreakdown.sgstAmount + gstBreakdown.igstAmount;
+
+  const handleCreateInvoiceSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customCustomerName.trim() || lines.length === 0) return;
+
+    const formattedInvoiceLines: InvoiceLine[] = lines.map((l, index) => ({
+      id: l.id.startsWith('invl-') ? l.id : ('invl-' + Math.random().toString(36).substring(2, 9)),
+      serialNo: index + 1,
+      descriptionOfGoods: l.materialName.toUpperCase(),
+      hsnSac: l.hsnSac || '7204',
+      unit: l.unit,
+      quantity: roundTo3(l.quantity),
+      rate: roundTo2(l.rate),
+      taxableValue: roundTo2(l.taxableValue),
+    }));
+
+    if (editingInvoice) {
+      updateTaxInvoice(editingInvoice.id, {
+        invoiceNo: invoiceNo.trim() || editingInvoice.invoiceNo,
+        invoiceDate: invoiceDate,
+        customerPartyId: selectedPartyId || editingInvoice.customerPartyId,
+        customerName: customCustomerName.trim().toUpperCase(),
+        billingAddress: billingAddress.trim(),
+        shippingAddress: shippingAddress.trim(),
+        customerGstin: customerGstin.trim().toUpperCase(),
+        customerStateName: customerStateName.trim(),
+        customerStateCode: customerStateCode.trim(),
+        placeOfSupply: `${customerStateName.trim()} (${customerStateCode.trim()})`,
+        ewayBillNo: ewayBillNo.trim() || undefined,
+        deliveryNote: deliveryNote.trim() || undefined,
+        vehicleRegistration: vehicleReg.trim().toUpperCase() || undefined,
+        destination: destination.trim() || undefined,
+        lines: formattedInvoiceLines,
+        subtotalTaxable: gstBreakdown.taxableAmount,
+        cgstRate: gstBreakdown.cgstRate,
+        cgstAmount: gstBreakdown.cgstAmount,
+        sgstRate: gstBreakdown.sgstRate,
+        sgstAmount: gstBreakdown.sgstAmount,
+        igstRate: gstBreakdown.igstRate,
+        igstAmount: gstBreakdown.igstAmount,
+        roundOff: gstBreakdown.roundOff,
+        grandTotal: gstBreakdown.grandTotal,
+        amountInWords: numberToIndianWords(gstBreakdown.grandTotal),
+        taxAmountInWords: numberToIndianWords(totalTax),
+        outstandingBalance: Math.max(0, gstBreakdown.grandTotal - editingInvoice.amountPaid),
+      });
+
+      const updatedInv: Invoice = {
+        ...editingInvoice,
+        invoiceNo: invoiceNo.trim() || editingInvoice.invoiceNo,
+        invoiceDate,
+        customerPartyId: selectedPartyId || editingInvoice.customerPartyId,
+        customerName: customCustomerName.trim().toUpperCase(),
+        billingAddress: billingAddress.trim(),
+        shippingAddress: shippingAddress.trim(),
+        customerGstin: customerGstin.trim().toUpperCase(),
+        customerStateName: customerStateName.trim(),
+        customerStateCode: customerStateCode.trim(),
+        placeOfSupply: `${customerStateName.trim()} (${customerStateCode.trim()})`,
+        ewayBillNo: ewayBillNo.trim() || undefined,
+        deliveryNote: deliveryNote.trim() || undefined,
+        vehicleRegistration: vehicleReg.trim().toUpperCase() || undefined,
+        destination: destination.trim() || undefined,
+        lines: formattedInvoiceLines,
+        subtotalTaxable: gstBreakdown.taxableAmount,
+        cgstRate: gstBreakdown.cgstRate,
+        cgstAmount: gstBreakdown.cgstAmount,
+        sgstRate: gstBreakdown.sgstRate,
+        sgstAmount: gstBreakdown.sgstAmount,
+        igstRate: gstBreakdown.igstRate,
+        igstAmount: gstBreakdown.igstAmount,
+        roundOff: gstBreakdown.roundOff,
+        grandTotal: gstBreakdown.grandTotal,
+        amountInWords: numberToIndianWords(gstBreakdown.grandTotal),
+        taxAmountInWords: numberToIndianWords(totalTax),
+      };
+
+      setIsCreateModalOpen(false);
+      setEditingInvoice(null);
+      setSelectedInvoice(updatedInv);
+      setFeedbackMsg({
+        type: 'success',
+        text: `Tax Invoice #${updatedInv.invoiceNo} successfully updated!`,
+      });
+      setTimeout(() => setFeedbackMsg(null), 5000);
+      return;
+    }
+
+    const newInv = createTaxInvoice({
+      invoiceNo: invoiceNo.trim() || `${company.invoicePrefix || 'YE/'}26-27/${String(invoices.length + 1).padStart(4, '0')}`,
+      invoiceDate: invoiceDate,
+      customerPartyId: selectedPartyId || 'pty-cust-manual',
+      customerName: customCustomerName.trim().toUpperCase(),
+      billingAddress: billingAddress.trim(),
+      shippingAddress: shippingAddress.trim(),
+      customerGstin: customerGstin.trim().toUpperCase(),
+      customerStateName: customerStateName.trim(),
+      customerStateCode: customerStateCode.trim(),
+      placeOfSupply: `${customerStateName.trim()} (${customerStateCode.trim()})`,
+      ewayBillNo: ewayBillNo.trim() || undefined,
+      deliveryNote: deliveryNote.trim() || undefined,
+      vehicleRegistration: vehicleReg.trim().toUpperCase() || undefined,
+      destination: destination.trim() || undefined,
+      lines: formattedInvoiceLines,
+      subtotalTaxable: gstBreakdown.taxableAmount,
+      cgstRate: gstBreakdown.cgstRate,
+      cgstAmount: gstBreakdown.cgstAmount,
+      sgstRate: gstBreakdown.sgstRate,
+      sgstAmount: gstBreakdown.sgstAmount,
+      igstRate: gstBreakdown.igstRate,
+      igstAmount: gstBreakdown.igstAmount,
+      roundOff: gstBreakdown.roundOff,
+      grandTotal: gstBreakdown.grandTotal,
+      amountInWords: numberToIndianWords(gstBreakdown.grandTotal),
+      taxAmountInWords: numberToIndianWords(totalTax),
+      paymentStatus: 'UNPAID',
+      amountPaid: 0,
+      outstandingBalance: gstBreakdown.grandTotal,
+      immutableSnapshotJson: '',
+      isCancelled: false,
+      createdBy: 'Yasoth Admin',
+    });
+
+    setIsCreateModalOpen(false);
+    setSelectedInvoice(newInv);
+    setFeedbackMsg({
+      type: 'success',
+      text: `Tax Invoice #${newInv.invoiceNo} successfully generated! Ready to Print & Dispatch.`,
+    });
+    setTimeout(() => setFeedbackMsg(null), 6000);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-xl font-black text-slate-900 tracking-tight">Invoices & Tax Bills</h1>
+          <h1 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+            <span>GST Tax Invoices & e-Way Bills</span>
+            <span className="px-2 py-0.5 text-[10px] font-bold bg-red-100 text-red-800 rounded-full">
+              Verified Format
+            </span>
+          </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Official GST Tax Invoices rendered with Yasoth Enterprises letterhead, bank details, and immutable snapshots.
+            Rendered with YASHOTH ENTERPRISES letterhead, multi-line scrap materials, Ton/KG conversion, and inbuild GST calculations.
           </p>
         </div>
+
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={handleOpenCreateModal}
+            className="flex items-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Create Tax Invoice</span>
+          </button>
+        </div>
       </div>
+
+      {/* Feedback banner */}
+      {feedbackMsg && (
+        <div
+          className={`p-3.5 rounded-xl border flex items-center gap-2 text-xs font-semibold ${
+            feedbackMsg.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-rose-50 border-rose-200 text-rose-800'
+          }`}
+        >
+          {feedbackMsg.type === 'success' ? (
+            <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+          ) : (
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+          )}
+          <span>{feedbackMsg.text}</span>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-3 rounded-xl border border-slate-200">
@@ -53,11 +465,11 @@ export const InvoicesView: React.FC = () => {
           ))}
         </div>
 
-        <div className="relative w-full sm:w-64">
+        <div className="relative w-full sm:w-72">
           <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
           <input
             type="text"
-            placeholder="Search invoice # or buyer..."
+            placeholder="Search invoice #, customer, e-way..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none"
@@ -73,12 +485,11 @@ export const InvoicesView: React.FC = () => {
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
                 <th className="py-3 px-4">Invoice No</th>
                 <th className="py-3 px-4">Dated</th>
-                <th className="py-3 px-4">Customer (Bill to)</th>
-                <th className="py-3 px-4">e-Way Bill #</th>
+                <th className="py-3 px-4">Buyer (Bill to)</th>
+                <th className="py-3 px-4">Vehicle & e-Way Bill</th>
                 <th className="py-3 px-4 text-right">Taxable Value</th>
-                <th className="py-3 px-4 text-right">CGST + SGST (18%)</th>
+                <th className="py-3 px-4 text-right">GST (18%)</th>
                 <th className="py-3 px-4 text-right">Grand Total</th>
-                <th className="py-3 px-4 text-right">Outstanding</th>
                 <th className="py-3 px-4 text-center">Status</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
@@ -86,36 +497,78 @@ export const InvoicesView: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {filteredInvoices.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400 italic">
-                    No issued invoices found. Dispatch sales orders to generate official invoices.
+                  <td colSpan={9} className="py-12 text-center text-slate-400 italic">
+                    No issued invoices found. Click "+ Create Tax Invoice" to create a new multi-line invoice.
                   </td>
                 </tr>
               ) : (
                 filteredInvoices.map((inv) => (
                   <tr key={inv.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="py-3 px-4 font-mono font-bold text-slate-900">{inv.invoiceNo}</td>
+                    <td className="py-3 px-4">
+                      <span className="font-mono font-bold text-slate-900 block text-xs">{inv.invoiceNo}</span>
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        {inv.lines.length} {inv.lines.length === 1 ? 'item' : 'items'}
+                      </span>
+                    </td>
                     <td className="py-3 px-4 text-slate-600">{inv.invoiceDate}</td>
-                    <td className="py-3 px-4 font-semibold text-slate-800">{inv.customerName}</td>
-                    <td className="py-3 px-4 font-mono text-slate-500">{inv.ewayBillNo || '—'}</td>
+                    <td className="py-3 px-4">
+                      <span className="font-bold text-slate-900 block">{inv.customerName}</span>
+                      <span className="text-[10px] text-slate-500 font-mono">{inv.customerGstin || 'Unregistered'}</span>
+                    </td>
+                    <td className="py-3 px-4">
+                      <div className="flex flex-col text-[10px]">
+                        <span className="font-semibold text-slate-800">{inv.vehicleRegistration || 'TN 05 Y 1936'}</span>
+                        <span className="font-mono text-slate-500">{inv.ewayBillNo || '—'}</span>
+                      </div>
+                    </td>
                     <td className="py-3 px-4 text-right font-mono text-slate-700">{formatINR(inv.subtotalTaxable)}</td>
                     <td className="py-3 px-4 text-right font-mono text-slate-600">
                       {formatINR(inv.cgstAmount + inv.sgstAmount + inv.igstAmount)}
                     </td>
-                    <td className="py-3 px-4 text-right font-mono font-black text-red-600">{formatINR(inv.grandTotal)}</td>
-                    <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
-                      {formatINR(inv.outstandingBalance)}
+                    <td className="py-3 px-4 text-right font-mono font-black text-slate-900 text-xs">
+                      {formatINR(inv.grandTotal)}
                     </td>
                     <td className="py-3 px-4 text-center">
                       <StatusBadge status={inv.paymentStatus} />
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={() => setSelectedInvoice(inv)}
-                        className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded text-[10px] font-bold transition-colors inline-flex items-center gap-1"
-                      >
-                        <Eye className="w-3 h-3 text-red-600" />
-                        <span>View / Print A4</span>
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          onClick={() => setSelectedInvoice(inv)}
+                          className="px-2 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[10px] font-bold transition-all inline-flex items-center gap-1 shadow-xs"
+                          title="View Tax Invoice & e-Way Bill"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-red-400" />
+                          <span>View A4</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedInvoice(inv);
+                            setTimeout(() => {
+                              window.print();
+                            }, 300);
+                          }}
+                          className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold transition-all inline-flex items-center gap-1 shadow-xs"
+                          title="Instant 1-Click Print"
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          <span>Print</span>
+                        </button>
+                        <button
+                          onClick={() => handleOpenEditModal(inv)}
+                          className="p-1 hover:bg-amber-50 text-amber-600 rounded transition-colors"
+                          title="Edit Tax Invoice"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteInvoice(inv)}
+                          className="p-1 hover:bg-rose-50 text-rose-600 rounded transition-colors"
+                          title="Delete Tax Invoice"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -125,13 +578,441 @@ export const InvoicesView: React.FC = () => {
         </div>
       </div>
 
-      {/* Invoice Renderer Modal */}
+      {/* CREATE / EDIT TAX INVOICE MODAL */}
+      <Modal
+        isOpen={isCreateModalOpen}
+        onClose={handleCloseModal}
+        title={editingInvoice ? `Edit Tax Invoice — #${editingInvoice.invoiceNo}` : "Create GST Tax Invoice"}
+        subtitle={editingInvoice ? "Update multi-line scrap materials, rates, vehicle registration, and GST breakdown." : "Add multi-line scrap materials row-by-row with automatic Ton <-> KG conversions and inbuild GST calculations matching INVOICE_03.pdf."}
+        maxWidth="6xl"
+      >
+        <form onSubmit={handleCreateInvoiceSubmit} className="space-y-5 text-xs">
+          {/* Header & Customer Selection */}
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+              <span className="font-bold text-slate-800 uppercase tracking-wider text-[11px]">
+                1. Buyer & Invoice Details
+              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-500 font-semibold">Tax Type:</span>
+                <label className="flex items-center gap-1.5 text-xs font-semibold cursor-pointer">
+                  <input
+                    type="radio"
+                    name="taxType"
+                    checked={!isInterState}
+                    onChange={() => setIsInterState(false)}
+                  />
+                  <span>Intra-State (CGST 9% + SGST 9%)</span>
+                </label>
+                <label className="flex items-center gap-1.5 text-xs font-semibold cursor-pointer ml-2">
+                  <input
+                    type="radio"
+                    name="taxType"
+                    checked={isInterState}
+                    onChange={() => setIsInterState(true)}
+                  />
+                  <span>Inter-State (IGST 18%)</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Select Customer / Buyer</label>
+                <select
+                  value={selectedPartyId}
+                  onChange={(e) => handleCustomerChange(e.target.value)}
+                  className="w-full p-2 border border-slate-300 rounded-lg bg-white font-semibold text-slate-900"
+                >
+                  <option value="">— Or Enter Custom Buyer Below —</option>
+                  {customerParties.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.legalName} ({p.city})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Buyer Legal Name *</label>
+                <input
+                  type="text"
+                  value={customCustomerName}
+                  onChange={(e) => setCustomCustomerName(e.target.value)}
+                  className="w-full p-2 border border-slate-300 rounded-lg uppercase font-semibold"
+                  placeholder="e.g. TEJAS STEEL"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Buyer GSTIN / UIN</label>
+                <input
+                  type="text"
+                  value={customerGstin}
+                  onChange={(e) => setCustomerGstin(e.target.value.toUpperCase())}
+                  className="w-full p-2 border border-slate-300 rounded-lg font-mono uppercase"
+                  placeholder="33ADFP06345L1ZA"
+                />
+              </div>
+
+              <div className="col-span-2">
+                <label className="font-bold text-slate-700 block mb-1">Billing & Shipping Address</label>
+                <input
+                  type="text"
+                  value={billingAddress}
+                  onChange={(e) => {
+                    setBillingAddress(e.target.value);
+                    setShippingAddress(e.target.value);
+                  }}
+                  className="w-full p-2 border border-slate-300 rounded-lg"
+                  placeholder="Street, Area, City, State - Pincode"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">State Code</label>
+                  <input
+                    type="text"
+                    value={customerStateCode}
+                    onChange={(e) => setCustomerStateCode(e.target.value)}
+                    className="w-full p-2 border border-slate-300 rounded-lg font-mono text-center"
+                    placeholder="33"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">State Name</label>
+                  <input
+                    type="text"
+                    value={customerStateName}
+                    onChange={(e) => setCustomerStateName(e.target.value)}
+                    className="w-full p-2 border border-slate-300 rounded-lg"
+                    placeholder="Tamil Nadu"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Logistics & Invoice Meta */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-slate-200">
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Invoice No. *</label>
+                <input
+                  type="text"
+                  value={invoiceNo}
+                  onChange={(e) => setInvoiceNo(e.target.value)}
+                  className="w-full p-2 border border-slate-300 rounded-lg font-mono font-bold"
+                  placeholder="03"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Invoice Date</label>
+                <input
+                  type="date"
+                  value={invoiceDate}
+                  onChange={(e) => setInvoiceDate(e.target.value)}
+                  className="w-full p-2 border border-slate-300 rounded-lg"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">e-Way Bill No.</label>
+                <input
+                  type="text"
+                  value={ewayBillNo}
+                  onChange={(e) => setEwayBillNo(e.target.value)}
+                  className="w-full p-2 border border-slate-300 rounded-lg font-mono"
+                  placeholder="5417 9765 5717"
+                />
+              </div>
+
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Vehicle Registration</label>
+                <input
+                  type="text"
+                  value={vehicleReg}
+                  onChange={(e) => setVehicleReg(e.target.value.toUpperCase())}
+                  className="w-full p-2 border border-slate-300 rounded-lg font-mono uppercase font-bold"
+                  placeholder="TN 05 Y 1936"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* 2. Multi-Line Scrap Materials Entry Grid ("next to next column / row-by-row") */}
+          <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+            <div className="bg-slate-900 text-white p-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Calculator className="w-4 h-4 text-red-400" />
+                <span className="font-bold text-xs uppercase tracking-wider">
+                  2. Scrap Materials Line Items (Multi-Material Row-by-Row)
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleAddLine}
+                className="flex items-center gap-1.5 px-3 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold transition-all shadow-xs"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Add Material Row</span>
+              </button>
+            </div>
+
+            <div className="overflow-x-auto bg-white">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-100 border-b border-slate-200 text-slate-600 font-bold uppercase text-[10px]">
+                    <th className="py-2.5 px-2 w-10 text-center">#</th>
+                    <th className="py-2.5 px-3 min-w-[200px]">Description of Scrap Goods</th>
+                    <th className="py-2.5 px-2 w-20 text-center">HSN/SAC</th>
+                    <th className="py-2.5 px-3 w-32 text-center">Unit Mode</th>
+                    <th className="py-2.5 px-3 w-32 text-right">Quantity / Weight</th>
+                    <th className="py-2.5 px-3 w-28 text-right">Rate (₹)</th>
+                    <th className="py-2.5 px-2 w-16 text-center">Per</th>
+                    <th className="py-2.5 px-3 w-32 text-right">Line Taxable (₹)</th>
+                    <th className="py-2.5 px-2 w-10 text-center"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {lines.map((line, idx) => (
+                    <tr key={line.id} className="hover:bg-slate-50/80">
+                      <td className="py-2 px-2 text-center font-bold text-slate-400">
+                        {idx + 1}
+                      </td>
+
+                      {/* Material selector or text */}
+                      <td className="py-2 px-3">
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="text"
+                            value={line.materialName}
+                            onChange={(e) => handleLineUpdate(idx, { materialName: e.target.value })}
+                            className="w-full p-1.5 border border-slate-300 rounded font-bold uppercase text-slate-900"
+                            placeholder="e.g. MS SCRAP"
+                            required
+                          />
+                          <select
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                const m = materials.find((mat) => mat.id === e.target.value);
+                                if (m) {
+                                  handleLineUpdate(idx, {
+                                    materialName: m.name,
+                                    hsnSac: m.hsnCode || '7204',
+                                    rate: line.unit === 'TON' ? m.defaultSalesRate * 1000 : m.defaultSalesRate,
+                                  });
+                                }
+                              }
+                            }}
+                            className="p-1.5 border border-slate-300 rounded bg-slate-50 text-[10px]"
+                            title="Pick from registered materials"
+                          >
+                            <option value="">Quick Pick</option>
+                            {materials.map((m) => (
+                              <option key={m.id} value={m.id}>
+                                {m.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </td>
+
+                      {/* HSN */}
+                      <td className="py-2 px-2">
+                        <input
+                          type="text"
+                          value={line.hsnSac}
+                          onChange={(e) => handleLineUpdate(idx, { hsnSac: e.target.value })}
+                          className="w-full p-1.5 border border-slate-300 rounded text-center font-mono"
+                          placeholder="7204"
+                        />
+                      </td>
+
+                      {/* Unit Mode Toggle (KG <-> TON) */}
+                      <td className="py-2 px-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleUnitToggle(idx)}
+                          className={`flex items-center justify-center gap-1 px-2.5 py-1 rounded text-[11px] font-bold w-full transition-all border ${
+                            line.unit === 'TON'
+                              ? 'bg-amber-100 border-amber-300 text-amber-900'
+                              : 'bg-blue-100 border-blue-300 text-blue-900'
+                          }`}
+                          title="Click to toggle between Metric Ton and Kilogram calculation"
+                        >
+                          <ArrowRightLeft className="w-3 h-3" />
+                          <span>{line.unit === 'TON' ? 'TON / MT' : 'KILOGRAM (KG)'}</span>
+                        </button>
+                      </td>
+
+                      {/* Quantity */}
+                      <td className="py-2 px-3">
+                        <input
+                          type="number"
+                          step={line.unit === 'TON' ? '0.001' : '1'}
+                          value={line.quantity}
+                          onChange={(e) => handleLineUpdate(idx, { quantity: parseFloat(e.target.value) || 0 })}
+                          className="w-full p-1.5 border border-slate-300 rounded font-mono font-bold text-right text-slate-900"
+                          min="0"
+                          required
+                        />
+                        <span className="block text-[9px] text-slate-400 text-right mt-0.5">
+                          {line.unit === 'KG'
+                            ? `(= ${kgToTon(line.quantity)} MT)`
+                            : `(= ${tonToKg(line.quantity).toLocaleString('en-IN')} KG)`}
+                        </span>
+                      </td>
+
+                      {/* Rate */}
+                      <td className="py-2 px-3">
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={line.rate}
+                          onChange={(e) => handleLineUpdate(idx, { rate: parseFloat(e.target.value) || 0 })}
+                          className="w-full p-1.5 border border-slate-300 rounded font-mono font-bold text-right text-slate-900"
+                          min="0"
+                          required
+                        />
+                        <span className="block text-[9px] text-slate-400 text-right mt-0.5">
+                          {line.unit === 'KG'
+                            ? `(₹${(line.rate * 1000).toLocaleString('en-IN')}/Ton)`
+                            : `(₹${(line.rate / 1000).toFixed(2)}/KG)`}
+                        </span>
+                      </td>
+
+                      {/* Per */}
+                      <td className="py-2 px-2 text-center font-bold text-slate-600">
+                        {line.unit}
+                      </td>
+
+                      {/* Taxable Value */}
+                      <td className="py-2 px-3 text-right font-mono font-bold text-slate-900 text-sm">
+                        ₹ {line.taxableValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+
+                      {/* Delete Action */}
+                      <td className="py-2 px-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveLine(idx)}
+                          disabled={lines.length <= 1}
+                          className="p-1 text-slate-400 hover:text-rose-600 disabled:opacity-30 transition-colors"
+                          title="Remove row"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* 3. Inbuild GST & Totals Summary Panel */}
+          <div className="bg-slate-50 border border-slate-300 rounded-xl p-4 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <span className="font-bold text-slate-800 uppercase tracking-wider block text-[11px]">
+                3. Amount in Words (Live Generation)
+              </span>
+              <div className="p-3 bg-white border border-slate-200 rounded-lg space-y-2">
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase block font-semibold">Total Amount in Words:</span>
+                  <p className="font-extrabold text-slate-900 text-xs">
+                    {numberToIndianWords(gstBreakdown.grandTotal)}
+                  </p>
+                </div>
+                <div className="pt-2 border-t border-slate-100">
+                  <span className="text-[10px] text-slate-500 uppercase block font-semibold">Tax Amount in Words:</span>
+                  <p className="font-bold text-slate-700 text-xs">
+                    {numberToIndianWords(totalTax)}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 border border-slate-200 rounded-lg space-y-2 text-xs">
+              <div className="flex justify-between font-medium text-slate-600">
+                <span>Taxable Value (Subtotal):</span>
+                <span className="font-mono font-bold text-slate-900">
+                  ₹ {taxableSum.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+
+              {!isInterState ? (
+                <>
+                  <div className="flex justify-between text-slate-600">
+                    <span>Central Tax (CGST 9%):</span>
+                    <span className="font-mono font-semibold">
+                      ₹ {gstBreakdown.cgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-slate-600">
+                    <span>State Tax (SGST 9%):</span>
+                    <span className="font-mono font-semibold">
+                      ₹ {gstBreakdown.sgstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <div className="flex justify-between text-slate-600">
+                  <span>Integrated Tax (IGST 18%):</span>
+                  <span className="font-mono font-semibold">
+                    ₹ {gstBreakdown.igstAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              )}
+
+              {gstBreakdown.roundOff !== 0 && (
+                <div className="flex justify-between text-slate-600">
+                  <span>Round Off:</span>
+                  <span className="font-mono">
+                    {gstBreakdown.roundOff < 0 ? `(-)${Math.abs(gstBreakdown.roundOff).toFixed(2)}` : gstBreakdown.roundOff.toFixed(2)}
+                  </span>
+                </div>
+              )}
+
+              <div className="flex justify-between pt-2 border-t-2 border-slate-900 font-black text-sm text-slate-900">
+                <span className="uppercase tracking-wider">Grand Total:</span>
+                <span className="font-mono text-base text-red-600">
+                  ₹ {gstBreakdown.grandTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Modal Actions */}
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={handleCloseModal}
+              className="px-4 py-2 border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100 font-semibold"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="flex items-center gap-2 px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold shadow-md shadow-red-600/30 transition-all cursor-pointer"
+            >
+              <Printer className="w-4 h-4" />
+              <span>{editingInvoice ? 'Save & Update Tax Invoice' : 'Generate & View Tax Invoice'}</span>
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Invoice Renderer Modal (Full A4 Print & e-Way Bill Viewer) */}
       {selectedInvoice && (
         <Modal
           isOpen={!!selectedInvoice}
           onClose={() => setSelectedInvoice(null)}
-          title={`Tax Invoice — ${selectedInvoice.invoiceNo}`}
-          subtitle="Print-friendly A4 Document"
+          title={`Tax Invoice #${selectedInvoice.invoiceNo} — ${selectedInvoice.customerName}`}
+          subtitle="A4 Official Tax Invoice and e-Way Bill Document with 1-Click Print & PDF export."
           maxWidth="6xl"
         >
           <InvoiceRenderer

@@ -266,6 +266,7 @@ export interface SalesHeader {
   totalAmount: number;
   allocatedCogs: number;
   invoiceId?: string;
+  notes?: string;
   dispatchedAt?: string;
   createdBy: string;
   createdAt: string;
@@ -297,6 +298,7 @@ export interface Invoice {
   customerStateName: string;
   customerStateCode: string;
   placeOfSupply: string;
+  destination?: string;
   ewayBillNo?: string;
   deliveryNote?: string;
   vehicleRegistration?: string;
@@ -441,7 +443,7 @@ export interface Employee {
   isActive: boolean;
 }
 
-export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'HALF_DAY' | 'LEAVE' | 'OVERTIME';
+export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'HALF_DAY' | 'LEAVE' | 'OVERTIME' | 'DOUBLE_SHIFT';
 
 export interface AttendanceEntry {
   id: string;

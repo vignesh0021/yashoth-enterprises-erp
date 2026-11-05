@@ -17,6 +17,7 @@ import {
   FileText 
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { calculateReconciledAccountBalance } from '../../../backend/business-rules/financeEngine.ts';
 
 export const DashboardView: React.FC = () => {
   const { 
@@ -62,10 +63,7 @@ export const DashboardView: React.FC = () => {
 
   // 4. Cash + Bank Reconciled Balances
   const totalReconciledFunds = accounts.reduce((sum, acc) => {
-    const txs = accountTransactions.filter((t) => t.accountId === acc.id);
-    const debits = txs.filter((t) => t.direction === 'DEBIT').reduce((s, t) => s + t.amount, 0);
-    const credits = txs.filter((t) => t.direction === 'CREDIT').reduce((s, t) => s + t.amount, 0);
-    return sum + (acc.openingBalance + debits - credits);
+    return sum + calculateReconciledAccountBalance(acc, accountTransactions);
   }, 0);
 
   // 5. Customer Receivables & Supplier Payables
@@ -91,35 +89,44 @@ export const DashboardView: React.FC = () => {
     .reduce((sum, s) => sum + s.allocatedCogs, 0);
   const estimatedGrossMargin = totalDispatchedSales - totalAllocatedCogs;
 
-  // 8. Operational Alerts
+  // 8. Operational Alerts (include expiring soon AND expired documents)
   const expiringDocs = vehicleDocuments.filter((d) => {
     const diffDays = Math.ceil((new Date(d.expiryDate).getTime() - new Date(todayStr).getTime()) / (1000 * 3600 * 24));
-    return diffDays >= 0 && diffDays <= d.reminderDaysBefore;
+    return diffDays <= d.reminderDaysBefore;
   });
 
   const pendingApprovals = purchases.filter((p) => p.status === 'SUBMITTED' || p.status === 'VERIFIED');
 
   return (
     <div className="space-y-6">
-      {/* Top Banner / Welcome */}
+      {/* Top Banner / Welcome with Company Logo */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white p-6 rounded-2xl shadow-lg border border-slate-700">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-600 text-white uppercase tracking-wider">
-              Authoritative Yard Operations
-            </span>
-            <span className="text-xs text-slate-400">
-              {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-            </span>
+        <div className="flex items-center gap-4">
+          <div className="bg-white p-2 rounded-xl shadow-md shrink-0 flex items-center justify-center">
+            <img
+              src="/yasoth-logo.png"
+              alt="Yasoth Logo"
+              className="h-12 w-auto object-contain"
+            />
           </div>
-          <h1 className="text-2xl font-black tracking-tight">{company.companyName} Dashboard</h1>
-          <p className="text-xs text-slate-300 mt-1">
-            Real-time scrap movements, weighment ledger, and reconciled financial controls.
-          </p>
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-600 text-white uppercase tracking-wider">
+                Authoritative Yard Operations
+              </span>
+              <span className="text-xs text-slate-400">
+                {new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+              </span>
+            </div>
+            <h1 className="text-2xl font-black tracking-tight">{company.companyName}</h1>
+            <p className="text-xs text-slate-300 mt-0.5">
+              GSTIN: <span className="font-mono text-red-300 font-semibold">{company.gstin}</span> · {company.city}, Tamil Nadu · Real-time Scrap Ledger & Dispatch ERP
+            </p>
+          </div>
         </div>
 
         <div className="mt-4 md:mt-0 flex items-center gap-3">
-          <div className="bg-slate-800/80 px-4 py-2 rounded-xl border border-slate-700 text-right">
+          <div className="bg-slate-800/80 px-4 py-2.5 rounded-xl border border-slate-700 text-right">
             <span className="text-[10px] text-slate-400 uppercase font-semibold block">Total Reconciled Funds</span>
             <span className="text-lg font-bold text-emerald-400">{formatINR(totalReconciledFunds)}</span>
           </div>
@@ -174,20 +181,37 @@ export const DashboardView: React.FC = () => {
             {expiringDocs.length === 0 ? (
               <p className="text-slate-500 italic py-2">All vehicle insurance and fitness records up to date.</p>
             ) : (
-              expiringDocs.map((doc) => (
-                <div key={doc.id} className="flex items-center justify-between p-2 rounded-lg bg-amber-50 border border-amber-100">
-                  <div>
-                    <span className="font-semibold text-amber-900 block">{doc.documentType} Renewal</span>
-                    <span className="text-[10px] text-amber-700">Due: {doc.expiryDate}</span>
+              expiringDocs.map((doc) => {
+                const diffDays = Math.ceil((new Date(doc.expiryDate).getTime() - new Date(todayStr).getTime()) / (1000 * 3600 * 24));
+                const isExpired = diffDays < 0;
+                return (
+                  <div key={doc.id} className={`flex items-center justify-between p-2 rounded-lg border ${
+                    isExpired ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-100'
+                  }`}>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`font-semibold block ${isExpired ? 'text-rose-900' : 'text-amber-900'}`}>
+                          {doc.documentType} Renewal
+                        </span>
+                        {isExpired && (
+                          <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-600 text-white">
+                            EXPIRED
+                          </span>
+                        )}
+                      </div>
+                      <span className={`text-[10px] ${isExpired ? 'text-rose-700 font-semibold' : 'text-amber-700'}`}>
+                        {isExpired ? `Expired ${Math.abs(diffDays)}d ago (${doc.expiryDate})` : `Due: ${doc.expiryDate} (${diffDays}d left)`}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => navigate('/vehicles')}
+                      className={`text-[10px] font-bold underline ${isExpired ? 'text-rose-800 hover:text-rose-900' : 'text-amber-800 hover:text-amber-900'}`}
+                    >
+                      View
+                    </button>
                   </div>
-                  <button
-                    onClick={() => navigate('/vehicles')}
-                    className="text-[10px] font-bold text-amber-800 underline hover:text-amber-900"
-                  >
-                    View
-                  </button>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
@@ -288,7 +312,13 @@ export const DashboardView: React.FC = () => {
                     .reduce((sum, m) => sum + m.quantity, 0)
                 );
                 const isLow = stockQty <= mat.minStockAlert;
-                const valuation = roundTo2(stockQty * mat.defaultPurchaseRate);
+                const matLots = inventoryLots.filter(
+                  (l) => l.materialId === mat.id && !l.isExhausted
+                );
+                const valuation = roundTo2(
+                  matLots.reduce((sum, l) => sum + l.remainingQuantity * l.unitCost, 0)
+                );
+                const avgUnitCost = stockQty > 0 ? roundTo2(valuation / stockQty) : mat.defaultPurchaseRate;
 
                 return (
                   <tr key={mat.id} className="hover:bg-slate-50/60 transition-colors">
@@ -302,10 +332,10 @@ export const DashboardView: React.FC = () => {
                     <td className="py-2.5 px-3 text-right font-bold text-slate-800">
                       {formatWeight(stockQty)}
                     </td>
-                    <td className="py-2.5 px-3 text-right text-slate-600">
-                      {formatINR(mat.defaultPurchaseRate)}/KG
+                    <td className="py-2.5 px-3 text-right text-slate-600 font-mono">
+                      {formatINR(avgUnitCost)}/KG
                     </td>
-                    <td className="py-2.5 px-3 text-right font-bold text-slate-900">
+                    <td className="py-2.5 px-3 text-right font-bold text-slate-900 font-mono">
                       {formatINR(valuation)}
                     </td>
                     <td className="py-2.5 px-3 text-center">

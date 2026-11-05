@@ -119,16 +119,19 @@ function convertThreeDigits(n: number): string {
 }
 
 /**
- * Converts numbers to Indian numbering format words (Lakhs, Crores).
+ * Converts numbers to Indian numbering format words (Lakhs, Crores) with Paise support.
  * Example: 273288 -> "INR Two Lakh Seventy Three Thousand Two Hundred Eighty Eight Only"
+ * Example: 22327.20 -> "INR Twenty Two Thousand Three Hundred Twenty Seven and Twenty Paise Only"
  */
 export function numberToIndianWords(amount: number): string {
   if (amount === 0) return 'INR Zero Only';
   if (amount < 0) return 'Minus ' + numberToIndianWords(Math.abs(amount));
 
-  const total = Math.round(amount);
-  const crore = Math.floor(total / 10000000);
-  let rem = total % 10000000;
+  const rupees = Math.floor(amount);
+  const paise = Math.round((amount - rupees) * 100);
+
+  const crore = Math.floor(rupees / 10000000);
+  let rem = rupees % 10000000;
   const lakh = Math.floor(rem / 100000);
   rem = rem % 100000;
   const thousand = Math.floor(rem / 1000);
@@ -149,7 +152,13 @@ export function numberToIndianWords(amount: number): string {
     parts.push(convertThreeDigits(rem));
   }
 
-  return `INR ${parts.join(' ')} Only`.replace(/\s+/g, ' ');
+  const rupeeStr = parts.length > 0 ? parts.join(' ') : 'Zero';
+
+  if (paise > 0) {
+    return `INR ${rupeeStr} and ${convertTwoDigits(paise)} Paise Only`.replace(/\s+/g, ' ');
+  }
+
+  return `INR ${rupeeStr} Only`.replace(/\s+/g, ' ');
 }
 
 export function formatINR(val: number): string {
@@ -166,4 +175,31 @@ export function formatWeight(kg: number): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 3,
   }).format(kg) + ' KG';
+}
+
+export function formatTon(ton: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 3,
+  }).format(ton) + ' MT';
+}
+
+export function kgToTon(kg: number): number {
+  return roundTo3(kg / 1000);
+}
+
+export function tonToKg(ton: number): number {
+  return roundTo3(ton * 1000);
+}
+
+export function convertWeight(qty: number, from: 'KG' | 'TON', to: 'KG' | 'TON'): number {
+  if (from === to) return qty;
+  if (from === 'KG' && to === 'TON') return kgToTon(qty);
+  return tonToKg(qty);
+}
+
+export function convertRate(rate: number, from: 'KG' | 'TON', to: 'KG' | 'TON'): number {
+  if (from === to) return rate;
+  if (from === 'KG' && to === 'TON') return roundTo2(rate * 1000);
+  return roundTo2(rate / 1000);
 }

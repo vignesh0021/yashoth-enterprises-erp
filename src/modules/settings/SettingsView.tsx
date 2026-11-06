@@ -13,6 +13,7 @@ import {
   FileSpreadsheet, 
   Database 
 } from 'lucide-react';
+import { BackupManagerView } from './BackupManagerView.tsx';
 
 export const SettingsView: React.FC = () => {
   const { 
@@ -104,16 +105,6 @@ export const SettingsView: React.FC = () => {
       const report = importOpeningStock(rows, false);
       setMigrationReport(report);
     }
-  };
-
-  const handleDownloadBackup = () => {
-    const jsonStr = exportBackup();
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `Yasoth_ERP_Backup_${new Date().toISOString().split('T')[0]}.json`;
-    link.click();
   };
 
   return (
@@ -421,32 +412,13 @@ export const SettingsView: React.FC = () => {
 
       {/* Backup & Restore Tab */}
       {activeTab === 'BACKUP' && (
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm max-w-2xl space-y-5 text-xs">
-          <div>
-            <h3 className="font-bold text-slate-900 text-sm">System Backup & Recovery</h3>
-            <p className="text-slate-500 mt-1">
-              Download complete database snapshots including all posted transactions, weighment slips, invoices, and audit logs.
-            </p>
-          </div>
-
-          <div className="p-4 border border-slate-200 rounded-xl bg-slate-50 flex items-center justify-between">
+        <div className="space-y-6">
+          <BackupManagerView />
+          
+          <div className="p-4 border border-rose-200 rounded-xl bg-rose-50/50 flex items-center justify-between max-w-2xl text-xs">
             <div>
-              <span className="font-bold text-slate-800 block">Export Full JSON Snapshot</span>
-              <span className="text-[11px] text-slate-500">Download complete ERP state for safe cold storage.</span>
-            </div>
-            <button
-              onClick={handleDownloadBackup}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg font-bold shadow-sm"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Download Backup</span>
-            </button>
-          </div>
-
-          <div className="p-4 border border-rose-200 rounded-xl bg-rose-50/50 flex items-center justify-between">
-            <div>
-              <span className="font-bold text-rose-900 block">Reset to Factory Fixtures</span>
-              <span className="text-[11px] text-rose-700">Restore default demo dataset and clear local changes.</span>
+              <span className="font-bold text-rose-900 block">Reset System to Verified Baseline Fixtures</span>
+              <span className="text-[11px] text-rose-700">Restore default demo dataset and clean local working cache.</span>
             </div>
             <button
               onClick={() => {

@@ -24,7 +24,10 @@ import type {
   CollectionJob, 
   AttendanceEntry,
   CommercialDocument,
-  JournalEntry
+  JournalEntry,
+  BackupHistoryItem,
+  RestoreLog,
+  BackupScheduleConfig
 } from '../types/index.ts';
 
 export const INITIAL_COMPANY_SETTINGS: Company = {
@@ -820,4 +823,73 @@ export const INITIAL_JOURNAL_ENTRIES: JournalEntry[] = [
     createdAt: '2026-10-15T12:45:00.000Z'
   }
 ];
+
+export const INITIAL_BACKUP_HISTORY: BackupHistoryItem[] = [
+  {
+    id: 'bak-baseline-01',
+    companyId: 'comp-yasoth-01',
+    backupName: 'YE_FULL_BACKUP_BASELINE_2026-10-01.json',
+    backupType: 'FULL_DATABASE',
+    destination: 'LOCAL_FILE',
+    fileSizeBytes: 24580,
+    sha256Checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+    isEncrypted: false,
+    schemaVersion: '1.0.0',
+    totalRecords: 48,
+    recordCountsJson: {
+      companies: 2,
+      parties: 5,
+      materials: 4,
+      invoices: 2,
+      purchases: 2,
+      payments: 3,
+      accounts: 2,
+      journalEntries: 2
+    },
+    financialTotalsJson: {
+      totalSales: 174000.00,
+      totalPurchases: 95000.00,
+      totalPayments: 65000.00,
+      totalExpenses: 2800.00
+    },
+    status: 'VERIFIED',
+    createdBy: 'System Architect',
+    createdAt: '2026-10-01T00:00:00.000Z'
+  }
+];
+
+export const INITIAL_RESTORE_LOGS: RestoreLog[] = [
+  {
+    id: 'rst-init-01',
+    backupId: 'bak-baseline-01',
+    preRestoreBackupId: 'bak-pre-00',
+    companyId: 'comp-yasoth-01',
+    restoredBy: 'System Architect',
+    restorationType: 'FULL_RESTORE',
+    recordsRestoredJson: {
+      parties: 5,
+      invoices: 2,
+      purchases: 2
+    },
+    sha256Verified: true,
+    status: 'COMPLETED',
+    notes: 'Initial production baseline restoration verification test.',
+    restoredAt: '2026-10-01T00:05:00.000Z'
+  }
+];
+
+export const INITIAL_BACKUP_SCHEDULE: BackupScheduleConfig = {
+  id: 'sched-yasoth-01',
+  companyId: 'comp-yasoth-01',
+  frequency: 'DAILY',
+  isEnabled: true,
+  destination: 'LOCAL_FILE',
+  encryptByDefault: false,
+  retentionCount: 10,
+  lastRunAt: '2026-10-31T02:00:00.000Z',
+  lastRunStatus: 'SUCCESS',
+  nextRunAt: '2026-11-01T02:00:00.000Z',
+  createdAt: '2026-10-01T00:00:00.000Z',
+  updatedAt: '2026-10-01T00:00:00.000Z'
+};
 

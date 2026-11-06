@@ -30,7 +30,13 @@ import type {
   CommercialDocument,
   CommercialDocType,
   JournalEntry,
-  JournalLine
+  JournalLine,
+  BackupHistoryItem,
+  RestoreLog,
+  BackupScheduleConfig,
+  BackupDestination,
+  RestorePreviewResult,
+  BackupDatabasePayload
 } from '../types/index.ts';
 
 import { authService } from '../services/authService.ts';
@@ -70,6 +76,16 @@ import {
   createCreditNote,
   createDebitNote
 } from '../../backend/business-rules/commercialDocumentEngine.ts';
+import {
+  generateBackup,
+  validateBackupIntegrity,
+  generateRestorePreview,
+  createPreRestoreSafetySnapshot,
+  executeRestore,
+  calculateNextScheduledRun,
+  exportRegistryAsCSV
+} from '../../backend/business-rules/backupEngine.ts';
+import { googleDriveService } from '../services/googleDriveService.ts';
 
 import { 
   INITIAL_COMPANY_SETTINGS, 
@@ -88,7 +104,10 @@ import {
   INITIAL_INVOICES,
   INITIAL_ATTENDANCE,
   INITIAL_COMMERCIAL_DOCUMENTS,
-  INITIAL_JOURNAL_ENTRIES
+  INITIAL_JOURNAL_ENTRIES,
+  INITIAL_BACKUP_HISTORY,
+  INITIAL_RESTORE_LOGS,
+  INITIAL_BACKUP_SCHEDULE
 } from '../services/mockData.ts';
 
 import { postPurchaseTransaction } from '../../backend/business-rules/purchaseEngine.ts';
@@ -217,6 +236,28 @@ interface ERPContextType {
   resetToDemoData: () => void;
   exportBackup: () => string;
   restoreBackup: (jsonStr: string) => boolean;
+
+  // Phase 5 Dedicated Backup & Restore Manager
+  backupHistory: BackupHistoryItem[];
+  restoreLogs: RestoreLog[];
+  backupSchedule: BackupScheduleConfig;
+  createBackup: (options?: {
+    companyScoped?: boolean;
+    isEncrypted?: boolean;
+    password?: string;
+    destination?: BackupDestination;
+  }) => Promise<{ success: boolean; filename: string; checksum: string; error?: string }>;
+  previewRestore: (
+    fileContent: string,
+    password?: string
+  ) => Promise<RestorePreviewResult>;
+  executeSystemRestore: (
+    fileContent: string,
+    password?: string,
+    mode?: 'FULL' | 'COMPANY_SCOPED'
+  ) => Promise<{ success: boolean; recordsRestored: number; error?: string }>;
+  updateScheduleConfig: (updates: Partial<BackupScheduleConfig>) => void;
+  exportCsvRegister: (registerType: 'CUSTOMERS' | 'SUPPLIERS' | 'INVOICES' | 'PURCHASES' | 'EXPENSES' | 'STOCK') => string;
 }
 
 const ERPContext = createContext<ERPContextType | undefined>(undefined);
@@ -291,6 +332,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const loaded = load<JournalEntry[]>('journalEntries', []);
     return loaded && loaded.length > 0 ? loaded : INITIAL_JOURNAL_ENTRIES;
   });
+  const [backupHistory, setBackupHistory] = useState<BackupHistoryItem[]>(() => {
+    const loaded = load<BackupHistoryItem[]>('backupHistory', []);
+    return loaded && loaded.length > 0 ? loaded : INITIAL_BACKUP_HISTORY;
+  });
+  const [restoreLogs, setRestoreLogs] = useState<RestoreLog[]>(() => {
+    const loaded = load<RestoreLog[]>('restoreLogs', []);
+    return loaded && loaded.length > 0 ? loaded : INITIAL_RESTORE_LOGS;
+  });
+  const [backupSchedule, setBackupSchedule] = useState<BackupScheduleConfig>(() => {
+    const loaded = load<BackupScheduleConfig>('backupSchedule', INITIAL_BACKUP_SCHEDULE);
+    return loaded || INITIAL_BACKUP_SCHEDULE;
+  });
 
   // Persist state updates to localStorage
   useEffect(() => {
@@ -320,6 +373,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(STORAGE_PREFIX + 'auditLogs', JSON.stringify(auditLogs));
       localStorage.setItem(STORAGE_PREFIX + 'commercialDocuments', JSON.stringify(commercialDocuments));
       localStorage.setItem(STORAGE_PREFIX + 'journalEntries', JSON.stringify(journalEntries));
+      localStorage.setItem(STORAGE_PREFIX + 'backupHistory', JSON.stringify(backupHistory));
+      localStorage.setItem(STORAGE_PREFIX + 'restoreLogs', JSON.stringify(restoreLogs));
+      localStorage.setItem(STORAGE_PREFIX + 'backupSchedule', JSON.stringify(backupSchedule));
     } catch (e) {
       console.warn('Error saving to localStorage', e);
     }
@@ -327,7 +383,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     company, yards, materials, parties, vehicles, vehicleDocuments,
     employees, attendance, accounts, accountTransactions, expenses,
     weighments, collectionJobs, purchases, inventoryLots, stockMovements,
-    sales, invoices, payments, stockCounts, auditLogs, commercialDocuments, journalEntries
+    sales, invoices, payments, stockCounts, auditLogs, commercialDocuments, journalEntries,
+    backupHistory, restoreLogs, backupSchedule
   ]);
 
   const logAudit = (action: string, entityType: string, entityId: string, oldState?: any, newState?: any) => {
@@ -1456,39 +1513,342 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return JSON.stringify(backup, null, 2);
   };
 
+  const getCurrentDatabasePayload = (): BackupDatabasePayload => ({
+    companies,
+    activeCompanyId,
+    yards,
+    materials,
+    materialGrades,
+    parties,
+    vehicles,
+    vehicleDocuments,
+    employees,
+    attendance,
+    accounts,
+    accountTransactions,
+    expenses,
+    weighments,
+    collectionJobs,
+    purchases,
+    inventoryLots,
+    stockMovements,
+    sales,
+    invoices,
+    payments,
+    stockCounts,
+    auditLogs,
+    commercialDocuments,
+    journalEntries,
+  });
+
+  const applyRestoredPayload = (data: BackupDatabasePayload) => {
+    if (data.companies) setCompanies(data.companies);
+    if (data.activeCompanyId) setActiveCompanyId(data.activeCompanyId);
+    if (data.yards) setYards(data.yards);
+    if (data.materials) setMaterials(data.materials);
+    if (data.materialGrades) setMaterialGrades(data.materialGrades);
+    if (data.parties) setParties(data.parties);
+    if (data.vehicles) setVehicles(data.vehicles);
+    if (data.vehicleDocuments) setVehicleDocuments(data.vehicleDocuments);
+    if (data.employees) setEmployees(data.employees);
+    if (data.attendance) setAttendance(data.attendance);
+    if (data.accounts) setAccounts(data.accounts);
+    if (data.accountTransactions) setAccountTransactions(data.accountTransactions);
+    if (data.expenses) setExpenses(data.expenses);
+    if (data.weighments) setWeighments(data.weighments);
+    if (data.collectionJobs) setCollectionJobs(data.collectionJobs);
+    if (data.purchases) setPurchases(data.purchases);
+    if (data.inventoryLots) setInventoryLots(data.inventoryLots);
+    if (data.stockMovements) setStockMovements(data.stockMovements);
+    if (data.sales) setSales(data.sales);
+    if (data.invoices) setInvoices(data.invoices);
+    if (data.payments) setPayments(data.payments);
+    if (data.stockCounts) setStockCounts(data.stockCounts);
+    if (data.commercialDocuments) setCommercialDocuments(data.commercialDocuments);
+    if (data.journalEntries) setJournalEntries(data.journalEntries);
+  };
+
   const restoreBackup = (jsonStr: string): boolean => {
     try {
       const data = JSON.parse(jsonStr);
-      if (data.companies) setCompanies(data.companies);
-      if (data.activeCompanyId) setActiveCompanyId(data.activeCompanyId);
-      if (data.company && !data.companies) setCompanies([data.company]);
-      if (data.yards) setYards(data.yards);
-      if (data.materials) setMaterials(data.materials);
-      if (data.parties) setParties(data.parties);
-      if (data.vehicles) setVehicles(data.vehicles);
-      if (data.vehicleDocuments) setVehicleDocuments(data.vehicleDocuments);
-      if (data.employees) setEmployees(data.employees);
-      if (data.attendance) setAttendance(data.attendance);
-      if (data.accounts) setAccounts(data.accounts);
-      if (data.accountTransactions) setAccountTransactions(data.accountTransactions);
-      if (data.expenses) setExpenses(data.expenses);
-      if (data.weighments) setWeighments(data.weighments);
-      if (data.collectionJobs) setCollectionJobs(data.collectionJobs);
-      if (data.purchases) setPurchases(data.purchases);
-      if (data.inventoryLots) setInventoryLots(data.inventoryLots);
-      if (data.stockMovements) setStockMovements(data.stockMovements);
-      if (data.sales) setSales(data.sales);
-      if (data.invoices) setInvoices(data.invoices);
-      if (data.payments) setPayments(data.payments);
-      if (data.stockCounts) setStockCounts(data.stockCounts);
-      if (data.auditLogs) setAuditLogs(data.auditLogs);
-      if (data.commercialDocuments) setCommercialDocuments(data.commercialDocuments);
-      if (data.journalEntries) setJournalEntries(data.journalEntries);
+      applyRestoredPayload(data);
       return true;
     } catch {
       return false;
     }
   };
+
+  // Phase 5 Dedicated Backup Manager Implementations
+  const createBackup = async (options?: {
+    companyScoped?: boolean;
+    isEncrypted?: boolean;
+    password?: string;
+    destination?: BackupDestination;
+  }): Promise<{ success: boolean; filename: string; checksum: string; error?: string }> => {
+    try {
+      enforceAuthorization(currentUser, 'settings:backup');
+      const currentState = getCurrentDatabasePayload();
+      const isScoped = !!options?.companyScoped;
+
+      const backupResult = await generateBackup(currentState, {
+        companyId: isScoped ? activeCompanyId : undefined,
+        companyName: isScoped ? activeCompany.companyName : undefined,
+        actor: currentUser.fullName || 'System Admin',
+        isEncrypted: options?.isEncrypted,
+        password: options?.password,
+        destination: options?.destination || 'LOCAL_FILE',
+      });
+
+      // Handle Google Drive destination
+      if (options?.destination === 'GOOGLE_DRIVE') {
+        const mimeType = options?.isEncrypted ? 'application/octet-stream' : 'application/json';
+        const uploadRes = await googleDriveService.uploadBackupFile(backupResult.filename, backupResult.rawJson, mimeType);
+        if (!uploadRes.success) {
+          throw new Error(uploadRes.error || 'Failed to upload backup to Google Drive');
+        }
+      }
+
+      // Download file to client device if running in browser
+      if (typeof window !== 'undefined' && typeof document !== 'undefined' && options?.destination !== 'GOOGLE_DRIVE') {
+        const mimeType = options?.isEncrypted ? 'application/octet-stream' : 'application/json';
+        const blob = new Blob([backupResult.rawJson], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = backupResult.filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+
+      // Record in backup history
+      setBackupHistory((prev) => [backupResult.historyItem, ...prev]);
+
+      // Audit log
+      logAudit(
+        'BACKUP_CREATED',
+        'SYSTEM_BACKUP',
+        backupResult.historyItem.id,
+        null,
+        { filename: backupResult.filename, checksum: backupResult.checksum, records: backupResult.historyItem.totalRecords }
+      );
+
+      return {
+        success: true,
+        filename: backupResult.filename,
+        checksum: backupResult.checksum,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        filename: '',
+        checksum: '',
+        error: err.message || 'Backup generation failed',
+      };
+    }
+  };
+
+  const previewRestore = async (
+    fileContent: string,
+    password?: string
+  ): Promise<RestorePreviewResult> => {
+    const valResult = await validateBackupIntegrity(fileContent, { password });
+    if (!valResult.isValid || !valResult.parsedArchive) {
+      return {
+        isValid: false,
+        schemaVersion: 'UNKNOWN',
+        isCompatible: false,
+        manifest: {} as any,
+        recordCounts: {},
+        financialTotals: {},
+        warnings: [],
+        errors: [valResult.error || 'Invalid or corrupted backup archive.'],
+      };
+    }
+
+    return generateRestorePreview(valResult.parsedArchive, activeCompanyId);
+  };
+
+  const executeSystemRestore = async (
+    fileContent: string,
+    password?: string,
+    mode: 'FULL' | 'COMPANY_SCOPED' = 'FULL'
+  ): Promise<{ success: boolean; recordsRestored: number; error?: string }> => {
+    try {
+      enforceAuthorization(currentUser, 'settings:restore');
+
+      const valResult = await validateBackupIntegrity(fileContent, { password });
+      if (!valResult.isValid || !valResult.parsedArchive) {
+        throw new Error(valResult.error || 'Integrity validation failed. File may be corrupted or password invalid.');
+      }
+
+      const currentState = getCurrentDatabasePayload();
+
+      // Step 1: Pre-restore Safety Snapshot
+      const safetySnapshot = await createPreRestoreSafetySnapshot(currentState, currentUser.fullName || 'System Safety Automator');
+      setBackupHistory((prev) => [safetySnapshot.historyItem, ...prev]);
+
+      // Step 2: Execute Restore
+      const { restoredState, restoreLog } = executeRestore(valResult.parsedArchive, currentState, {
+        backupId: valResult.parsedArchive.manifest.sha256,
+        preRestoreBackupId: safetySnapshot.historyItem.id,
+        restoreMode: mode,
+        actor: currentUser.fullName || 'Admin',
+        companyId: activeCompanyId,
+      });
+
+      // Step 3: Apply Restored State
+      applyRestoredPayload(restoredState);
+
+      // Step 4: Record restore log
+      setRestoreLogs((prev) => [restoreLog, ...prev]);
+
+      const totalRestored = Object.values(restoreLog.recordsRestoredJson).reduce((a, b) => a + b, 0);
+
+      logAudit(
+        'RESTORE_SYSTEM_EXECUTED',
+        'SYSTEM_RESTORE',
+        restoreLog.id,
+        null,
+        { mode, totalRestored, safetySnapshotId: safetySnapshot.historyItem.id }
+      );
+
+      return {
+        success: true,
+        recordsRestored: totalRestored,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        recordsRestored: 0,
+        error: err.message || 'Restoration failed.',
+      };
+    }
+  };
+
+  const updateScheduleConfig = (updates: Partial<BackupScheduleConfig>) => {
+    setBackupSchedule((prev) => {
+      const next: BackupScheduleConfig = {
+        ...prev,
+        ...updates,
+        updatedAt: new Date().toISOString(),
+      };
+      if (updates.frequency) {
+        next.nextRunAt = calculateNextScheduledRun(updates.frequency);
+      }
+      return next;
+    });
+  };
+
+  const exportCsvRegister = (
+    registerType: 'CUSTOMERS' | 'SUPPLIERS' | 'INVOICES' | 'PURCHASES' | 'EXPENSES' | 'STOCK'
+  ): string => {
+    switch (registerType) {
+      case 'CUSTOMERS': {
+        const custs = parties.filter((p) => p.partyType === 'CUSTOMER' && (!p.companyId || p.companyId === activeCompanyId));
+        return exportRegistryAsCSV(custs, [
+          { header: 'Party Code', key: 'partyCode' },
+          { header: 'Company / Trade Name', key: 'tradeName' },
+          { header: 'Legal Name', key: 'legalName' },
+          { header: 'GSTIN', key: 'gstin' },
+          { header: 'Phone', key: 'phone' },
+          { header: 'City', key: 'city' },
+          { header: 'Current Balance (INR)', key: 'currentBalance' },
+        ]);
+      }
+      case 'SUPPLIERS': {
+        const supps = parties.filter((p) => p.partyType === 'SUPPLIER' && (!p.companyId || p.companyId === activeCompanyId));
+        return exportRegistryAsCSV(supps, [
+          { header: 'Party Code', key: 'partyCode' },
+          { header: 'Company / Trade Name', key: 'tradeName' },
+          { header: 'Legal Name', key: 'legalName' },
+          { header: 'GSTIN', key: 'gstin' },
+          { header: 'Phone', key: 'phone' },
+          { header: 'City', key: 'city' },
+          { header: 'Current Balance (INR)', key: 'currentBalance' },
+        ]);
+      }
+      case 'INVOICES': {
+        const invs = invoices.filter((i) => !i.companyId || i.companyId === activeCompanyId);
+        return exportRegistryAsCSV(invs, [
+          { header: 'Invoice No', key: 'invoiceNo' },
+          { header: 'Invoice Date', key: 'invoiceDate' },
+          { header: 'Customer Name', key: 'buyerPartyName' },
+          { header: 'Subtotal (INR)', key: 'subtotalAmount' },
+          { header: 'CGST (INR)', key: 'cgstTotal' },
+          { header: 'SGST (INR)', key: 'sgstTotal' },
+          { header: 'Total (INR)', key: 'totalAmount' },
+          { header: 'Payment Status', key: 'paymentStatus' },
+        ]);
+      }
+      case 'PURCHASES': {
+        const purs = purchases.filter((p) => !p.companyId || p.companyId === activeCompanyId);
+        return exportRegistryAsCSV(purs, [
+          { header: 'Purchase No', key: 'purchaseNo' },
+          { header: 'Date', key: 'purchaseDate' },
+          { header: 'Supplier Name', key: 'supplierPartyName' },
+          { header: 'Subtotal (INR)', key: 'subtotalAmount' },
+          { header: 'Tax (INR)', key: 'taxAmount' },
+          { header: 'Total Amount (INR)', key: 'totalAmount' },
+          { header: 'Status', key: 'status' },
+        ]);
+      }
+      case 'EXPENSES': {
+        const exps = expenses.filter((e) => !e.companyId || e.companyId === activeCompanyId);
+        return exportRegistryAsCSV(exps, [
+          { header: 'Voucher No', key: 'voucherNo' },
+          { header: 'Expense Date', key: 'expenseDate' },
+          { header: 'Category', key: 'category' },
+          { header: 'Description', key: 'description' },
+          { header: 'Amount (INR)', key: 'amount' },
+          { header: 'Payment Mode', key: 'paymentMode' },
+        ]);
+      }
+      case 'STOCK': {
+        const lots = inventoryLots.filter((l) => !l.companyId || l.companyId === activeCompanyId);
+        return exportRegistryAsCSV(lots, [
+          { header: 'Lot No', key: 'lotNo' },
+          { header: 'Material Name', key: 'materialName' },
+          { header: 'Current Weight (KG)', key: 'currentNetWeight' },
+          { header: 'Unit Rate (INR/KG)', key: 'unitRate' },
+          { header: 'Inventory Value (INR)', key: 'totalCost' },
+        ]);
+      }
+      default:
+        return '';
+    }
+  };
+
+  // Automated scheduled backup check (runs on mount and periodic 60s check when app is open)
+  useEffect(() => {
+    if (!backupSchedule.isEnabled || backupSchedule.frequency === 'MANUAL_ONLY' || !backupSchedule.nextRunAt) {
+      return;
+    }
+
+    const checkAndRunSchedule = async () => {
+      const now = new Date();
+      const scheduledTime = new Date(backupSchedule.nextRunAt!);
+      if (now >= scheduledTime) {
+        console.log(`[BackupScheduler] Triggering scheduled ${backupSchedule.frequency} backup...`);
+        const result = await createBackup({
+          isEncrypted: backupSchedule.encryptByDefault,
+          destination: backupSchedule.destination,
+        });
+
+        const nextTime = calculateNextScheduledRun(backupSchedule.frequency, now);
+        updateScheduleConfig({
+          lastRunAt: now.toISOString(),
+          lastRunStatus: result.success ? 'SUCCESS' : 'FAILED',
+          nextRunAt: nextTime,
+        });
+      }
+    };
+
+    checkAndRunSchedule();
+    const intervalId = setInterval(checkAndRunSchedule, 60000);
+    return () => clearInterval(intervalId);
+  }, [backupSchedule]);
 
   return (
     <ERPContext.Provider
@@ -1594,6 +1954,14 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         resetToDemoData,
         exportBackup,
         restoreBackup,
+        backupHistory,
+        restoreLogs,
+        backupSchedule,
+        createBackup,
+        previewRestore,
+        executeSystemRestore,
+        updateScheduleConfig,
+        exportCsvRegister,
       }}
     >
       {children}

@@ -56,7 +56,40 @@ export function expect(actual) {
     toHaveLength(expected) {
       assert.strictEqual(actual.length, expected);
     },
+    toBeNull() {
+      assert.strictEqual(actual, null);
+    },
+    toMatch(expected) {
+      if (typeof expected === 'string') {
+        assert.ok(String(actual).includes(expected), `${actual} does not match string ${expected}`);
+      } else if (expected instanceof RegExp) {
+        assert.ok(expected.test(String(actual)), `${actual} does not match regex ${expected}`);
+      } else {
+        assert.fail('toMatch expected string or RegExp');
+      }
+    },
+    rejects: {
+      async toThrow(expected) {
+        if (typeof expected === 'string') {
+          await assert.rejects(actual, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+        } else if (expected) {
+          await assert.rejects(actual, expected);
+        } else {
+          await assert.rejects(actual);
+        }
+      }
+    },
     not: {
+      toBeNull() {
+        assert.notStrictEqual(actual, null);
+      },
+      toMatch(expected) {
+        if (typeof expected === 'string') {
+          assert.ok(!String(actual).includes(expected));
+        } else if (expected instanceof RegExp) {
+          assert.ok(!expected.test(String(actual)));
+        }
+      },
       toBe(expected) {
         assert.notStrictEqual(actual, expected);
       },

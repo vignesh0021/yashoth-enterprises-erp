@@ -660,3 +660,133 @@ export interface JournalEntry {
   createdBy: string;
   createdAt: string;
 }
+
+// ----------------------------------------------------------------------------
+// PHASE 5 — BACKUP & RESTORE TYPES
+// ----------------------------------------------------------------------------
+
+export type BackupType = 'FULL_DATABASE' | 'COMPANY_SCOPED' | 'SAFETY_PRE_RESTORE';
+export type BackupDestination = 'LOCAL_FILE' | 'ENCRYPTED_ARCHIVE' | 'GOOGLE_DRIVE' | 'CLOUD_STORAGE';
+export type BackupStatus = 'SUCCESS' | 'FAILED' | 'VERIFIED';
+export type RestoreStatus = 'COMPLETED' | 'FAILED' | 'ROLLED_BACK';
+export type BackupFrequency = 'MANUAL_ONLY' | 'DAILY' | 'WEEKLY' | 'MONTHLY';
+
+export interface BackupManifest {
+  version: string;
+  generatedAt: string;
+  type: BackupType;
+  companyId?: string | null;
+  companyName?: string;
+  sha256: string;
+  recordCounts: Record<string, number>;
+  financialTotals: Record<string, number>;
+  appVersion: string;
+  actor: string;
+}
+
+export interface BackupDatabasePayload {
+  companies?: Company[];
+  activeCompanyId?: string;
+  companySettings?: CompanySettings[];
+  yards?: Yard[];
+  materials?: Material[];
+  materialGrades?: MaterialGrade[];
+  parties?: Party[];
+  vehicles?: Vehicle[];
+  vehicleDocuments?: VehicleDocument[];
+  employees?: Employee[];
+  attendance?: AttendanceEntry[];
+  accounts?: CashBankAccount[];
+  accountTransactions?: AccountTransaction[];
+  expenses?: Expense[];
+  weighments?: Weighment[];
+  collectionJobs?: CollectionJob[];
+  purchases?: PurchaseHeader[];
+  inventoryLots?: InventoryLot[];
+  stockMovements?: StockMovement[];
+  sales?: SalesHeader[];
+  invoices?: Invoice[];
+  payments?: Payment[];
+  stockCounts?: StockCount[];
+  auditLogs?: AuditLog[];
+  commercialDocuments?: CommercialDocument[];
+  journalEntries?: JournalEntry[];
+}
+
+export interface BackupArchive {
+  manifest: BackupManifest;
+  data: BackupDatabasePayload;
+}
+
+export interface EncryptedBackupArchive {
+  isEncrypted: true;
+  algorithm: 'AES-256-GCM';
+  iv: string;
+  salt: string;
+  ciphertext: string;
+  manifest: BackupManifest;
+}
+
+export interface BackupHistoryItem {
+  id: string;
+  companyId?: string | null;
+  backupName: string;
+  backupType: BackupType;
+  destination: BackupDestination;
+  fileSizeBytes: number;
+  sha256Checksum: string;
+  isEncrypted: boolean;
+  encryptionAlgorithm?: string;
+  schemaVersion: string;
+  totalRecords: number;
+  recordCountsJson: Record<string, number>;
+  financialTotalsJson: Record<string, number>;
+  status: BackupStatus;
+  errorMessage?: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface RestoreLog {
+  id: string;
+  backupId: string;
+  preRestoreBackupId: string;
+  companyId?: string | null;
+  restoredBy: string;
+  restorationType: 'FULL_RESTORE' | 'COMPANY_RESTORE';
+  recordsRestoredJson: Record<string, number>;
+  sha256Verified: boolean;
+  status: RestoreStatus;
+  notes?: string;
+  errorMessage?: string;
+  restoredAt: string;
+}
+
+export interface BackupScheduleConfig {
+  id: string;
+  companyId?: string | null;
+  frequency: BackupFrequency;
+  isEnabled: boolean;
+  destination: 'LOCAL_FILE' | 'ENCRYPTED_ARCHIVE' | 'GOOGLE_DRIVE';
+  encryptByDefault: boolean;
+  retentionCount: number;
+  lastRunAt?: string | null;
+  lastRunStatus?: string | null;
+  nextRunAt?: string | null;
+  googleDriveFolderId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RestorePreviewResult {
+  isValid: boolean;
+  schemaVersion: string;
+  isCompatible: boolean;
+  manifest: BackupManifest;
+  recordCounts: Record<string, number>;
+  financialTotals: Record<string, number>;
+  targetCompany?: string;
+  warnings: string[];
+  errors: string[];
+}
+

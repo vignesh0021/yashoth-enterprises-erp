@@ -1,4 +1,4 @@
-import { describe as d, it as i, test as t } from 'node:test';
+import { describe as d, it as i, test as t, beforeEach as be, afterEach as ae, before as b, after as a } from 'node:test';
 import assert from 'node:assert';
 
 export function expect(actual) {
@@ -20,6 +20,9 @@ export function expect(actual) {
     },
     toBeFalsy() {
       assert.ok(!actual);
+    },
+    toBeInstanceOf(expectedClass) {
+      assert.ok(actual instanceof expectedClass, `${actual} is not an instance of ${expectedClass?.name}`);
     },
     toBeGreaterThan(expected) {
       assert.ok(actual > expected, `${actual} not > ${expected}`);
@@ -123,7 +126,8 @@ export function expect(actual) {
 export const describe = d;
 export const it = i;
 export const test = t;
-export const beforeAll = () => {};
-export const afterAll = () => {};
-export const beforeEach = () => {};
-export const afterEach = () => {};
+export const beforeAll = b;
+export const afterAll = a;
+export const beforeEach = be;
+export const afterEach = ae;
+

@@ -2,11 +2,57 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+}
+
 @layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior-y: none;
+    height: 100%;
+  }
+
   body {
     @apply bg-slate-100 text-slate-900 font-sans antialiased;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    min-height: 100%;
+    min-height: 100dvh;
   }
+
+  /* Prevent iOS zoom on input focus by guaranteeing 16px minimum */
+  input, textarea, select {
+    font-size: 16px;
+  }
+
+  /* Instant tap feedback and prevent accidental text selection on controls */
+  button, a, [role="button"], .tappable {
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+}
+
+/* Native feel active press feedback */
+button:active:not(:disabled), 
+.btn-touch:active:not(:disabled) {
+  transform: scale(0.97);
+  transition: transform 100ms ease-out;
+}
+
+/* Safe area padding utilities for notches and mobile home bars */
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.safe-pb {
+  padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
 }
 
 /* Custom scrollbars for clean ERP tables and sidebars */
@@ -35,7 +81,7 @@
     font-size: 10pt;
   }
 
-  aside, header, .print\:hidden {
+  aside, header, nav, .print\:hidden {
     display: none !important;
   }
 

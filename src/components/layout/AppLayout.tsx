@@ -1,9 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useERP } from '../../context/ERPContext.tsx';
 import { UserRole } from '../../types/index.ts';
 import { AuthModal } from '../auth/AuthModal.tsx';
 import { CompanySwitcher } from '../company/CompanySwitcher.tsx';
+import { MobileBottomNav } from './MobileBottomNav.tsx';
+import { MobileMenuDrawer } from './MobileMenuDrawer.tsx';
+import { offlineSyncService, type SyncStatus } from '../../services/offlineSyncService.ts';
 import { 
   LayoutDashboard, 
   ShoppingCart, 
@@ -30,7 +33,11 @@ import {
   Search,
   LogIn,
   LogOut,
-  UserCircle
+  UserCircle,
+  Menu,
+  RefreshCw,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 
 export const AppLayout: React.FC = () => {
@@ -46,9 +53,26 @@ export const AppLayout: React.FC = () => {
   } = useERP();
   
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(() => offlineSyncService.getStatus());
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const unsubscribe = offlineSyncService.subscribe((status) => {
+      setSyncStatus(status);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleManualSync = async () => {
+    if (!syncStatus.isOnline) return;
+    await offlineSyncService.flushQueue(async (mutation) => {
+      // In-memory or simulated database flush executor
+      return { success: true };
+    });
+  };
 
   // Calculate live operational alerts count
   const todayStr = new Date().toISOString().split('T')[0];
@@ -94,9 +118,9 @@ export const AppLayout: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-slate-100 font-sans overflow-hidden">
-      {/* Sidebar */}
+      {/* Desktop Sidebar (hidden on mobile) */}
       <aside
-        className={`bg-slate-900 text-slate-300 flex flex-col transition-all duration-300 z-30 shadow-xl border-r border-slate-800 ${
+        className={`hidden md:flex bg-slate-900 text-slate-300 flex-col transition-all duration-300 z-30 shadow-xl border-r border-slate-800 ${
           sidebarCollapsed ? 'w-20' : 'w-64'
         }`}
       >
@@ -185,21 +209,33 @@ export const AppLayout: React.FC = () => {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header Bar */}
-        <header className="bg-white border-b border-slate-200 px-6 py-2.5 flex items-center justify-between shadow-xs z-20">
-          <div className="flex items-center gap-5 flex-1 max-w-xl">
+        <header className="bg-white border-b border-slate-200 px-3 sm:px-6 py-2.5 flex items-center justify-between shadow-xs z-20 safe-top">
+          <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
+            {/* Mobile Drawer Trigger (Mobile Only) */}
+            <button
+              onClick={() => setIsMobileDrawerOpen(true)}
+              className="md:hidden p-2 rounded-xl text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
+              aria-label="Open Mobile Menu"
+            >
+              <Menu className="w-5 h-5 text-slate-800" />
+            </button>
+
             {/* Top Brand & Multi-Company Switcher */}
-            <div className="flex items-center gap-2.5 shrink-0">
-              <div className="bg-white p-1 rounded-lg border border-slate-200 shadow-xs flex items-center justify-center">
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="bg-white p-1 rounded-lg border border-slate-200 shadow-xs flex items-center justify-center shrink-0">
                 <img
                   src="/yasoth-logo.png"
                   alt="Yasoth Logo"
-                  className="h-7 w-auto object-contain"
+                  className="h-6 sm:h-7 w-auto object-contain"
                 />
               </div>
-              <CompanySwitcher />
+              <div className="max-w-[140px] sm:max-w-[220px]">
+                <CompanySwitcher />
+              </div>
             </div>
 
-            <div className="relative w-full max-w-xs">
+            {/* Global Search Bar (Hidden on phone, shown on tablet/desktop) */}
+            <div className="relative w-full max-w-xs hidden sm:block">
               <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
               <input
                 type="text"
@@ -211,9 +247,47 @@ export const AppLayout: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            {/* Quick Actions Menu */}
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            {/* Offline / Online Status Pill with Sync Trigger */}
+            <button
+              onClick={handleManualSync}
+              disabled={syncStatus.isSyncing || !syncStatus.isOnline}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all ${
+                syncStatus.isOnline
+                  ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
+                  : 'bg-amber-50 text-amber-800 border-amber-300'
+              }`}
+              title={
+                syncStatus.isOnline
+                  ? syncStatus.pendingCount > 0
+                    ? `${syncStatus.pendingCount} offline changes pending sync. Click to sync now.`
+                    : 'System is connected and synced.'
+                  : 'Offline mode active. Changes are queued locally and will sync when reconnected.'
+              }
+            >
+              {syncStatus.isOnline ? (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  <span className="hidden sm:inline">Online</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                  <span>Offline</span>
+                </>
+              )}
+              {syncStatus.pendingCount > 0 && (
+                <span className="bg-amber-500/20 text-amber-900 px-1 rounded font-mono font-black">
+                  {syncStatus.pendingCount}
+                </span>
+              )}
+              {syncStatus.isSyncing && (
+                <RefreshCw className="w-3 h-3 text-emerald-600 animate-spin" />
+              )}
+            </button>
+
+            {/* Quick Actions Menu (Desktop Only) */}
+            <div className="hidden lg:flex items-center gap-2">
               <button
                 onClick={() => navigate('/weighment')}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold transition-colors"
@@ -237,10 +311,10 @@ export const AppLayout: React.FC = () => {
               </button>
             </div>
 
-            <div className="h-5 w-px bg-slate-200"></div>
+            <div className="h-5 w-px bg-slate-200 hidden sm:block"></div>
 
             {/* Authenticated Identity & Role Security */}
-            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1">
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-2 sm:px-2.5 py-1">
               <button
                 onClick={() => setIsAuthModalOpen(true)}
                 className="flex items-center gap-2 hover:opacity-80 transition-opacity text-left cursor-pointer"
@@ -287,11 +361,25 @@ export const AppLayout: React.FC = () => {
           </div>
         </header>
 
-        {/* Dynamic Page Outlet */}
-        <main className="flex-1 overflow-y-auto p-6 scrollbar-thin">
+        {/* Dynamic Page Outlet with Mobile Bottom Padding */}
+        <main className="flex-1 overflow-y-auto p-3 sm:p-6 pb-24 md:pb-6 scrollbar-thin">
           <Outlet />
         </main>
       </div>
+
+      {/* Mobile Bottom Navigation Bar (Hidden on desktop) */}
+      <MobileBottomNav 
+        onOpenMenu={() => setIsMobileDrawerOpen(true)} 
+        syncStatus={syncStatus} 
+      />
+
+      {/* Mobile Full Slide-Over Menu Drawer */}
+      <MobileMenuDrawer
+        isOpen={isMobileDrawerOpen}
+        onClose={() => setIsMobileDrawerOpen(false)}
+        syncStatus={syncStatus}
+        onManualSync={handleManualSync}
+      />
 
       {/* Global Authentication & Session Modal */}
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />

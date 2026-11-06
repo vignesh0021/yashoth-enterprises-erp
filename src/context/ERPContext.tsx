@@ -314,7 +314,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [yards, setYards] = useState<Yard[]>(() => load('yards', INITIAL_YARDS));
   const [materials, setMaterials] = useState<Material[]>(() => load('materials', INITIAL_MATERIALS));
   const [materialGrades, setMaterialGrades] = useState<MaterialGrade[]>(() => load('materialGrades', INITIAL_MATERIAL_GRADES));
-  const [parties, setParties] = useState<Party[]>(() => load('parties', INITIAL_PARTIES));
+  const [parties, setParties] = useState<Party[]>(() => {
+    const loaded = load<Party[]>('parties', []);
+    if (!loaded || loaded.length === 0) return INITIAL_PARTIES;
+    const existingIds = new Set(loaded.map((p) => p.id));
+    const missing = INITIAL_PARTIES.filter((p) => !existingIds.has(p.id));
+    return [...loaded, ...missing];
+  });
   const [vehicles, setVehicles] = useState<Vehicle[]>(() => load('vehicles', INITIAL_VEHICLES));
   const [vehicleDocuments, setVehicleDocuments] = useState<VehicleDocument[]>(() => load('vehicleDocuments', INITIAL_VEHICLE_DOCS));
   const [employees, setEmployees] = useState<Employee[]>(() => load('employees', INITIAL_EMPLOYEES));
@@ -337,7 +343,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => load('auditLogs', []));
   const [commercialDocuments, setCommercialDocuments] = useState<CommercialDocument[]>(() => {
     const loaded = load<CommercialDocument[]>('commercialDocuments', []);
-    return loaded && loaded.length > 0 ? loaded : INITIAL_COMMERCIAL_DOCUMENTS;
+    if (!loaded || loaded.length === 0) return INITIAL_COMMERCIAL_DOCUMENTS;
+    const existingIds = new Set(loaded.map((d) => d.id));
+    const missing = INITIAL_COMMERCIAL_DOCUMENTS.filter((d) => !existingIds.has(d.id));
+    return [...missing, ...loaded];
   });
   const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(() => {
     const loaded = load<JournalEntry[]>('journalEntries', []);

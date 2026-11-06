@@ -47,8 +47,14 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);
 
-  // Skip non-GET or cross-origin requests
-  if (request.method !== 'GET' || url.origin !== self.location.origin) {
+  // Skip non-GET, cross-origin requests, and Vite dev server dependencies/modules
+  if (
+    request.method !== 'GET' ||
+    url.origin !== self.location.origin ||
+    url.pathname.startsWith('/node_modules/') ||
+    url.pathname.startsWith('/@') ||
+    url.search.includes('v=')
+  ) {
     return;
   }
 

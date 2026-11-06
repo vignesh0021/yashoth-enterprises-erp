@@ -1,6 +1,12 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { CommercialDocument, CompanySettings } from '../../types/index.ts';
-import { Printer, ShieldCheck, ZoomIn, ZoomOut, Maximize2, Download, CheckCircle2 } from 'lucide-react';
+import { Printer, ShieldCheck, ZoomIn, ZoomOut, Maximize2, Minimize2, X, FileText } from 'lucide-react';
+import {
+  QUOTATION_HEADER_BANNER,
+  QUOTATION_ADDRESS_BANNER,
+  QUOTATION_DIVIDER_BANNER,
+  QUOTATION_STAMP_SIGNATURE
+} from '../../assets/quotationAssets.ts';
 
 interface QuotationRendererProps {
   document?: CommercialDocument | null;
@@ -13,9 +19,12 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
   company,
   onClose
 }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const printRef = useRef<HTMLDivElement>(null);
+
+  // Dynamic zoom state
   const [zoomLevel, setZoomLevel] = useState<number>(1);
-  const [copied, setCopied] = useState(false);
+  const [isFitToWidth, setIsFitToWidth] = useState<boolean>(true);
 
   // Fallback / default data matching the official IMOP PVT LTD Quotation (Doc 65-2026)
   const docNo = document?.documentNo || '65-2026';
@@ -25,7 +34,7 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
   const partyAddress = document?.partyAddress || 'SRICITY,ANDHRAPRADESH';
   const partyPincode = '517646';
 
-  // Default 11 items matching user's official quotation document
+  // Default 11 items matching user's official quotation document (.docx)
   const defaultItems = [
     { slNo: 1, partName: 'Machining boring scrap', code: '9997', unit: 'ton', qty: '35 MT', pricePerKg: '₹31.00' },
     { slNo: 2, partName: 'Bevelling slag', code: '9996', unit: 'ton', qty: '20 MT', pricePerKg: '₹08.00' },
@@ -52,76 +61,114 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
       }))
     : defaultItems;
 
+  // Auto-fit scale calculation on resize
+  useEffect(() => {
+    const updateFitScale = () => {
+      if (!containerRef.current) return;
+      const containerWidth = containerRef.current.clientWidth - 16; // 8px padding each side
+      if (containerWidth < 794 && isFitToWidth) {
+        const calculatedScale = Math.max(0.38, Math.min(1, containerWidth / 794));
+        setZoomLevel(calculatedScale);
+      } else if (!isFitToWidth) {
+        // Keep user manual zoom
+      } else {
+        setZoomLevel(1);
+      }
+    };
+
+    updateFitScale();
+    window.addEventListener('resize', updateFitScale);
+    return () => window.removeEventListener('resize', updateFitScale);
+  }, [isFitToWidth]);
+
   const handlePrint = () => {
     window.print();
   };
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(window.location.href);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleToggleFit = () => {
+    if (isFitToWidth) {
+      setIsFitToWidth(false);
+      setZoomLevel(1);
+    } else {
+      setIsFitToWidth(true);
+      if (containerRef.current) {
+        const containerWidth = containerRef.current.clientWidth - 16;
+        const calculatedScale = Math.max(0.38, Math.min(1, containerWidth / 794));
+        setZoomLevel(calculatedScale);
+      }
+    }
   };
 
   return (
-    <div className="flex flex-col gap-4 w-full">
+    <div className="flex flex-col gap-2 sm:gap-4 w-full bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-slate-800">
       {/* Top Action Bar (hidden when printing) */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900 text-white p-3.5 rounded-xl print:hidden border border-slate-800 shadow-md">
-        <div className="flex items-center gap-3">
-          <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
-          <div>
-            <span className="text-xs font-bold uppercase tracking-wider block text-slate-100">
-              Official Quotation #{docNo}
+      <div className="flex items-center justify-between gap-2 bg-slate-900 text-white p-2.5 sm:p-3.5 border-b border-slate-800 print:hidden">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400 shrink-0" />
+          <div className="min-w-0">
+            <span className="text-xs sm:text-sm font-bold uppercase tracking-wider block text-slate-100 truncate">
+              Quotation #{docNo}
             </span>
-            <span className="text-[10px] text-slate-400">
-              YASHOTH ENTERPRISES · 100% Authentic Quotation Format (Letterhead & Seal)
+            <span className="text-[10px] text-slate-400 hidden sm:block truncate">
+              Yashoth Enterprises · 100% Authentic Letterhead & Seal
             </span>
           </div>
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Mobile Zoom Controls */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Zoom & Fit Controls */}
           <div className="flex items-center bg-slate-800 rounded-lg p-0.5 border border-slate-700">
             <button
-              onClick={() => setZoomLevel((prev) => Math.max(0.6, prev - 0.1))}
-              className="p-1.5 hover:bg-slate-700 rounded text-slate-300 hover:text-white"
+              onClick={() => {
+                setIsFitToWidth(false);
+                setZoomLevel((prev) => Math.max(0.35, prev - 0.1));
+              }}
+              className="p-1 hover:bg-slate-700 rounded text-slate-300 hover:text-white"
               title="Zoom Out"
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
-            <span className="px-2 text-[10px] font-mono text-slate-300">
+            <span className="px-1.5 text-[10px] font-mono text-slate-300">
               {Math.round(zoomLevel * 100)}%
             </span>
             <button
-              onClick={() => setZoomLevel((prev) => Math.min(1.4, prev + 0.1))}
-              className="p-1.5 hover:bg-slate-700 rounded text-slate-300 hover:text-white"
+              onClick={() => {
+                setIsFitToWidth(false);
+                setZoomLevel((prev) => Math.min(1.4, prev + 0.1));
+              }}
+              className="p-1 hover:bg-slate-700 rounded text-slate-300 hover:text-white"
               title="Zoom In"
             >
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
             <button
-              onClick={() => setZoomLevel(1)}
-              className="p-1.5 hover:bg-slate-700 rounded text-slate-300 hover:text-white ml-0.5"
-              title="Reset Zoom"
+              onClick={handleToggleFit}
+              className={`p-1 rounded text-slate-300 hover:text-white ml-0.5 ${
+                isFitToWidth ? 'bg-red-600 text-white font-bold' : 'hover:bg-slate-700'
+              }`}
+              title={isFitToWidth ? 'Fit Active (Click for 100%)' : 'Click to Fit Mobile Screen'}
             >
-              <Maximize2 className="w-3.5 h-3.5" />
+              {isFitToWidth ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
             </button>
           </div>
 
           <button
             onClick={handlePrint}
-            className="flex items-center gap-2 px-3.5 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold shadow-md shadow-red-600/30 transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-lg text-xs font-bold shadow-md shadow-red-600/30 transition-all cursor-pointer min-h-[36px]"
           >
             <Printer className="w-4 h-4" />
-            <span>Print / PDF (A4)</span>
+            <span className="hidden sm:inline">Print / PDF (A4)</span>
+            <span className="sm:hidden">Print</span>
           </button>
 
           {onClose && (
             <button
               onClick={onClose}
-              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition-all cursor-pointer"
+              className="p-1.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-slate-300 rounded-lg text-xs font-semibold transition-all cursor-pointer min-h-[36px] min-w-[36px] flex items-center justify-center"
+              aria-label="Close"
             >
-              Close
+              <X className="w-4 h-4" />
             </button>
           )}
         </div>
@@ -144,7 +191,7 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
               width: 100% !important;
               max-width: 100% !important;
               margin: 0 !important;
-              padding: 6mm 10mm !important;
+              padding: 5mm 8mm !important;
               background: white !important;
               box-shadow: none !important;
               border: none !important;
@@ -157,11 +204,20 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
         `
       }} />
 
-      {/* Scrollable Container with Zoom scaling for Mobile & Desktop */}
-      <div className="w-full overflow-x-auto pb-4 flex justify-center bg-slate-200/50 p-2 sm:p-4 rounded-xl border border-slate-300/80">
+      {/* Outer scrollable viewport */}
+      <div
+        ref={containerRef}
+        className="w-full overflow-x-auto overflow-y-auto max-h-[85vh] p-1 sm:p-4 flex justify-center bg-slate-950/60"
+      >
+        {/* Scaled wrapper */}
         <div
-          style={{ transform: `scale(${zoomLevel})`, transformOrigin: 'top center' }}
-          className="transition-transform duration-150"
+          style={{
+            transform: `scale(${zoomLevel})`,
+            transformOrigin: 'top center',
+            width: '794px',
+            marginBottom: zoomLevel < 1 ? `calc((794px * ${1 - zoomLevel}) * -1.2)` : '0px'
+          }}
+          className="transition-transform duration-100 ease-out shrink-0"
         >
           {/* ========================================================================= */}
           {/* EXACT 1000% OFFICIAL YASHOTH ENTERPRISES QUOTATION DOCUMENT              */}
@@ -169,230 +225,208 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
           <div
             ref={printRef}
             id="quotation-single-sheet"
-            className="bg-white text-black p-6 sm:p-8 rounded-lg shadow-xl border border-slate-300 mx-auto w-[210mm] min-h-[297mm] text-[11px] leading-tight font-sans print:shadow-none print:border-none print:p-0 print:m-0"
+            className="bg-white text-black p-6 sm:p-8 rounded-sm shadow-2xl mx-auto w-[794px] min-h-[1123px] text-[11px] leading-tight font-sans print:shadow-none print:border-none print:p-0 print:m-0"
             style={{ boxSizing: 'border-box' }}
           >
             {/* ------------------------------------------------------------- */}
-            {/* 1. OFFICIAL RED LETTERHEAD                                    */}
+            {/* 1. EXACT OFFICIAL LETTERHEAD (Direct from Word Document)      */}
             {/* ------------------------------------------------------------- */}
-            <div className="w-full mb-2">
-              {/* Top row: Proprietor / GSTIN on left, Contacts on right */}
-              <div className="flex justify-between items-start text-[#c92127] font-serif font-bold text-xs sm:text-[13px] tracking-wide">
-                <div className="flex flex-col">
-                  <span>Prop.P.NANDHA KUMAR</span>
-                  <span className="font-sans font-bold text-[11px] tracking-normal mt-0.5">
-                    GSTIN : 33AXVPN9382L1ZF
-                  </span>
-                </div>
-                <div className="flex flex-col items-end text-right font-sans font-bold text-[12px]">
-                  <span>CONTACT : 9600910944</span>
-                  <span className="tracking-wide">9790247961</span>
-                </div>
-              </div>
+            <div className="w-full mb-3 select-none">
+              {/* Top Banner: Prop. P. NANDHA KUMAR, GSTIN, CONTACT, & 3D Logo */}
+              <img
+                src={QUOTATION_HEADER_BANNER}
+                alt="Yashoth Enterprises Letterhead & Logo"
+                className="w-full h-auto object-contain block"
+              />
 
-              {/* Center Company Banner with 3D Embossed Red Styling */}
-              <div className="flex items-center justify-center gap-2 mt-2 mb-1">
-                {/* Red Wing Icon Logo */}
-                <div className="w-10 h-10 flex items-center justify-center shrink-0">
-                  <svg viewBox="0 0 100 100" className="w-10 h-10 fill-red-600">
-                    <path d="M15,20 C35,15 65,30 85,15 C75,35 60,50 40,55 C55,50 75,55 85,45 C70,65 50,75 25,75 C22,75 20,65 25,60 C35,50 55,45 65,35 C50,40 30,35 20,25 Z" />
-                    <rect x="25" y="70" width="8" height="20" rx="2" />
-                  </svg>
-                </div>
+              {/* Address and Email Banner */}
+              <img
+                src={QUOTATION_ADDRESS_BANNER}
+                alt="Registered Address and Email"
+                className="w-full h-auto object-contain block mt-1"
+              />
 
-                {/* 3D Extruded Bold Text */}
-                <h1
-                  className="text-2xl sm:text-3xl font-black uppercase tracking-wider text-[#d32f2f] text-center"
-                  style={{
-                    fontFamily: "'Arial Black', 'Impact', sans-serif",
-                    textShadow: '2px 2px 0px #9ca3af, 3px 3px 0px #6b7280',
-                    letterSpacing: '1px'
-                  }}
-                >
-                  YASHOTH ENTERPRISES
-                </h1>
-              </div>
-
-              {/* Registered Address & Email in Bold Red */}
-              <div className="text-center text-[#c92127] font-bold text-[10px] sm:text-[11px] leading-snug px-4">
-                <p>
-                  #128/40, Abethkar Street, Peruvoyal(Pudhuvoyal), Kavarapettai Post, Gummidipoondi Tk, Thiruvallur Dist, TN -601 206.
-                </p>
-                <p className="mt-0.5">
-                  E-mail: nandhakumar4290@gmail.com
-                </p>
-              </div>
-
-              {/* Double Horizontal Red Lines Divider */}
-              <div className="my-2 border-t-2 border-b-2 border-red-600 h-1 w-full"></div>
+              {/* Dual Red Horizontal Line Divider */}
+              <img
+                src={QUOTATION_DIVIDER_BANNER}
+                alt="Red Divider"
+                className="w-full h-auto object-contain block my-2"
+              />
             </div>
 
             {/* ------------------------------------------------------------- */}
             {/* 2. SALUTATION & PREAMBLE                                      */}
             {/* ------------------------------------------------------------- */}
-            <div className="mb-2 text-slate-800 text-[11px] font-medium leading-relaxed">
+            <div className="mb-2 text-black text-[12px] font-normal leading-relaxed">
               <p className="font-bold">Dear IMOP,</p>
-              <p>
+              <p className="mt-1">
                 We thank you very much for your esteemed enquiry. We are pleased to quote our best price in the market as per the terms and conditions mentioned below.
               </p>
             </div>
 
             {/* ------------------------------------------------------------- */}
-            {/* 3. QUOTATION HEADER TABLE GRID                                */}
+            {/* 3. EXACT 8-COLUMN GRID TABLE (Matching Word XML 100%)         */}
             {/* ------------------------------------------------------------- */}
-            <div className="border border-black mb-1">
-              {/* Top QUOTATION Banner */}
-              <div className="border-b border-black text-center font-bold text-sm tracking-widest py-1 bg-white uppercase">
-                QUOTATION
-              </div>
-
-              {/* 2-Column Split: Buyer vs Quotation Metadata */}
-              <div className="grid grid-cols-2 divide-x divide-black text-[11px]">
-                {/* Left: To Buyer Address */}
-                <div className="p-2 space-y-0.5 font-bold">
-                  <div>To</div>
-                  <div className="text-slate-900 uppercase">{partyName}</div>
-                  <div className="text-slate-800 uppercase">{partyAddress}</div>
-                  <div className="text-slate-800">PINCODE:{partyPincode}</div>
-                </div>
-
-                {/* Right: Date, Ref No, Your Ref */}
-                <div className="divide-y divide-black font-bold">
-                  <div className="grid grid-cols-12 px-2 py-1">
-                    <span className="col-span-7">DATE</span>
-                    <span className="col-span-5 text-right font-normal">{docDate}</span>
-                  </div>
-                  <div className="grid grid-cols-12 px-2 py-1">
-                    <span className="col-span-7">REF.NO-QUOTATION</span>
-                    <span className="col-span-5 text-right font-normal">{docNo}</span>
-                  </div>
-                  <div className="grid grid-cols-12 px-2 py-1">
-                    <span className="col-span-7">YOURREF</span>
-                    <span className="col-span-5 text-right font-normal uppercase">{refNo}</span>
-                  </div>
-                  <div className="grid grid-cols-12 px-2 py-1">
-                    <span className="col-span-7">DATED</span>
-                    <span className="col-span-5 text-right font-normal">{docDate}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Sub-bar: Kindly Attend & Equity Acknowledgement */}
-              <div className="border-t border-black p-2 bg-slate-50/50 text-[11px] font-medium leading-tight">
-                <p className="font-bold text-slate-900">Kindly Attend</p>
-                <p className="text-slate-800 mt-0.5">
-                  We thank you very much for your esteemed equity. We are pleased to quote our best price as per teams and conditions.
-                </p>
-              </div>
-            </div>
-
-            {/* ------------------------------------------------------------- */}
-            {/* 4. ITEMS & RATES TABLE                                        */}
-            {/* ------------------------------------------------------------- */}
-            <div className="border-x border-t border-black">
+            <div className="border border-black mb-3">
               <table className="w-full border-collapse text-[11px]">
-                <thead>
-                  <tr className="bg-slate-100 font-bold border-b border-black text-slate-900">
-                    <th className="border-r border-black py-1.5 px-2 text-center w-12">SLNO.</th>
-                    <th className="border-r border-black py-1.5 px-2 text-left">PARTNAME/MODEL</th>
-                    <th className="border-r border-black py-1.5 px-2 text-center w-16">CODE</th>
-                    <th className="border-r border-black py-1.5 px-2 text-center w-14">UNIT</th>
-                    <th className="border-r border-black py-1.5 px-2 text-right w-20">QTY</th>
-                    <th className="py-1.5 px-2 text-right w-24">PRICE/Kg</th>
+                <tbody>
+                  {/* Row 0: QUOTATION Header */}
+                  <tr className="border-b border-black">
+                    <td colSpan={8} className="py-1 text-center font-bold text-sm tracking-wider uppercase bg-white">
+                      QUOTATION
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-black">
+
+                  {/* Row 1: To & Date */}
+                  <tr className="border-b border-black">
+                    <td colSpan={5} className="p-1.5 border-r border-black font-bold align-top">
+                      To
+                    </td>
+                    <td colSpan={2} className="p-1.5 border-r border-black font-bold">
+                      DATE
+                    </td>
+                    <td colSpan={1} className="p-1.5 font-normal text-right whitespace-nowrap">
+                      {docDate}
+                    </td>
+                  </tr>
+
+                  {/* Row 2: Customer Name & Ref No */}
+                  <tr className="border-b border-black">
+                    <td colSpan={5} className="p-1.5 border-r border-black font-bold uppercase text-black align-top">
+                      {partyName}
+                    </td>
+                    <td colSpan={2} className="p-1.5 border-r border-black font-bold">
+                      REF.NO-QUOTATION
+                    </td>
+                    <td colSpan={1} className="p-1.5 font-normal text-right whitespace-nowrap">
+                      {docNo}
+                    </td>
+                  </tr>
+
+                  {/* Row 3: City & Your Ref */}
+                  <tr className="border-b border-black">
+                    <td colSpan={5} className="p-1.5 border-r border-black font-bold uppercase text-black align-top">
+                      {partyAddress}
+                    </td>
+                    <td colSpan={2} className="p-1.5 border-r border-black font-bold">
+                      YOURREF
+                    </td>
+                    <td colSpan={1} className="p-1.5 font-normal text-right uppercase whitespace-nowrap">
+                      {refNo}
+                    </td>
+                  </tr>
+
+                  {/* Row 4: Pincode & Dated */}
+                  <tr className="border-b border-black">
+                    <td colSpan={5} className="p-1.5 border-r border-black font-bold text-black align-top">
+                      PINCODE:{partyPincode}
+                    </td>
+                    <td colSpan={2} className="p-1.5 border-r border-black font-bold">
+                      DATED
+                    </td>
+                    <td colSpan={1} className="p-1.5 font-normal text-right whitespace-nowrap">
+                      {docDate}
+                    </td>
+                  </tr>
+
+                  {/* Row 5: Kindly Attend */}
+                  <tr className="border-b border-black">
+                    <td colSpan={8} className="p-1.5 font-bold">
+                      Kindly Attend
+                    </td>
+                  </tr>
+
+                  {/* Row 6: Equity Acknowledgment */}
+                  <tr className="border-b border-black">
+                    <td colSpan={8} className="p-1.5 font-normal text-[11px] leading-snug">
+                      We thank you very much for your esteemed equity. We are pleased to quote our best price as per teams and conditions.
+                    </td>
+                  </tr>
+
+                  {/* Row 7: Items Table Header */}
+                  <tr className="border-b border-black font-bold text-center bg-white">
+                    <td className="p-1.5 border-r border-black w-14">SLNO.</td>
+                    <td className="p-1.5 border-r border-black text-left">PARTNAME/MODEL</td>
+                    <td className="p-1.5 border-r border-black w-16">CODE</td>
+                    <td className="p-1.5 border-r border-black w-14">UNIT</td>
+                    <td colSpan={2} className="p-1.5 border-r border-black text-right w-24">QTY</td>
+                    <td colSpan={2} className="p-1.5 text-right w-24">PRICE/Kg</td>
+                  </tr>
+
+                  {/* Rows 8 to 18: Scrap Line Items */}
                   {items.map((item) => (
-                    <tr key={item.slNo} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="border-r border-black py-1.5 px-2 text-center font-bold text-slate-700">
+                    <tr key={item.slNo} className="border-b border-black">
+                      <td className="p-1.5 border-r border-black text-center font-normal">
                         {item.slNo}
                       </td>
-                      <td className="border-r border-black py-1.5 px-2 text-left font-semibold text-slate-900">
+                      <td className="p-1.5 border-r border-black text-left font-normal">
                         {item.partName}
                       </td>
-                      <td className="border-r border-black py-1.5 px-2 text-center font-mono text-slate-800">
+                      <td className="p-1.5 border-r border-black text-center font-normal">
                         {item.code}
                       </td>
-                      <td className="border-r border-black py-1.5 px-2 text-center text-slate-800">
+                      <td className="p-1.5 border-r border-black text-center font-normal">
                         {item.unit}
                       </td>
-                      <td className="border-r border-black py-1.5 px-2 text-right font-semibold text-slate-900 whitespace-nowrap">
+                      <td colSpan={2} className="p-1.5 border-r border-black text-right font-normal whitespace-nowrap">
                         {item.qty}
                       </td>
-                      <td className="py-1.5 px-2 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
+                      <td colSpan={2} className="p-1.5 text-right font-normal whitespace-nowrap">
                         {item.pricePerKg}
                       </td>
                     </tr>
                   ))}
+
+                  {/* Row 19: Teams and Conditions Header */}
+                  <tr className="border-b border-black">
+                    <td colSpan={8} className="p-1.5 font-bold uppercase">
+                      TEAMS AND CONDITIONS:
+                    </td>
+                  </tr>
+
+                  {/* Row 20: TAX */}
+                  <tr className="border-b border-black">
+                    <td colSpan={8} className="p-1.5 font-normal">
+                      <span className="font-bold inline-block w-24">TAX</span>: Taxes Extra
+                    </td>
+                  </tr>
+
+                  {/* Row 21: PAYMENT */}
+                  <tr className="border-b border-black">
+                    <td colSpan={8} className="p-1.5 font-normal">
+                      <span className="font-bold inline-block w-24">PAYMENT</span>: Immediate
+                    </td>
+                  </tr>
+
+                  {/* Row 22: Spacer */}
+                  <tr className="h-4 border-b border-black">
+                    <td colSpan={8}></td>
+                  </tr>
+
+                  {/* Row 23: Company Name for Signature */}
+                  <tr className="border-b-0">
+                    <td colSpan={8} className="p-2 text-right font-bold text-xs uppercase pr-6">
+                      For YASHOTH ENTERPRISES
+                    </td>
+                  </tr>
+
+                  {/* Row 24: Real Seal & Real Signature Image */}
+                  <tr>
+                    <td colSpan={8} className="p-2 pr-4 text-right">
+                      <div className="inline-flex flex-col items-center">
+                        <img
+                          src={QUOTATION_STAMP_SIGNATURE}
+                          alt="Official Rubber Stamp & Proprietor Signature"
+                          className="w-48 h-auto object-contain block mb-1"
+                        />
+                        <span className="font-bold text-xs text-black block mt-1">
+                          Authorized Signature
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
                 </tbody>
               </table>
-            </div>
-
-            {/* ------------------------------------------------------------- */}
-            {/* 5. TEAMS AND CONDITIONS                                       */}
-            {/* ------------------------------------------------------------- */}
-            <div className="border border-black p-2.5 mt-0 font-bold text-[11px] space-y-1">
-              <div className="uppercase underline">TEAMS AND CONDITIONS:</div>
-              <div className="flex gap-4">
-                <span>TAX</span>
-                <span className="font-normal">: Taxes Extra</span>
-              </div>
-              <div className="flex gap-4">
-                <span>PAYMENT</span>
-                <span className="font-normal">: Immediate</span>
-              </div>
-            </div>
-
-            {/* ------------------------------------------------------------- */}
-            {/* 6. AUTHENTIC SIGNATURE & RUBBER STAMP                         */}
-            {/* ------------------------------------------------------------- */}
-            <div className="mt-4 flex justify-between items-end">
-              <div className="text-[10px] text-slate-500 max-w-xs leading-relaxed">
-                <p>This is a certified official commercial quotation from Yashoth Enterprises.</p>
-                <p className="font-mono text-[9px] text-slate-400 mt-1">Generated by YE ERP v1.0.0 Production</p>
-              </div>
-
-              {/* Right Signature Block with Authentic Stamp */}
-              <div className="flex flex-col items-center text-center">
-                <div className="font-bold text-xs uppercase tracking-wide text-slate-900 mb-1">
-                  For YASHOTH ENTERPRISES
-                </div>
-
-                {/* Real Stamp Vector Replica (Blue Ink Rubber Stamp) */}
-                <div className="relative my-1 p-2 border-2 border-blue-700 rounded-md bg-blue-50/20 shadow-xs rotate-[-2deg] flex flex-col items-center justify-center min-w-[180px] min-h-[70px]">
-                  {/* Top stamp text */}
-                  <span className="text-[11px] font-black uppercase text-blue-900 tracking-wider">
-                    For YASHOTH ENTERPRISES
-                  </span>
-
-                  {/* Cursive Handwriting Signature */}
-                  <div className="my-0.5">
-                    <svg viewBox="0 0 160 40" className="w-36 h-10 text-blue-800 stroke-current fill-none">
-                      <path
-                        d="M 10 25 C 20 10, 30 5, 35 25 C 38 35, 45 15, 55 20 C 65 25, 75 10, 85 22 C 95 30, 105 12, 115 18 C 125 22, 135 15, 145 28 C 150 32, 155 25, 158 20"
-                        strokeWidth="2.2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      <path
-                        d="M 25 28 C 40 32, 80 34, 130 31"
-                        strokeWidth="1.8"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                  </div>
-
-                  {/* Bottom stamp title */}
-                  <span className="text-[10px] font-black uppercase text-blue-900 tracking-widest">
-                    Proprietor
-                  </span>
-                </div>
-
-                {/* Subtext */}
-                <div className="font-bold text-xs text-slate-900 mt-1">
-                  Authorized Signature
-                </div>
-              </div>
             </div>
           </div>
         </div>

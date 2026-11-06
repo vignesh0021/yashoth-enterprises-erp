@@ -398,8 +398,8 @@ export const CommercialDocumentsView: React.FC = () => {
 
       {/* Document View / Print Modal */}
       {selectedDoc && selectedDoc.documentType === 'QUOTATION' ? (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
-          <div className="relative w-full max-w-4xl max-h-[94vh] overflow-y-auto rounded-2xl">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4">
+          <div className="relative w-full max-w-4xl max-h-[100dvh] sm:max-h-[94vh] overflow-y-auto rounded-none sm:rounded-2xl">
             <QuotationRenderer
               document={selectedDoc}
               company={company}

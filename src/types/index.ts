@@ -36,27 +36,50 @@ export interface AuthUser {
 
 export interface CompanySettings {
   id: string;
-  companyName: string;
+  code?: string;
+  name?: string;
+  companyName: string; // compatibility with existing views
   legalName: string;
+  tradeName?: string;
   addressLine1: string;
-  addressLine2: string;
+  addressLine2?: string;
   city: string;
   stateName: string;
   stateCode: string; // e.g. "33" for Tamil Nadu
   pincode: string;
   gstin: string;
   pan?: string;
+  cin?: string;
   phone: string;
   email: string;
   bankName: string;
   bankAccountNo: string;
-  bankBranchIfsc: string;
+  bankBranch?: string;
+  bankBranchIfsc: string; // compatibility
   invoicePrefix: string;
+  purchasePrefix?: string;
+  quotationPrefix?: string;
   defaultBaseUnit: string;
+  currency?: string;
+  isActive?: boolean;
+  isDefault?: boolean;
+  logoUrl?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Company extends CompanySettings {
+  code: string;
+  name: string;
+  bankBranch: string;
+  purchasePrefix: string;
+  currency: string;
+  isActive: boolean;
 }
 
 export interface Yard {
   id: string;
+  companyId?: string;
   code: string;
   name: string;
   locationAddress: string;
@@ -67,6 +90,7 @@ export type ScrapCategory = 'Steel' | 'Iron' | 'Aluminium' | 'Copper' | 'Brass' 
 
 export interface Material {
   id: string;
+  companyId?: string;
   code: string;
   name: string;
   category: ScrapCategory;
@@ -92,6 +116,7 @@ export type PartyType = 'SUPPLIER' | 'CUSTOMER' | 'BOTH';
 
 export interface Party {
   id: string;
+  companyId?: string;
   partyCode: string;
   legalName: string;
   tradeName?: string;
@@ -118,6 +143,7 @@ export type VerificationStatus = 'PENDING' | 'VERIFIED' | 'FLAGGED' | 'REJECTED'
 
 export interface Weighment {
   id: string;
+  companyId?: string;
   weighmentNo: string;
   weighingMethod: WeighingMethod;
   slipReference?: string;
@@ -141,6 +167,7 @@ export type CollectionStatus = 'REQUESTED' | 'ASSIGNED' | 'IN_TRANSIT' | 'WEIGHE
 
 export interface CollectionJob {
   id: string;
+  companyId?: string;
   jobNo: string;
   supplierPartyId: string;
   pickupLocation: string;
@@ -178,6 +205,7 @@ export interface PurchaseLine {
 
 export interface PurchaseHeader {
   id: string;
+  companyId?: string;
   purchaseNo: string;
   transactionDate: string;
   supplierPartyId: string;
@@ -202,6 +230,7 @@ export interface PurchaseHeader {
 
 export interface InventoryLot {
   id: string;
+  companyId?: string;
   lotNumber: string;
   materialId: string;
   gradeId?: string;
@@ -227,6 +256,7 @@ export type MovementType =
 
 export interface StockMovement {
   id: string;
+  companyId?: string;
   movementType: MovementType;
   transactionRef: string;
   materialId: string;
@@ -268,6 +298,7 @@ export interface SalesLine {
 
 export interface SalesHeader {
   id: string;
+  companyId?: string;
   salesNo: string;
   orderDate: string;
   customerPartyId: string;
@@ -302,6 +333,7 @@ export interface InvoiceLine {
 
 export interface Invoice {
   id: string;
+  companyId?: string;
   invoiceNo: string;
   invoiceDate: string;
   salesHeaderId?: string;
@@ -351,6 +383,7 @@ export interface PaymentAllocation {
 
 export interface Payment {
   id: string;
+  companyId?: string;
   paymentNo: string;
   paymentDate: string;
   direction: PaymentDirection;
@@ -380,6 +413,7 @@ export type TransactionType =
 
 export interface CashBankAccount {
   id: string;
+  companyId?: string;
   accountCode: string;
   accountName: string;
   accountType: AccountType;
@@ -393,6 +427,7 @@ export interface CashBankAccount {
 
 export interface AccountTransaction {
   id: string;
+  companyId?: string;
   accountId: string;
   transactionDate: string;
   transactionType: TransactionType;
@@ -408,6 +443,7 @@ export interface AccountTransaction {
 
 export interface Expense {
   id: string;
+  companyId?: string;
   voucherNo: string;
   expenseDate: string;
   category: string;
@@ -423,6 +459,7 @@ export interface Expense {
 
 export interface Vehicle {
   id: string;
+  companyId?: string;
   registrationNo: string;
   vehicleType: string;
   ownershipType: 'OWNED' | 'HIRED' | 'CUSTOMER_VEHICLE' | 'SUPPLIER_VEHICLE';
@@ -434,6 +471,7 @@ export interface Vehicle {
 
 export interface VehicleDocument {
   id: string;
+  companyId?: string;
   vehicleId: string;
   documentType: 'RC' | 'INSURANCE' | 'FITNESS' | 'PERMIT' | 'POLLUTION' | 'ROAD_TAX';
   documentNumber?: string;
@@ -446,6 +484,7 @@ export interface VehicleDocument {
 
 export interface Employee {
   id: string;
+  companyId?: string;
   employeeCode: string;
   fullName: string;
   designation: string;
@@ -463,6 +502,7 @@ export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'HALF_DAY' | 'LEAVE' | 'OV
 
 export interface AttendanceEntry {
   id: string;
+  companyId?: string;
   employeeId: string;
   attendanceDate: string;
   status: AttendanceStatus;
@@ -487,6 +527,7 @@ export interface StockCountLine {
 
 export interface StockCount {
   id: string;
+  companyId?: string;
   countNo: string;
   countDate: string;
   yardId: string;
@@ -500,6 +541,7 @@ export interface StockCount {
 
 export interface AuditLog {
   id: string;
+  companyId?: string;
   actorId: string;
   actorName: string;
   action: string;

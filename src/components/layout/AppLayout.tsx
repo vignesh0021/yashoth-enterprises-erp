@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useERP } from '../../context/ERPContext.tsx';
 import { UserRole } from '../../types/index.ts';
 import { AuthModal } from '../auth/AuthModal.tsx';
+import { CompanySwitcher } from '../company/CompanySwitcher.tsx';
 import { 
   LayoutDashboard, 
   ShoppingCart, 
@@ -184,22 +185,16 @@ export const AppLayout: React.FC = () => {
         {/* Top Header Bar */}
         <header className="bg-white border-b border-slate-200 px-6 py-2.5 flex items-center justify-between shadow-xs z-20">
           <div className="flex items-center gap-5 flex-1 max-w-xl">
-            {/* Top Brand Badge */}
-            <div className="flex items-center gap-3 shrink-0">
+            {/* Top Brand & Multi-Company Switcher */}
+            <div className="flex items-center gap-2.5 shrink-0">
               <div className="bg-white p-1 rounded-lg border border-slate-200 shadow-xs flex items-center justify-center">
                 <img
                   src="/yasoth-logo.png"
                   alt="Yasoth Logo"
-                  className="h-8 w-auto object-contain"
+                  className="h-7 w-auto object-contain"
                 />
               </div>
-              <div className="hidden lg:block">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-black text-xs text-slate-900 tracking-tight">YASOTH ENTERPRISES</span>
-                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-red-100 text-red-700 border border-red-200">ERP</span>
-                </div>
-                <span className="text-[10px] text-slate-500 block leading-tight font-medium">Scrap Metals & GST Billing · Gummidipoondi</span>
-              </div>
+              <CompanySwitcher />
             </div>
 
             <div className="relative w-full max-w-xs">

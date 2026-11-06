@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { 
+  Company,
   CompanySettings, 
   UserRole, 
   UserSession,
@@ -36,9 +37,16 @@ import {
   AuthorizationError,
   createSecurityAuditLog 
 } from '../../backend/business-rules/authEngine.ts';
+import {
+  validateCompanyRegistration,
+  filterByCompany,
+  assertCompanyOwnership,
+  type CompanyRegistrationInput
+} from '../../backend/business-rules/companyEngine.ts';
 
 import { 
   INITIAL_COMPANY_SETTINGS, 
+  INITIAL_COMPANIES,
   INITIAL_YARDS, 
   INITIAL_MATERIALS, 
   INITIAL_MATERIAL_GRADES, 
@@ -69,6 +77,12 @@ interface ERPContextType {
   requestPasswordRecovery: (email: string) => ReturnType<typeof authService.requestPasswordRecovery>;
   switchRole: (role: UserRole) => void;
   checkPermission: (action: PermissionAction) => boolean;
+  companies: Company[];
+  activeCompanyId: string;
+  activeCompany: Company;
+  registerCompany: (input: CompanyRegistrationInput) => Company;
+  updateCompany: (id: string, updates: Partial<Company>) => void;
+  switchCompany: (id: string) => void;
   company: CompanySettings;
   updateCompanySettings: (settings: Partial<CompanySettings>) => void;
   yards: Yard[];
@@ -178,7 +192,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const [company, setCompany] = useState<CompanySettings>(() => load('company', INITIAL_COMPANY_SETTINGS));
+  const [companies, setCompanies] = useState<Company[]>(() => {
+    const loaded = load<Company[]>('companies', []);
+    return loaded && loaded.length > 0 ? loaded : INITIAL_COMPANIES;
+  });
+  const [activeCompanyId, setActiveCompanyId] = useState<string>(() => {
+    const saved = localStorage.getItem(STORAGE_PREFIX + 'activeCompanyId');
+    return saved || 'comp-yasoth-01';
+  });
+
+  const activeCompany: Company = companies.find((c) => c.id === activeCompanyId) || companies[0] || INITIAL_COMPANY_SETTINGS;
+  const company: CompanySettings = activeCompany;
+
   const [yards, setYards] = useState<Yard[]>(() => load('yards', INITIAL_YARDS));
   const [materials, setMaterials] = useState<Material[]>(() => load('materials', INITIAL_MATERIALS));
   const [materialGrades, setMaterialGrades] = useState<MaterialGrade[]>(() => load('materialGrades', INITIAL_MATERIAL_GRADES));
@@ -207,6 +232,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Persist state updates to localStorage
   useEffect(() => {
     try {
+      localStorage.setItem(STORAGE_PREFIX + 'companies', JSON.stringify(companies));
+      localStorage.setItem(STORAGE_PREFIX + 'activeCompanyId', activeCompanyId);
       localStorage.setItem(STORAGE_PREFIX + 'company', JSON.stringify(company));
       localStorage.setItem(STORAGE_PREFIX + 'yards', JSON.stringify(yards));
       localStorage.setItem(STORAGE_PREFIX + 'materials', JSON.stringify(materials));
@@ -310,9 +337,32 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return hasPermission(currentUser.role, action);
   };
 
+  const switchCompany = (companyId: string) => {
+    const exists = companies.find((c) => c.id === companyId);
+    if (!exists) {
+      throw new Error(`Company with id "${companyId}" not found.`);
+    }
+    setActiveCompanyId(companyId);
+    setCurrentUser((prev) => ({ ...prev, companyId }));
+    logAudit('SWITCH_COMPANY', 'COMPANY', companyId, activeCompanyId, { companyId, name: exists.name });
+  };
+
+  const registerCompany = (input: CompanyRegistrationInput): Company => {
+    enforceAuthorization(currentUser, 'company:edit', activeCompanyId);
+    const newComp = validateCompanyRegistration(input, companies);
+    setCompanies((prev) => [...prev, newComp]);
+    logAudit('REGISTER_COMPANY', 'COMPANY', newComp.id, null, newComp);
+    return newComp;
+  };
+
+  const updateCompany = (id: string, updates: Partial<Company>) => {
+    enforceAuthorization(currentUser, 'company:edit', id);
+    setCompanies((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates, updatedAt: new Date().toISOString() } : c)));
+    logAudit('UPDATE_COMPANY', 'COMPANY', id, null, updates);
+  };
+
   const updateCompanySettings = (settings: Partial<CompanySettings>) => {
-    setCompany((prev) => ({ ...prev, ...settings }));
-    logAudit('UPDATE_SETTINGS', 'COMPANY', company.id, null, settings);
+    updateCompany(activeCompanyId, settings);
   };
 
   const addParty = (partyData: Omit<Party, 'id'>) => {
@@ -1042,7 +1092,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const resetToDemoData = () => {
     enforceAuthorization(currentUser, 'admin:full', company.id);
-    setCompany(INITIAL_COMPANY_SETTINGS);
+    setCompanies(INITIAL_COMPANIES);
+    setActiveCompanyId('comp-yasoth-01');
     setYards(INITIAL_YARDS);
     setMaterials(INITIAL_MATERIALS);
     setMaterialGrades(INITIAL_MATERIAL_GRADES);
@@ -1070,6 +1121,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const exportBackup = () => {
     const backup = {
       timestamp: new Date().toISOString(),
+      companies,
+      activeCompanyId,
       company,
       yards,
       materials,
@@ -1098,7 +1151,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const restoreBackup = (jsonStr: string): boolean => {
     try {
       const data = JSON.parse(jsonStr);
-      if (data.company) setCompany(data.company);
+      if (data.companies) setCompanies(data.companies);
+      if (data.activeCompanyId) setActiveCompanyId(data.activeCompanyId);
+      if (data.company && !data.companies) setCompanies([data.company]);
       if (data.yards) setYards(data.yards);
       if (data.materials) setMaterials(data.materials);
       if (data.parties) setParties(data.parties);
@@ -1135,6 +1190,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         requestPasswordRecovery,
         switchRole,
         checkPermission,
+        companies,
+        activeCompanyId,
+        activeCompany,
+        registerCompany,
+        updateCompany,
+        switchCompany,
         company,
         updateCompanySettings,
         yards,

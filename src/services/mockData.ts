@@ -2,6 +2,7 @@
 // Sourced from company letterhead and confirmed operational baseline
 
 import type { 
+  Company,
   CompanySettings, 
   Yard, 
   Material, 
@@ -24,10 +25,13 @@ import type {
   AttendanceEntry 
 } from '../types/index.ts';
 
-export const INITIAL_COMPANY_SETTINGS: CompanySettings = {
+export const INITIAL_COMPANY_SETTINGS: Company = {
   id: 'comp-yasoth-01',
+  code: 'YE-MAIN',
+  name: 'Yashoth Enterprises',
   companyName: 'YASHOTH ENTERPRISES',
   legalName: 'YASHOTH ENTERPRISES',
+  tradeName: 'Yashoth Scrap Demolition & Trading',
   addressLine1: 'NO.128/40, Dr.AMBEDKAR STREET',
   addressLine2: 'PERUVAYAL JUNCTION, KAVARAPETTAI',
   city: 'GUMMIDIPOODI, Tiruvallur',
@@ -40,10 +44,51 @@ export const INITIAL_COMPANY_SETTINGS: CompanySettings = {
   email: 'yashothenterprises2022@gmail.com',
   bankName: 'CITY UNION BANK',
   bankAccountNo: '510909010195638',
+  bankBranch: 'PONNERI',
   bankBranchIfsc: 'PONNERI & CIUB0000439',
   invoicePrefix: 'YE/',
+  purchasePrefix: 'PO/',
+  quotationPrefix: 'QT/',
   defaultBaseUnit: 'KG',
+  currency: 'INR',
+  isActive: true,
+  isDefault: true,
+  createdAt: '2024-01-01T00:00:00.000Z',
 };
+
+export const INITIAL_COMPANIES: Company[] = [
+  INITIAL_COMPANY_SETTINGS,
+  {
+    id: 'comp-yasoth-logistics',
+    code: 'YE-LOGISTICS',
+    name: 'Yashoth Logistics & Transport',
+    companyName: 'YASHOTH LOGISTICS & TRANSPORT',
+    legalName: 'YASHOTH LOGISTICS AND TRANSPORTS PRIVATE LIMITED',
+    tradeName: 'Yashoth Heavy Haulage & Demolition Logistics',
+    addressLine1: 'NO.128/40-B, Dr.AMBEDKAR STREET',
+    addressLine2: 'PERUVAYAL JUNCTION',
+    city: 'GUMMIDIPOODI, Tiruvallur',
+    stateName: 'Tamil Nadu',
+    stateCode: '33',
+    pincode: '601206',
+    gstin: '33AABCL1234F1Z1',
+    pan: 'AABCL1234F',
+    phone: '+91 94440 54321',
+    email: 'logistics@yasoth.com',
+    bankName: 'STATE BANK OF INDIA',
+    bankAccountNo: '38901234567',
+    bankBranch: 'GUMMIDIPOODI SIPCOT',
+    bankBranchIfsc: 'GUMMIDIPOODI & SBIN0001234',
+    invoicePrefix: 'YL/',
+    purchasePrefix: 'YLP/',
+    quotationPrefix: 'YLQ/',
+    defaultBaseUnit: 'KG',
+    currency: 'INR',
+    isActive: true,
+    isDefault: false,
+    createdAt: '2024-06-01T00:00:00.000Z'
+  }
+];
 
 export const INITIAL_YARDS: Yard[] = [
   {

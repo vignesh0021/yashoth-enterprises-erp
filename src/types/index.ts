@@ -553,3 +553,110 @@ export interface AuditLog {
 }
 
 export const DOMAIN_TYPE_REGISTRY = 'YE_DOMAIN_TYPES_V1';
+
+// Phase 4: Commercial Documents & Double-Entry Accounting
+export type CommercialDocType = 
+  | 'SALES_INVOICE'
+  | 'PURCHASE_INVOICE'
+  | 'QUOTATION'
+  | 'PROFORMA_INVOICE'
+  | 'CREDIT_NOTE'
+  | 'DEBIT_NOTE'
+  | 'PAYMENT_RECEIPT';
+
+export interface CommercialDocLine {
+  id: string;
+  serialNo: number;
+  materialId?: string;
+  description: string;
+  hsnSac: string;
+  quantity: number;
+  unit: string;
+  rate: number;
+  taxableValue: number;
+  gstRate: number;
+  gstAmount: number;
+  totalAmount: number;
+}
+
+export interface CommercialDocument {
+  id: string;
+  companyId: string;
+  documentType: CommercialDocType;
+  documentNo: string;
+  documentDate: string;
+  dueDate?: string;
+  referenceNo?: string;
+  originalDocumentId?: string;
+  partyId: string;
+  partyName: string;
+  partyGstin?: string;
+  partyAddress: string;
+  placeOfSupply: string;
+  stateCode: string;
+  lines: CommercialDocLine[];
+  subtotalTaxable: number;
+  cgstRate: number;
+  cgstAmount: number;
+  sgstRate: number;
+  sgstAmount: number;
+  igstRate: number;
+  igstAmount: number;
+  roundOff: number;
+  grandTotal: number;
+  amountPaid: number;
+  outstandingBalance: number;
+  status: 'DRAFT' | 'ISSUED' | 'PARTIALLY_PAID' | 'PAID' | 'CANCELLED';
+  notes?: string;
+  termsAndConditions?: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export type AccountCategory = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'INCOME' | 'EXPENSE';
+
+export interface ChartOfAccount {
+  code: string;
+  name: string;
+  category: AccountCategory;
+  normalBalance: 'DEBIT' | 'CREDIT';
+  isSystem: boolean;
+}
+
+export interface JournalLine {
+  id: string;
+  accountCode: string;
+  accountName: string;
+  debit: number;
+  credit: number;
+  partyId?: string;
+  partyName?: string;
+  lineNarration?: string;
+}
+
+export interface JournalEntry {
+  id: string;
+  companyId: string;
+  entryNo: string;
+  entryDate: string;
+  sourceType: 
+    | 'SALES_INVOICE' 
+    | 'PURCHASE_INVOICE' 
+    | 'PAYMENT' 
+    | 'CONTRA' 
+    | 'EXPENSE' 
+    | 'CREDIT_NOTE' 
+    | 'DEBIT_NOTE' 
+    | 'MANUAL'
+    | 'MANUAL_JOURNAL' 
+    | 'OPENING_BALANCE';
+  sourceId?: string;
+  referenceNo?: string;
+  narration: string;
+  lines: JournalLine[];
+  totalDebit: number;
+  totalCredit: number;
+  isPosted: boolean;
+  createdBy: string;
+  createdAt: string;
+}

@@ -8,6 +8,7 @@ import { WeighmentView } from '../modules/weighment/WeighmentView.tsx';
 import { InventoryView } from '../modules/inventory/InventoryView.tsx';
 import { SalesView } from '../modules/sales/SalesView.tsx';
 import { InvoicesView } from '../modules/invoices/InvoicesView.tsx';
+import { CommercialDocumentsView } from '../modules/documents/CommercialDocumentsView.tsx';
 import { PartiesView } from '../modules/parties/PartiesView.tsx';
 import { PaymentsView } from '../modules/payments/PaymentsView.tsx';
 import { FinanceView } from '../modules/finance/FinanceView.tsx';
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
       { path: 'inventory', element: <InventoryView /> },
       { path: 'sales', element: <SalesView /> },
       { path: 'invoices', element: <InvoicesView /> },
+      { path: 'documents', element: <CommercialDocumentsView /> },
       { path: 'parties', element: <PartiesView /> },
       { path: 'payments', element: <PaymentsView /> },
       { path: 'finance', element: <FinanceView /> },

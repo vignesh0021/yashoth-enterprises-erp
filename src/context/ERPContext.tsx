@@ -26,7 +26,11 @@ import type {
   StockCount, 
   AuditLog, 
   CollectionStatus, 
-  AttendanceStatus 
+  AttendanceStatus,
+  CommercialDocument,
+  CommercialDocType,
+  JournalEntry,
+  JournalLine
 } from '../types/index.ts';
 
 import { authService } from '../services/authService.ts';
@@ -43,6 +47,29 @@ import {
   assertCompanyOwnership,
   type CompanyRegistrationInput
 } from '../../backend/business-rules/companyEngine.ts';
+import {
+  createSalesInvoiceJournal,
+  createPurchaseInvoiceJournal,
+  createPaymentJournal,
+  createContraJournal,
+  createExpenseJournal,
+  generateGeneralLedger,
+  generateTrialBalance,
+  generateProfitAndLoss,
+  generateBalanceSheet,
+  generatePartyStatement,
+  type GeneralLedgerReport,
+  type TrialBalanceReport,
+  type ProfitAndLossReport,
+  type BalanceSheetReport,
+  type PartyStatementReport
+} from '../../backend/business-rules/accountingEngine.ts';
+import {
+  createCommercialDocument,
+  convertDocument,
+  createCreditNote,
+  createDebitNote
+} from '../../backend/business-rules/commercialDocumentEngine.ts';
 
 import { 
   INITIAL_COMPANY_SETTINGS, 
@@ -59,7 +86,9 @@ import {
   INITIAL_STOCK_MOVEMENTS, 
   INITIAL_ACCOUNT_TRANSACTIONS,
   INITIAL_INVOICES,
-  INITIAL_ATTENDANCE 
+  INITIAL_ATTENDANCE,
+  INITIAL_COMMERCIAL_DOCUMENTS,
+  INITIAL_JOURNAL_ENTRIES
 } from '../services/mockData.ts';
 
 import { postPurchaseTransaction } from '../../backend/business-rules/purchaseEngine.ts';
@@ -106,6 +135,32 @@ interface ERPContextType {
   payments: Payment[];
   stockCounts: StockCount[];
   auditLogs: AuditLog[];
+  commercialDocuments: CommercialDocument[];
+  journalEntries: JournalEntry[];
+
+  // Commercial Document Operations
+  createCommercialDoc: (params: {
+    party: Party;
+    documentType: CommercialDocType;
+    documentDate: string;
+    dueDate?: string;
+    referenceNo?: string;
+    lines: { description: string; quantity: number; unit: string; rate: number; gstRate: number; materialId?: string }[];
+    notes?: string;
+    termsAndConditions?: string;
+  }) => CommercialDocument;
+  updateCommercialDoc: (id: string, updates: Partial<CommercialDocument>) => void;
+  deleteCommercialDoc: (id: string) => { success: boolean; message?: string };
+  convertCommercialDoc: (sourceDocId: string, targetType: 'PROFORMA_INVOICE' | 'SALES_INVOICE') => CommercialDocument;
+  issueCreditNote: (invoiceId: string, reason: string, returnedLines: { description: string; quantity: number; unit: string; rate: number; gstRate: number }[]) => CommercialDocument;
+  issueDebitNote: (purchaseId: string, reason: string, debitedLines: { description: string; quantity: number; unit: string; rate: number; gstRate: number }[]) => CommercialDocument;
+
+  // Double-Entry Accounting & Financial Statements
+  getGeneralLedgerReport: (accountCode: string) => GeneralLedgerReport;
+  getTrialBalanceReport: (asOfDate?: string) => TrialBalanceReport;
+  getProfitAndLossReport: (fromDate: string, toDate: string) => ProfitAndLossReport;
+  getBalanceSheetReport: (asOfDate?: string) => BalanceSheetReport;
+  getPartyStatementReport: (partyId: string, fromDate?: string, toDate?: string) => PartyStatementReport;
 
   // Core Business Actions & CRUD
   addParty: (partyData: Omit<Party, 'id'>) => Party;
@@ -228,6 +283,14 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [payments, setPayments] = useState<Payment[]>(() => load('payments', []));
   const [stockCounts, setStockCounts] = useState<StockCount[]>(() => load('stockCounts', []));
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => load('auditLogs', []));
+  const [commercialDocuments, setCommercialDocuments] = useState<CommercialDocument[]>(() => {
+    const loaded = load<CommercialDocument[]>('commercialDocuments', []);
+    return loaded && loaded.length > 0 ? loaded : INITIAL_COMMERCIAL_DOCUMENTS;
+  });
+  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(() => {
+    const loaded = load<JournalEntry[]>('journalEntries', []);
+    return loaded && loaded.length > 0 ? loaded : INITIAL_JOURNAL_ENTRIES;
+  });
 
   // Persist state updates to localStorage
   useEffect(() => {
@@ -255,6 +318,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(STORAGE_PREFIX + 'payments', JSON.stringify(payments));
       localStorage.setItem(STORAGE_PREFIX + 'stockCounts', JSON.stringify(stockCounts));
       localStorage.setItem(STORAGE_PREFIX + 'auditLogs', JSON.stringify(auditLogs));
+      localStorage.setItem(STORAGE_PREFIX + 'commercialDocuments', JSON.stringify(commercialDocuments));
+      localStorage.setItem(STORAGE_PREFIX + 'journalEntries', JSON.stringify(journalEntries));
     } catch (e) {
       console.warn('Error saving to localStorage', e);
     }
@@ -262,7 +327,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     company, yards, materials, parties, vehicles, vehicleDocuments,
     employees, attendance, accounts, accountTransactions, expenses,
     weighments, collectionJobs, purchases, inventoryLots, stockMovements,
-    sales, invoices, payments, stockCounts, auditLogs
+    sales, invoices, payments, stockCounts, auditLogs, commercialDocuments, journalEntries
   ]);
 
   const logAudit = (action: string, entityType: string, entityId: string, oldState?: any, newState?: any) => {
@@ -567,6 +632,15 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setInventoryLots((prev) => [...result.newLots, ...prev]);
     setStockMovements((prev) => [...result.newMovements, ...prev]);
 
+    // Automatically post balanced double-entry journal
+    try {
+      const supplier = parties.find((p) => p.id === purchase.supplierPartyId);
+      const je = createPurchaseInvoiceJournal(result.updatedPurchase, supplier, activeCompany);
+      setJournalEntries((prev) => [je, ...prev]);
+    } catch (e) {
+      console.warn('Could not post journal for purchase:', e);
+    }
+
     logAudit('POST_PURCHASE', 'PURCHASE', purchaseId, purchase, result.updatedPurchase);
   };
 
@@ -649,12 +723,22 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     logAudit('DISPATCH_SALES', 'SALES_HEADER', salesId, salesOrder, result.updatedSales);
     logAudit('GENERATE_INVOICE', 'INVOICE', result.generatedInvoice.id, null, result.generatedInvoice);
 
+    // Automatically post balanced double-entry journal
+    try {
+      const je = createSalesInvoiceJournal(result.generatedInvoice, activeCompany);
+      setJournalEntries((prev) => [je, ...prev]);
+    } catch (e) {
+      console.warn('Could not post journal for sales dispatch:', e);
+    }
+
     return result.generatedInvoice;
   };
 
   const createTaxInvoice = (invoiceData: Omit<Invoice, 'id' | 'createdAt'>): Invoice => {
+    enforceAuthorization(currentUser, 'invoice:create', activeCompanyId);
     const now = new Date().toISOString();
     const newInvoice: Invoice = {
+      companyId: invoiceData.companyId || activeCompanyId,
       ...invoiceData,
       id: 'inv-' + Math.random().toString(36).substring(2, 11),
       createdAt: now,
@@ -664,6 +748,15 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setInvoices((prev) => [newInvoice, ...prev]);
     logAudit('CREATE_TAX_INVOICE', 'INVOICE', newInvoice.id, null, newInvoice);
+
+    // Automatically post balanced double-entry journal
+    try {
+      const je = createSalesInvoiceJournal(newInvoice, activeCompany);
+      setJournalEntries((prev) => [je, ...prev]);
+    } catch (e) {
+      console.warn('Could not post journal for sales invoice:', e);
+    }
+
     return newInvoice;
   };
 
@@ -696,6 +789,17 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
     }
 
+    // Automatically post balanced double-entry journal
+    try {
+      const party = parties.find((p) => p.id === params.party.id);
+      const acc = accounts.find((a) => a.id === params.account.id);
+      const accCode = acc?.accountType === 'CASH' ? '1010' : '1020';
+      const je = createPaymentJournal(result.updatedPayment, party, accCode, activeCompany);
+      setJournalEntries((prev) => [je, ...prev]);
+    } catch (e) {
+      console.warn('Could not post journal for payment:', e);
+    }
+
     logAudit('RECORD_PAYMENT', 'PAYMENT', result.updatedPayment.id, null, result.updatedPayment);
     return result.updatedPayment;
   };
@@ -720,6 +824,17 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     setAccountTransactions((prev) => [inflowTx, outflowTx, ...prev]);
+
+    // Automatically post balanced double-entry journal
+    try {
+      const srcCode = source.accountType === 'CASH' ? '1010' : '1020';
+      const dstCode = dest.accountType === 'CASH' ? '1010' : '1020';
+      const je = createContraJournal(amount, srcCode, dstCode, new Date().toISOString().split('T')[0], referenceNo, activeCompany);
+      setJournalEntries((prev) => [je, ...prev]);
+    } catch (e) {
+      console.warn('Could not post journal for contra:', e);
+    }
+
     logAudit('CONTRA_TRANSFER', 'ACCOUNT_TRANSACTION', `${sourceAccountId}->${destAccountId}`, null, {
       amount,
       referenceNo,
@@ -753,8 +868,197 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setExpenses((prev) => [newExpense, ...prev]);
     setAccountTransactions((prev) => [accountTx, ...prev]);
+
+    // Automatically post balanced double-entry journal
+    try {
+      const acc = accounts.find((a) => a.id === expenseData.accountId);
+      const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
+      const je = createExpenseJournal(newExpense, accCode, activeCompany);
+      setJournalEntries((prev) => [je, ...prev]);
+    } catch (e) {
+      console.warn('Could not post journal for expense:', e);
+    }
+
     logAudit('RECORD_EXPENSE', 'EXPENSE', newExpense.id, null, newExpense);
     return newExpense;
+  };
+
+  // Phase 4: Commercial Documents & Financial Reports Management
+  const createCommercialDoc = (params: {
+    party: Party;
+    documentType: CommercialDocType;
+    documentDate: string;
+    dueDate?: string;
+    referenceNo?: string;
+    lines: { description: string; quantity: number; unit: string; rate: number; gstRate: number; materialId?: string }[];
+    notes?: string;
+    termsAndConditions?: string;
+  }): CommercialDocument => {
+    enforceAuthorization(currentUser, 'invoice:create', activeCompanyId);
+    const count = commercialDocuments.filter((d) => d.documentType === params.documentType).length + 1;
+    const doc = createCommercialDocument({
+      company: activeCompany,
+      party: params.party,
+      documentType: params.documentType,
+      documentDate: params.documentDate,
+      dueDate: params.dueDate,
+      referenceNo: params.referenceNo,
+      lines: params.lines,
+      notes: params.notes,
+      termsAndConditions: params.termsAndConditions,
+      sequenceIndex: count,
+      createdBy: `${currentUser.fullName} (${currentUser.role})`
+    });
+    setCommercialDocuments((prev) => [doc, ...prev]);
+    logAudit('CREATE_COMMERCIAL_DOC', 'COMMERCIAL_DOC', doc.id, null, doc);
+    return doc;
+  };
+
+  const updateCommercialDoc = (id: string, updates: Partial<CommercialDocument>) => {
+    enforceAuthorization(currentUser, 'invoice:edit', activeCompanyId);
+    setCommercialDocuments((prev) => prev.map((d) => (d.id === id ? { ...d, ...updates } : d)));
+    logAudit('UPDATE_COMMERCIAL_DOC', 'COMMERCIAL_DOC', id, null, updates);
+  };
+
+  const deleteCommercialDoc = (id: string): { success: boolean; message?: string } => {
+    enforceAuthorization(currentUser, 'invoice:delete', activeCompanyId);
+    const existing = commercialDocuments.find((d) => d.id === id);
+    if (!existing) return { success: false, message: 'Document not found.' };
+    setCommercialDocuments((prev) => prev.filter((d) => d.id !== id));
+    logAudit('DELETE_COMMERCIAL_DOC', 'COMMERCIAL_DOC', id, existing, null);
+    return { success: true, message: `Document ${existing.documentNo} deleted successfully.` };
+  };
+
+  const convertCommercialDoc = (sourceDocId: string, targetType: 'PROFORMA_INVOICE' | 'SALES_INVOICE'): CommercialDocument => {
+    enforceAuthorization(currentUser, 'invoice:create', activeCompanyId);
+    const sourceDoc = commercialDocuments.find((d) => d.id === sourceDocId);
+    if (!sourceDoc) throw new Error('Source document not found');
+    const count = commercialDocuments.filter((d) => d.documentType === targetType).length + 1;
+    const converted = convertDocument(
+      sourceDoc,
+      targetType,
+      activeCompany,
+      count,
+      '26-27',
+      `${currentUser.fullName} (${currentUser.role})`
+    );
+    setCommercialDocuments((prev) => [converted, ...prev]);
+    logAudit('CONVERT_COMMERCIAL_DOC', 'COMMERCIAL_DOC', converted.id, sourceDoc, converted);
+    return converted;
+  };
+
+  const issueCreditNote = (
+    invoiceId: string,
+    reason: string,
+    returnedLines: { description: string; quantity: number; unit: string; rate: number; gstRate: number }[]
+  ): CommercialDocument => {
+    enforceAuthorization(currentUser, 'invoice:edit', activeCompanyId);
+    const inv = invoices.find((i) => i.id === invoiceId);
+    if (!inv) throw new Error('Original tax invoice not found.');
+    const party = parties.find((p) => p.id === inv.customerPartyId);
+    if (!party) throw new Error('Customer party record not found.');
+
+    const count = commercialDocuments.filter((d) => d.documentType === 'CREDIT_NOTE').length + 1;
+    const cn = createCreditNote(inv, party, activeCompany, reason, returnedLines, count, currentUser.fullName);
+    setCommercialDocuments((prev) => [cn, ...prev]);
+
+    // Generate double-entry journal reversal
+    const lines: JournalLine[] = [
+      { id: `jl-cn-dr-sales-${cn.id}`, accountCode: '4010', accountName: 'Scrap Sales Revenue', debit: cn.subtotalTaxable, credit: 0, lineNarration: `Credit Note ${cn.documentNo} sales reversal` },
+      ...(cn.cgstAmount > 0 ? [{ id: `jl-cn-dr-cgst-${cn.id}`, accountCode: '2050', accountName: 'Output Tax Liability — CGST', debit: cn.cgstAmount, credit: 0, lineNarration: `Output CGST reversal` }] : []),
+      ...(cn.sgstAmount > 0 ? [{ id: `jl-cn-dr-sgst-${cn.id}`, accountCode: '2060', accountName: 'Output Tax Liability — SGST', debit: cn.sgstAmount, credit: 0, lineNarration: `Output SGST reversal` }] : []),
+      ...(cn.igstAmount > 0 ? [{ id: `jl-cn-dr-igst-${cn.id}`, accountCode: '2070', accountName: 'Output Tax Liability — IGST', debit: cn.igstAmount, credit: 0, lineNarration: `Output IGST reversal` }] : []),
+      { id: `jl-cn-cr-ar-${cn.id}`, accountCode: '1100', accountName: 'Sundry Debtors (Customers A/R)', debit: 0, credit: cn.grandTotal, partyId: party.id, partyName: party.legalName, lineNarration: `Credit Note applied against ${inv.invoiceNo}` }
+    ];
+
+    const je: JournalEntry = {
+      id: `je-cn-${cn.id}`,
+      companyId: activeCompany.id,
+      entryNo: `JV-CN-${cn.documentNo.replace(/[^A-Za-z0-9]/g, '')}`,
+      entryDate: cn.documentDate,
+      sourceType: 'CREDIT_NOTE',
+      sourceId: cn.id,
+      referenceNo: cn.documentNo,
+      narration: `Credit Note ${cn.documentNo} for ${party.legalName} (${reason})`,
+      lines,
+      totalDebit: cn.grandTotal,
+      totalCredit: cn.grandTotal,
+      isPosted: true,
+      createdBy: currentUser.fullName,
+      createdAt: new Date().toISOString()
+    };
+    setJournalEntries((prev) => [je, ...prev]);
+    logAudit('ISSUE_CREDIT_NOTE', 'CREDIT_NOTE', cn.id, null, cn);
+    return cn;
+  };
+
+  const issueDebitNote = (
+    purchaseId: string,
+    reason: string,
+    debitedLines: { description: string; quantity: number; unit: string; rate: number; gstRate: number }[]
+  ): CommercialDocument => {
+    enforceAuthorization(currentUser, 'purchase:create', activeCompanyId);
+    const pur = purchases.find((p) => p.id === purchaseId);
+    if (!pur) throw new Error('Original purchase order not found.');
+    const party = parties.find((p) => p.id === pur.supplierPartyId);
+    if (!party) throw new Error('Supplier party record not found.');
+
+    const count = commercialDocuments.filter((d) => d.documentType === 'DEBIT_NOTE').length + 1;
+    const dn = createDebitNote(pur, party, activeCompany, reason, debitedLines, count, currentUser.fullName);
+    setCommercialDocuments((prev) => [dn, ...prev]);
+
+    // Generate double-entry journal reversal
+    const lines: JournalLine[] = [
+      { id: `jl-dn-dr-ap-${dn.id}`, accountCode: '2010', accountName: 'Sundry Creditors (Suppliers A/P)', debit: dn.grandTotal, credit: 0, partyId: party.id, partyName: party.legalName, lineNarration: `Debit Note against purchase ${pur.purchaseNo}` },
+      { id: `jl-dn-cr-pur-${dn.id}`, accountCode: '5010', accountName: 'Scrap Raw Material Purchases', debit: 0, credit: dn.subtotalTaxable, lineNarration: `Purchase return / rate reduction` },
+      ...(dn.cgstAmount > 0 ? [{ id: `jl-dn-cr-cgst-${dn.id}`, accountCode: '1150', accountName: 'Input Tax Credit — CGST', debit: 0, credit: dn.cgstAmount, lineNarration: `Input CGST reversal` }] : []),
+      ...(dn.sgstAmount > 0 ? [{ id: `jl-dn-cr-sgst-${dn.id}`, accountCode: '1160', accountName: 'Input Tax Credit — SGST', debit: 0, credit: dn.sgstAmount, lineNarration: `Input SGST reversal` }] : []),
+      ...(dn.igstAmount > 0 ? [{ id: `jl-dn-cr-igst-${dn.id}`, accountCode: '1170', accountName: 'Input Tax Credit — IGST', debit: 0, credit: dn.igstAmount, lineNarration: `Input IGST reversal` }] : [])
+    ];
+
+    const je: JournalEntry = {
+      id: `je-dn-${dn.id}`,
+      companyId: activeCompany.id,
+      entryNo: `JV-DN-${dn.documentNo.replace(/[^A-Za-z0-9]/g, '')}`,
+      entryDate: dn.documentDate,
+      sourceType: 'DEBIT_NOTE',
+      sourceId: dn.id,
+      referenceNo: dn.documentNo,
+      narration: `Debit Note ${dn.documentNo} to ${party.legalName} (${reason})`,
+      lines,
+      totalDebit: dn.grandTotal,
+      totalCredit: dn.grandTotal,
+      isPosted: true,
+      createdBy: currentUser.fullName,
+      createdAt: new Date().toISOString()
+    };
+    setJournalEntries((prev) => [je, ...prev]);
+    logAudit('ISSUE_DEBIT_NOTE', 'DEBIT_NOTE', dn.id, null, dn);
+    return dn;
+  };
+
+  const getGeneralLedgerReport = (accountCode: string) => {
+    return generateGeneralLedger(journalEntries, accountCode);
+  };
+
+  const getTrialBalanceReport = (asOfDate?: string) => {
+    return generateTrialBalance(journalEntries, asOfDate);
+  };
+
+  const getProfitAndLossReport = (fromDate: string, toDate: string) => {
+    return generateProfitAndLoss(journalEntries, fromDate, toDate);
+  };
+
+  const getBalanceSheetReport = (asOfDate: string = new Date().toISOString().split('T')[0]) => {
+    const fromYearStart = `${asOfDate.substring(0, 4)}-04-01`;
+    const pnl = generateProfitAndLoss(journalEntries, fromYearStart, asOfDate);
+    return generateBalanceSheet(journalEntries, asOfDate, pnl.netProfit);
+  };
+
+  const getPartyStatementReport = (partyId: string, fromDate?: string, toDate?: string) => {
+    const party = parties.find((p) => p.id === partyId);
+    if (!party) throw new Error(`Party with id ${partyId} not found.`);
+    return generatePartyStatement(party, journalEntries, fromDate, toDate);
   };
 
   const markAttendance = (
@@ -1115,6 +1419,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setPayments([]);
     setStockCounts([]);
     setAuditLogs([]);
+    setCommercialDocuments(INITIAL_COMMERCIAL_DOCUMENTS);
+    setJournalEntries(INITIAL_JOURNAL_ENTRIES);
     localStorage.clear();
   };
 
@@ -1144,6 +1450,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       payments,
       stockCounts,
       auditLogs,
+      commercialDocuments,
+      journalEntries,
     };
     return JSON.stringify(backup, null, 2);
   };
@@ -1174,6 +1482,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (data.payments) setPayments(data.payments);
       if (data.stockCounts) setStockCounts(data.stockCounts);
       if (data.auditLogs) setAuditLogs(data.auditLogs);
+      if (data.commercialDocuments) setCommercialDocuments(data.commercialDocuments);
+      if (data.journalEntries) setJournalEntries(data.journalEntries);
       return true;
     } catch {
       return false;
@@ -1268,6 +1578,19 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         reconcileStockCount,
         importParties,
         importOpeningStock,
+        commercialDocuments,
+        journalEntries,
+        createCommercialDoc,
+        updateCommercialDoc,
+        deleteCommercialDoc,
+        convertCommercialDoc,
+        issueCreditNote,
+        issueDebitNote,
+        getGeneralLedgerReport,
+        getTrialBalanceReport,
+        getProfitAndLossReport,
+        getBalanceSheetReport,
+        getPartyStatementReport,
         resetToDemoData,
         exportBackup,
         restoreBackup,

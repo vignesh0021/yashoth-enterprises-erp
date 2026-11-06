@@ -22,7 +22,9 @@ import type {
   AccountTransaction, 
   Expense, 
   CollectionJob, 
-  AttendanceEntry 
+  AttendanceEntry,
+  CommercialDocument,
+  JournalEntry
 } from '../types/index.ts';
 
 export const INITIAL_COMPANY_SETTINGS: Company = {
@@ -677,3 +679,145 @@ export const INITIAL_ATTENDANCE: AttendanceEntry[] = [
   { id: 'att-s-16', employeeId: 'emp-03', attendanceDate: '2026-10-16', status: 'PRESENT', overtimeHours: 0, markedBy: 'Yasoth Admin', isCorrected: false },
   { id: 'att-s-17', employeeId: 'emp-03', attendanceDate: '2026-10-17', status: 'PRESENT', overtimeHours: 0, markedBy: 'Yasoth Admin', isCorrected: false },
 ];
+
+export const INITIAL_COMMERCIAL_DOCUMENTS: CommercialDocument[] = [
+  {
+    id: 'doc-quote-01',
+    companyId: 'comp-yasoth-01',
+    documentType: 'QUOTATION',
+    documentNo: 'QT/26-27/0001',
+    documentDate: '2026-10-10',
+    dueDate: '2026-10-25',
+    partyId: 'pty-cust-01',
+    partyName: 'TEJAS STEEL',
+    partyGstin: '33ADFP06345L1ZA',
+    partyAddress: 'G.N.T ROAD, ALINJIVAKKAM, CHENNAI, Tamil Nadu - 600067',
+    placeOfSupply: 'Tamil Nadu (33)',
+    stateCode: '33',
+    lines: [
+      {
+        id: 'cdl-q-01',
+        serialNo: 1,
+        materialId: 'mat-ms-boring',
+        description: 'MS BORING SCRAP - HIGH DENSITY',
+        hsnSac: '7204',
+        quantity: 3500,
+        unit: 'KG',
+        rate: 35.50,
+        taxableValue: 124250.00,
+        gstRate: 18.0,
+        gstAmount: 22365.00,
+        totalAmount: 146615.00
+      }
+    ],
+    subtotalTaxable: 124250.00,
+    cgstRate: 9,
+    cgstAmount: 11182.50,
+    sgstRate: 9,
+    sgstAmount: 11182.50,
+    igstRate: 0,
+    igstAmount: 0,
+    roundOff: 0.00,
+    grandTotal: 146615.00,
+    amountPaid: 0,
+    outstandingBalance: 146615.00,
+    status: 'ISSUED',
+    notes: 'Official Quotation for MS Boring Scrap valid for 15 days.',
+    termsAndConditions: 'Payment terms: 100% advance or against weighbridge slip.',
+    createdBy: 'Yasoth Admin',
+    createdAt: '2026-10-10T09:00:00.000Z'
+  },
+  {
+    id: 'doc-proforma-01',
+    companyId: 'comp-yasoth-01',
+    documentType: 'PROFORMA_INVOICE',
+    documentNo: 'PI/26-27/0001',
+    documentDate: '2026-10-12',
+    dueDate: '2026-10-18',
+    partyId: 'pty-cust-01',
+    partyName: 'TEJAS STEEL',
+    partyGstin: '33ADFP06345L1ZA',
+    partyAddress: 'G.N.T ROAD, ALINJIVAKKAM, CHENNAI, Tamil Nadu - 600067',
+    placeOfSupply: 'Tamil Nadu (33)',
+    stateCode: '33',
+    lines: [
+      {
+        id: 'cdl-pi-01',
+        serialNo: 1,
+        materialId: 'mat-ms-boring',
+        description: 'M.S BORING (TMT QUALITY)',
+        hsnSac: '7204',
+        quantity: 4430,
+        unit: 'KG',
+        rate: 28.00,
+        taxableValue: 124040.00,
+        gstRate: 18.0,
+        gstAmount: 22327.20,
+        totalAmount: 146367.00
+      }
+    ],
+    subtotalTaxable: 124040.00,
+    cgstRate: 9,
+    cgstAmount: 11163.60,
+    sgstRate: 9,
+    sgstAmount: 11163.60,
+    igstRate: 0,
+    igstAmount: 0,
+    roundOff: -0.20,
+    grandTotal: 146367.00,
+    amountPaid: 0,
+    outstandingBalance: 146367.00,
+    status: 'ISSUED',
+    notes: 'Advance Proforma Invoice issued prior to dispatch.',
+    termsAndConditions: 'Proforma Invoice is non-negotiable and valid for gate delivery.',
+    createdBy: 'Yasoth Admin',
+    createdAt: '2026-10-12T11:30:00.000Z'
+  }
+];
+
+export const INITIAL_JOURNAL_ENTRIES: JournalEntry[] = [
+  // 1. Opening Cash and Bank balances (Balanced against Partner Capital)
+  {
+    id: 'je-init-01',
+    companyId: 'comp-yasoth-01',
+    entryNo: 'JV-OPENING-01',
+    entryDate: '2026-10-01',
+    sourceType: 'OPENING_BALANCE',
+    sourceId: 'OPENING',
+    narration: 'Opening financial balances for Cash on Hand and City Union Bank Account',
+    lines: [
+      { id: 'jl-op-01', accountCode: '1010', accountName: 'Cash on Hand', debit: 50000, credit: 0, lineNarration: 'Opening cash float' },
+      { id: 'jl-op-02', accountCode: '1020', accountName: 'Bank Accounts (Current/OD)', debit: 350000, credit: 0, lineNarration: 'CUB bank account balance' },
+      { id: 'jl-op-03', accountCode: '3010', accountName: 'Proprietor / Partners Capital', debit: 0, credit: 400000, lineNarration: 'Initial proprietor capital equity' }
+    ],
+    totalDebit: 400000,
+    totalCredit: 400000,
+    isPosted: true,
+    createdBy: 'system',
+    createdAt: '2026-10-01T00:00:00.000Z'
+  },
+  // 2. Double-entry posting for INVOICE_03 (matching INVOICE_03.pdf)
+  {
+    id: 'je-sal-03',
+    companyId: 'comp-yasoth-01',
+    entryNo: 'JV-SAL-03',
+    entryDate: '2026-10-15',
+    sourceType: 'SALES_INVOICE',
+    sourceId: 'inv-verified-03',
+    referenceNo: '03',
+    narration: 'Tax Invoice 03 issued to TEJAS STEEL for MS SCRAP',
+    lines: [
+      { id: 'jl-sal-01', accountCode: '1100', accountName: 'Sundry Debtors (Customers A/R)', debit: 146367.00, credit: 0, partyId: 'pty-cust-01', partyName: 'TEJAS STEEL', lineNarration: 'Tax Invoice 03 - Tejas Steel' },
+      { id: 'jl-sal-02', accountCode: '5090', accountName: 'Round-Off & Decimal Variance', debit: 0.20, credit: 0, lineNarration: 'Round-off expense adjustment' },
+      { id: 'jl-sal-03', accountCode: '4010', accountName: 'Scrap Sales Revenue', debit: 0, credit: 124040.00, lineNarration: 'Taxable scrap sales' },
+      { id: 'jl-sal-04', accountCode: '2050', accountName: 'Output Tax Liability — CGST', debit: 0, credit: 11163.60, lineNarration: 'Output CGST 9%' },
+      { id: 'jl-sal-05', accountCode: '2060', accountName: 'Output Tax Liability — SGST', debit: 0, credit: 11163.60, lineNarration: 'Output SGST 9%' }
+    ],
+    totalDebit: 146367.20,
+    totalCredit: 146367.20,
+    isPosted: true,
+    createdBy: 'Yasoth Admin',
+    createdAt: '2026-10-15T12:45:00.000Z'
+  }
+];
+

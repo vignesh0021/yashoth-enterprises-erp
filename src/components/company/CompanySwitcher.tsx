@@ -13,13 +13,23 @@ export const CompanySwitcher: React.FC = () => {
     <>
       <button
         onClick={() => setIsModalOpen(true)}
-        className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100/80 transition-all text-left shadow-2xs group"
+        className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100/80 transition-all text-left shadow-2xs group min-h-[38px]"
         title="Click to Switch Company or Manage Sister Entities"
       >
         <div className="p-1 rounded-lg bg-red-600 text-white shrink-0 group-hover:scale-105 transition-transform">
-          <Building2 className="w-3.5 h-3.5" />
+          <Building2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
         </div>
-        <div className="flex flex-col min-w-0 pr-1">
+
+        {/* Mobile Compact View (<= 640px) */}
+        <div className="sm:hidden flex items-center gap-1">
+          <span className="font-bold text-[11px] text-slate-900 truncate max-w-[70px]">
+            {activeCompany?.code || 'YE'}
+          </span>
+          <ChevronDown className="w-3 h-3 text-slate-400 group-hover:text-slate-700 transition-colors shrink-0" />
+        </div>
+
+        {/* Desktop Detailed View (> 640px) */}
+        <div className="hidden sm:flex flex-col min-w-0 pr-1">
           <div className="flex items-center gap-1.5 leading-none">
             <span className="font-bold text-xs text-slate-900 truncate max-w-[150px]">
               {activeCompany?.name || 'Yashoth Enterprises'}
@@ -32,7 +42,7 @@ export const CompanySwitcher: React.FC = () => {
             GSTIN: {activeCompany?.gstin ? activeCompany.gstin.substring(0, 7) + '...' : '33AXVPN...'}
           </span>
         </div>
-        <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-slate-700 transition-colors shrink-0" />
+        <ChevronDown className="hidden sm:block w-3.5 h-3.5 text-slate-400 group-hover:text-slate-700 transition-colors shrink-0" />
       </button>
 
       {isModalOpen && (

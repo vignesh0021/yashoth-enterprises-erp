@@ -18,6 +18,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { Modal } from '../../components/common/Modal.tsx';
+import { QuotationRenderer } from '../../components/documents/QuotationRenderer.tsx';
 
 export const CommercialDocumentsView: React.FC = () => {
   const { 
@@ -135,16 +136,60 @@ export const CommercialDocumentsView: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => {
-            setLines([{ description: 'Heavy Melting Steel Scrap (HMS 1&2)', quantity: 2.5, unit: 'TON', rate: 38000, gstRate: 18 }]);
-            setIsCreateModalOpen(true);
-          }}
-          className="flex items-center gap-1.5 px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
-        >
-          <Plus className="w-4 h-4" />
-          <span>New Commercial Document</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => {
+              const imopDoc = commercialDocuments.find(d => d.documentNo === '65-2026' || d.id === 'doc-quote-imop') || commercialDocuments.find(d => d.documentType === 'QUOTATION');
+              if (imopDoc) {
+                setSelectedDoc(imopDoc);
+              } else {
+                setSelectedDoc({
+                  id: 'doc-quote-imop-preview',
+                  companyId: company?.id || 'comp-yasoth-01',
+                  documentType: 'QUOTATION',
+                  documentNo: '65-2026',
+                  documentDate: '02-11-2026',
+                  referenceNo: 'MAIL',
+                  partyId: 'pty-cust-imop',
+                  partyName: 'M/S IMOP PVT LTD',
+                  partyAddress: 'SRICITY,ANDHRAPRADESH - 517646',
+                  placeOfSupply: 'Andhra Pradesh (37)',
+                  stateCode: '37',
+                  lines: [],
+                  subtotalTaxable: 3476000,
+                  cgstRate: 0,
+                  cgstAmount: 0,
+                  sgstRate: 0,
+                  sgstAmount: 0,
+                  igstRate: 18,
+                  igstAmount: 625680,
+                  roundOff: 0,
+                  grandTotal: 4101680,
+                  amountPaid: 0,
+                  outstandingBalance: 4101680,
+                  status: 'ISSUED',
+                  createdBy: 'P. NANDHA KUMAR',
+                  createdAt: new Date().toISOString()
+                } as any);
+              }
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[40px]"
+          >
+            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            <span>Official IMOP Quotation (1000% Replica)</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setLines([{ description: 'Machining boring scrap', quantity: 35, unit: 'ton', rate: 31000, gstRate: 18 }]);
+              setIsCreateModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[40px]"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Commercial Document</span>
+          </button>
+        </div>
       </div>
 
       {feedback && (
@@ -157,7 +202,7 @@ export const CommercialDocumentsView: React.FC = () => {
       )}
 
       {/* Filter Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs font-semibold">
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs font-semibold no-scrollbar">
         {[
           { id: 'ALL', label: 'All Documents' },
           { id: 'QUOTATION', label: 'Quotations' },
@@ -169,7 +214,7 @@ export const CommercialDocumentsView: React.FC = () => {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`px-3 py-1.5 rounded-lg border whitespace-nowrap transition-all ${
+            className={`px-3 py-2 rounded-xl border whitespace-nowrap transition-all min-h-[38px] ${
               activeTab === tab.id
                 ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
                 : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
@@ -181,8 +226,8 @@ export const CommercialDocumentsView: React.FC = () => {
       </div>
 
       {/* Search Input */}
-      <div className="flex items-center gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
-        <Search className="w-4 h-4 text-slate-400" />
+      <div className="flex items-center gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-xs">
+        <Search className="w-4 h-4 text-slate-400 shrink-0" />
         <input
           type="text"
           placeholder="Search by document number or customer / supplier name..."
@@ -192,8 +237,81 @@ export const CommercialDocumentsView: React.FC = () => {
         />
       </div>
 
-      {/* Documents Table */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      {/* Mobile Card Layout (<= 768px) */}
+      <div className="md:hidden flex flex-col gap-3">
+        {filteredDocs.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 italic bg-white rounded-xl border border-slate-200">
+            No commercial documents found matching the filter.
+          </div>
+        ) : (
+          filteredDocs.map((doc) => (
+            <div key={doc.id} className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs space-y-2.5">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-sm text-slate-900">{doc.documentNo}</span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      doc.documentType === 'QUOTATION' ? 'bg-amber-100 text-amber-800' :
+                      doc.documentType === 'PROFORMA_INVOICE' ? 'bg-blue-100 text-blue-800' :
+                      doc.documentType === 'CREDIT_NOTE' ? 'bg-purple-100 text-purple-800' :
+                      doc.documentType === 'DEBIT_NOTE' ? 'bg-orange-100 text-orange-800' :
+                      'bg-emerald-100 text-emerald-800'
+                    }`}>
+                      {doc.documentType.replace('_', ' ')}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 font-medium mt-0.5">{doc.documentDate}</p>
+                </div>
+                <div className="text-right">
+                  <span className="font-mono font-black text-sm text-slate-900 block">
+                    {formatINR(doc.grandTotal)}
+                  </span>
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 inline-block mt-0.5">
+                    {doc.status}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 text-xs">
+                <span className="text-[10px] font-bold text-slate-400 uppercase block">Party / Customer</span>
+                <span className="font-bold text-slate-800 block">{doc.partyName}</span>
+                <span className="text-[11px] text-slate-500 block truncate">{doc.partyAddress}</span>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
+                <button
+                  onClick={() => setSelectedDoc(doc)}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white rounded-lg text-xs font-bold transition-all min-h-[40px] cursor-pointer"
+                >
+                  <Eye className="w-4 h-4" />
+                  <span>{doc.documentType === 'QUOTATION' ? 'View Official Quotation' : 'View Document'}</span>
+                </button>
+
+                {doc.documentType === 'QUOTATION' && (
+                  <button
+                    onClick={() => handleConvert(doc.id, 'PROFORMA_INVOICE')}
+                    className="p-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg min-h-[40px] min-w-[40px] flex items-center justify-center cursor-pointer"
+                    title="Convert to Proforma Invoice"
+                  >
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                )}
+
+                <button
+                  onClick={() => handleDelete(doc.id)}
+                  className="p-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg min-h-[40px] min-w-[40px] flex items-center justify-center cursor-pointer"
+                  title="Delete Document"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Desktop Documents Table (> 768px) */}
+      <div className="hidden md:block bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
@@ -247,7 +365,7 @@ export const CommercialDocumentsView: React.FC = () => {
                       <div className="flex items-center justify-end gap-1.5">
                         <button
                           onClick={() => setSelectedDoc(doc)}
-                          className="p-1 hover:bg-slate-100 text-slate-600 rounded transition-colors"
+                          className="p-1 hover:bg-slate-100 text-slate-600 rounded transition-colors cursor-pointer"
                           title="View / Print Document"
                         >
                           <Eye className="w-4 h-4" />
@@ -255,7 +373,7 @@ export const CommercialDocumentsView: React.FC = () => {
                         {doc.documentType === 'QUOTATION' && (
                           <button
                             onClick={() => handleConvert(doc.id, 'PROFORMA_INVOICE')}
-                            className="p-1 hover:bg-blue-50 text-blue-600 rounded transition-colors"
+                            className="p-1 hover:bg-blue-50 text-blue-600 rounded transition-colors cursor-pointer"
                             title="Convert to Proforma Invoice"
                           >
                             <ArrowRight className="w-4 h-4" />
@@ -263,7 +381,7 @@ export const CommercialDocumentsView: React.FC = () => {
                         )}
                         <button
                           onClick={() => handleDelete(doc.id)}
-                          className="p-1 hover:bg-red-50 text-red-600 rounded transition-colors"
+                          className="p-1 hover:bg-red-50 text-red-600 rounded transition-colors cursor-pointer"
                           title="Delete Document"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -279,7 +397,17 @@ export const CommercialDocumentsView: React.FC = () => {
       </div>
 
       {/* Document View / Print Modal */}
-      {selectedDoc && (
+      {selectedDoc && selectedDoc.documentType === 'QUOTATION' ? (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
+          <div className="relative w-full max-w-4xl max-h-[94vh] overflow-y-auto rounded-2xl">
+            <QuotationRenderer
+              document={selectedDoc}
+              company={company}
+              onClose={() => setSelectedDoc(null)}
+            />
+          </div>
+        </div>
+      ) : selectedDoc && (
         <Modal
           isOpen={true}
           onClose={() => setSelectedDoc(null)}

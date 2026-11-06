@@ -6,6 +6,7 @@ import {
   Send, 
   Wallet, 
   Menu,
+  FileCheck2,
   CloudOff
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext.tsx';
@@ -17,26 +18,27 @@ interface MobileBottomNavProps {
 }
 
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ onOpenMenu, syncStatus }) => {
-  const { purchases, invoices } = useERP();
+  const { purchases, invoices, commercialDocuments } = useERP();
 
   const pendingPurchases = purchases.filter((p) => p.status === 'SUBMITTED' || p.status === 'VERIFIED').length;
   const unpaidInvoices = invoices.filter((i) => i.paymentStatus === 'UNPAID').length;
+  const quoteCount = commercialDocuments.filter(d => d.documentType === 'QUOTATION').length;
   const pendingOffline = syncStatus?.pendingCount || 0;
 
   const navItems = [
     { label: 'Home', path: '/', icon: LayoutDashboard },
     { label: 'Weighment', path: '/weighment', icon: Scale },
     { 
+      label: 'Quotes/Docs', 
+      path: '/documents', 
+      icon: FileCheck2,
+      badge: quoteCount > 0 ? quoteCount : undefined
+    },
+    { 
       label: 'Sales', 
       path: '/sales', 
       icon: Send, 
       badge: unpaidInvoices > 0 ? unpaidInvoices : undefined 
-    },
-    { 
-      label: 'Finance', 
-      path: '/finance', 
-      icon: Wallet,
-      badge: pendingPurchases > 0 ? pendingPurchases : undefined
     },
   ];
 

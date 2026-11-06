@@ -209,33 +209,33 @@ export const AppLayout: React.FC = () => {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header Bar */}
-        <header className="bg-white border-b border-slate-200 px-3 sm:px-6 py-2.5 flex items-center justify-between shadow-xs z-20 safe-top">
-          <div className="flex items-center gap-2 sm:gap-4 flex-1 min-w-0">
+        <header className="bg-white border-b border-slate-200 px-2.5 sm:px-6 h-14 flex items-center justify-between shadow-2xs z-20 safe-top">
+          <div className="flex items-center gap-1.5 sm:gap-4 flex-1 min-w-0">
             {/* Mobile Drawer Trigger (Mobile Only) */}
             <button
               onClick={() => setIsMobileDrawerOpen(true)}
-              className="md:hidden p-2 rounded-xl text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
+              className="md:hidden p-2 rounded-xl text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition-colors shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer"
               aria-label="Open Mobile Menu"
             >
               <Menu className="w-5 h-5 text-slate-800" />
             </button>
 
             {/* Top Brand & Multi-Company Switcher */}
-            <div className="flex items-center gap-2 shrink-0">
-              <div className="bg-white p-1 rounded-lg border border-slate-200 shadow-xs flex items-center justify-center shrink-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              <div className="bg-white p-1 rounded-lg border border-slate-200 shadow-2xs flex items-center justify-center shrink-0">
                 <img
                   src="/yasoth-logo.png"
                   alt="Yasoth Logo"
                   className="h-6 sm:h-7 w-auto object-contain"
                 />
               </div>
-              <div className="max-w-[140px] sm:max-w-[220px]">
+              <div className="shrink-0">
                 <CompanySwitcher />
               </div>
             </div>
 
             {/* Global Search Bar (Hidden on phone, shown on tablet/desktop) */}
-            <div className="relative w-full max-w-xs hidden sm:block">
+            <div className="relative w-full max-w-xs hidden md:block">
               <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
               <input
                 type="text"
@@ -247,12 +247,12 @@ export const AppLayout: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-3 shrink-0">
             {/* Offline / Online Status Pill with Sync Trigger */}
             <button
               onClick={handleManualSync}
               disabled={syncStatus.isSyncing || !syncStatus.isOnline}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all ${
+              className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all cursor-pointer min-h-[32px] ${
                 syncStatus.isOnline
                   ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
                   : 'bg-amber-50 text-amber-800 border-amber-300'
@@ -267,17 +267,17 @@ export const AppLayout: React.FC = () => {
             >
               {syncStatus.isOnline ? (
                 <>
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                   <span className="hidden sm:inline">Online</span>
                 </>
               ) : (
                 <>
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-                  <span>Offline</span>
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                  <span className="hidden sm:inline">Offline</span>
                 </>
               )}
               {syncStatus.pendingCount > 0 && (
-                <span className="bg-amber-500/20 text-amber-900 px-1 rounded font-mono font-black">
+                <span className="bg-amber-500/20 text-amber-900 px-1 rounded font-mono font-black text-[9px]">
                   {syncStatus.pendingCount}
                 </span>
               )}
@@ -290,21 +290,21 @@ export const AppLayout: React.FC = () => {
             <div className="hidden lg:flex items-center gap-2">
               <button
                 onClick={() => navigate('/weighment')}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
               >
                 <Scale className="w-3.5 h-3.5 text-slate-600" />
                 <span>+ Weighment</span>
               </button>
               <button
                 onClick={() => navigate('/purchases')}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>+ Purchase</span>
               </button>
               <button
                 onClick={() => navigate('/sales')}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
               >
                 <Send className="w-3.5 h-3.5" />
                 <span>+ Dispatch</span>
@@ -314,13 +314,13 @@ export const AppLayout: React.FC = () => {
             <div className="h-5 w-px bg-slate-200 hidden sm:block"></div>
 
             {/* Authenticated Identity & Role Security */}
-            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-2 sm:px-2.5 py-1">
+            <div className="flex items-center gap-1 sm:gap-2 bg-slate-50 border border-slate-200 rounded-xl px-1.5 sm:px-2.5 py-1">
               <button
                 onClick={() => setIsAuthModalOpen(true)}
-                className="flex items-center gap-2 hover:opacity-80 transition-opacity text-left cursor-pointer"
+                className="flex items-center gap-1.5 sm:gap-2 hover:opacity-80 transition-opacity text-left cursor-pointer"
                 title="Manage Identity / Switch User"
               >
-                <div className="w-7 h-7 rounded-lg bg-red-600/10 text-red-600 flex items-center justify-center font-bold text-xs border border-red-200">
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-red-600/10 text-red-600 flex items-center justify-center font-bold text-xs border border-red-200 shrink-0">
                   {currentUser.fullName ? currentUser.fullName.substring(0, 2).toUpperCase() : 'US'}
                 </div>
                 <div className="hidden sm:block">
@@ -340,7 +340,7 @@ export const AppLayout: React.FC = () => {
 
               <button
                 onClick={logout}
-                className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors ml-1 cursor-pointer"
+                className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors ml-0.5 sm:ml-1 cursor-pointer"
                 title="Sign Out of ERP"
               >
                 <LogOut className="w-3.5 h-3.5" />
@@ -350,12 +350,12 @@ export const AppLayout: React.FC = () => {
             {/* Notifications Indicator */}
             <button
               onClick={() => navigate('/')}
-              className="relative p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors cursor-pointer"
+              className="relative p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors cursor-pointer min-h-[40px] min-w-[40px] flex items-center justify-center"
               title={`${totalAlerts} Operational Alerts`}
             >
               <Bell className="w-4 h-4" />
               {totalAlerts > 0 && (
-                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
               )}
             </button>
           </div>

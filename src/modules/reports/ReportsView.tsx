@@ -36,7 +36,11 @@ export const ReportsView: React.FC = () => {
     getTrialBalanceReport,
     getProfitAndLossReport,
     getBalanceSheetReport,
-    getPartyStatementReport
+    getPartyStatementReport,
+    activeCompany,
+    exportSingleExcelWorkbook,
+    exportAllExcelWorkbooks,
+    exportConsolidatedMasterWorkbook,
   } = useERP();
 
   const [activeReport, setActiveReport] = useState<
@@ -49,6 +53,7 @@ export const ReportsView: React.FC = () => {
     | 'PURCHASE_REGISTER'
     | 'SALES_REGISTER'
     | 'AUDIT_LOG'
+    | 'EXCEL_WORKBOOKS'
   >('TRIAL_BALANCE');
 
   // Filter states
@@ -123,6 +128,7 @@ export const ReportsView: React.FC = () => {
           { id: 'PURCHASE_REGISTER', label: 'Purchase Register' },
           { id: 'SALES_REGISTER', label: 'Sales Register' },
           { id: 'AUDIT_LOG', label: 'Audit Trail' },
+          { id: 'EXCEL_WORKBOOKS', label: '📊 Excel Workbooks (.xlsx)' },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -843,6 +849,197 @@ export const ReportsView: React.FC = () => {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* 10. PHASE 6 EXCEL WORKBOOKS (.XLSX) */}
+        {activeReport === 'EXCEL_WORKBOOKS' && (
+          <div className="p-5 space-y-6">
+            {/* Header / Summary Banner */}
+            <div className="bg-gradient-to-r from-emerald-900 to-teal-900 rounded-2xl p-6 text-white shadow-md flex flex-col md:flex-row md:items-center justify-between gap-6">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Phase 6 OpenXML Engine
+                  </span>
+                  <span className="text-xs text-emerald-200">
+                    Company: <strong className="text-white">{activeCompany?.companyName || 'Yashoth Enterprises'}</strong> ({activeCompany?.code || 'YE-MAIN'})
+                  </span>
+                </div>
+                <h2 className="text-lg font-black tracking-tight flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
+                  <span>Independent & Consolidated Excel Workbooks</span>
+                </h2>
+                <p className="text-xs text-emerald-100/80 max-w-2xl leading-relaxed">
+                  Generated directly in native OpenXML (.xlsx) format. Compatible with Microsoft Excel, Google Sheets, LibreOffice Calc, and Apple Numbers. All figures strictly reconcile with posted double-entry journal entries and database records.
+                </p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  onClick={() => exportConsolidatedMasterWorkbook()}
+                  className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs shadow-sm flex items-center justify-center gap-2 transition-all active:scale-95"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Consolidated Master (.xlsx)</span>
+                </button>
+                <button
+                  onClick={() => exportAllExcelWorkbooks()}
+                  className="px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl text-xs border border-white/20 flex items-center justify-center gap-2 transition-all active:scale-95"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download All 14 Files</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Reconciliation Guarantee Notice */}
+            <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs text-emerald-900 font-semibold">
+              <div className="flex items-center gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                <span>
+                  <strong>Strict Database Reconciliation:</strong> Customer & Supplier balances, Invoice GST calculations, Inward weighments, Expense vouchers, and Double-entry Trial Balance in these files exactly match system records.
+                </span>
+              </div>
+              <span className="text-[10px] uppercase font-mono tracking-wider bg-emerald-200/60 text-emerald-800 px-2 py-0.5 rounded">
+                Multi-Company Isolated
+              </span>
+            </div>
+
+            {/* Grid of 14 Individual Workbooks */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[
+                {
+                  filename: 'Company_Profile.xlsx',
+                  title: '1. Company Profile',
+                  description: 'Legal identity, registration numbers, GSTIN, PAN, bank account details, and operational yards.',
+                  category: 'Master Data',
+                  color: 'blue',
+                },
+                {
+                  filename: 'Customers.xlsx',
+                  title: '2. Customers Register',
+                  description: 'Active buyers and foundries, GSTIN, billing state, contact details, opening & current balances.',
+                  category: 'Master Data',
+                  color: 'blue',
+                },
+                {
+                  filename: 'Suppliers.xlsx',
+                  title: '3. Suppliers Register',
+                  description: 'Scrap vendors, demolition contractors, state codes, GSTIN, and current payable balances.',
+                  category: 'Master Data',
+                  color: 'blue',
+                },
+                {
+                  filename: 'Sales_Register.xlsx',
+                  title: '4. Sales Register',
+                  description: 'All outbound dispatch orders, material grades, net weighments, rates, GST, and invoice numbers.',
+                  category: 'Registers',
+                  color: 'amber',
+                },
+                {
+                  filename: 'Purchase_Register.xlsx',
+                  title: '5. Purchase Register',
+                  description: 'Inward weighment slips, gross/tare/net weight, moisture deduction, payable weight, and vendor cost.',
+                  category: 'Registers',
+                  color: 'amber',
+                },
+                {
+                  filename: 'Invoice_Register.xlsx',
+                  title: '6. Tax Invoice Register',
+                  description: 'Sales tax invoices, itemized HSN codes, CGST, SGST, IGST tax breakdown, and payment status.',
+                  category: 'Registers',
+                  color: 'amber',
+                },
+                {
+                  filename: 'Expenses.xlsx',
+                  title: '7. Expense Register',
+                  description: 'Demolition transport, site labor, yard machinery, fuel, and operational overhead vouchers.',
+                  category: 'Registers',
+                  color: 'amber',
+                },
+                {
+                  filename: 'Payments.xlsx',
+                  title: '8. Payment Receipts & Vouchers',
+                  description: 'Inflow receipts, vendor disbursements, RTGS/NEFT/Cheque references, and party allocations.',
+                  category: 'Registers',
+                  color: 'amber',
+                },
+                {
+                  filename: 'Customer_Ledger.xlsx',
+                  title: '9. Customer Ledger',
+                  description: 'Chronological party statement with running balances, invoices, payment receipts, and balance confirmation.',
+                  category: 'Ledgers',
+                  color: 'purple',
+                },
+                {
+                  filename: 'Supplier_Ledger.xlsx',
+                  title: '10. Supplier Ledger',
+                  description: 'Vendor account statement showing purchase weighments, advance payments, and net payable balance.',
+                  category: 'Ledgers',
+                  color: 'purple',
+                },
+                {
+                  filename: 'General_Ledger.xlsx',
+                  title: '11. General Ledger',
+                  description: 'Double-entry audit trail across all standard chart of accounts with journal voucher references.',
+                  category: 'Accounting',
+                  color: 'emerald',
+                },
+                {
+                  filename: 'Trial_Balance.xlsx',
+                  title: '12. Trial Balance',
+                  description: 'Official trial balance verifying Total Debits equals Total Credits across all account classes.',
+                  category: 'Accounting',
+                  color: 'emerald',
+                },
+                {
+                  filename: 'Profit_Loss.xlsx',
+                  title: '13. Profit & Loss Statement',
+                  description: 'Operating revenues, cost of scrap goods, gross margin, administrative expenses, and net profit.',
+                  category: 'Accounting',
+                  color: 'emerald',
+                },
+                {
+                  filename: 'Balance_Sheet.xlsx',
+                  title: '14. Balance Sheet',
+                  description: 'Assets, current liabilities, and equity reconciled with net retained earnings from P&L.',
+                  category: 'Accounting',
+                  color: 'emerald',
+                },
+              ].map((item) => (
+                <div
+                  key={item.filename}
+                  className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm hover:shadow-md transition-all flex flex-col justify-between gap-3"
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                        {item.category}
+                      </span>
+                      <span className="text-[10px] font-mono text-emerald-700 font-semibold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100">
+                        .xlsx
+                      </span>
+                    </div>
+                    <h4 className="text-sm font-black text-slate-900">{item.title}</h4>
+                    <p className="text-xs text-slate-500 leading-relaxed">{item.description}</p>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-mono text-slate-400 truncate max-w-[140px]">
+                      {item.filename}
+                    </span>
+                    <button
+                      onClick={() => exportSingleExcelWorkbook(item.filename)}
+                      className="px-3 py-1.5 bg-slate-900 hover:bg-red-600 text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

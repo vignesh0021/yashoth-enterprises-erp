@@ -85,6 +85,12 @@ import {
   calculateNextScheduledRun,
   exportRegistryAsCSV
 } from '../../backend/business-rules/backupEngine.ts';
+import {
+  generateAllCompanyWorkbooks,
+  generateConsolidatedMasterWorkbook,
+  downloadWorkbookInBrowser,
+  downloadAllCompanyWorkbooksInBrowser
+} from '../../backend/business-rules/excelEngine.ts';
 import { googleDriveService } from '../services/googleDriveService.ts';
 
 import { 
@@ -258,6 +264,11 @@ interface ERPContextType {
   ) => Promise<{ success: boolean; recordsRestored: number; error?: string }>;
   updateScheduleConfig: (updates: Partial<BackupScheduleConfig>) => void;
   exportCsvRegister: (registerType: 'CUSTOMERS' | 'SUPPLIERS' | 'INVOICES' | 'PURCHASES' | 'EXPENSES' | 'STOCK') => string;
+
+  // Phase 6 Excel Workbooks
+  exportSingleExcelWorkbook: (filename: string) => void;
+  exportAllExcelWorkbooks: () => Promise<void>;
+  exportConsolidatedMasterWorkbook: () => void;
 }
 
 const ERPContext = createContext<ERPContextType | undefined>(undefined);
@@ -1820,6 +1831,33 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // Phase 6 Excel Workbooks
+  const exportSingleExcelWorkbook = (filename: string) => {
+    enforceAuthorization(currentUser, 'reports:view');
+    const currentState = getCurrentDatabasePayload();
+    const workbooks = generateAllCompanyWorkbooks(currentState, activeCompanyId);
+    const target = workbooks[filename];
+    if (target) {
+      downloadWorkbookInBrowser(target);
+      logAudit('EXCEL_WORKBOOK_EXPORTED', 'REPORT', target.filename, null, { filename });
+    }
+  };
+
+  const exportConsolidatedMasterWorkbook = () => {
+    enforceAuthorization(currentUser, 'reports:view');
+    const currentState = getCurrentDatabasePayload();
+    const target = generateConsolidatedMasterWorkbook(currentState, activeCompanyId);
+    downloadWorkbookInBrowser(target);
+    logAudit('EXCEL_CONSOLIDATED_MASTER_EXPORTED', 'REPORT', target.filename, null, { filename: target.filename });
+  };
+
+  const exportAllExcelWorkbooks = async () => {
+    enforceAuthorization(currentUser, 'reports:view');
+    const currentState = getCurrentDatabasePayload();
+    await downloadAllCompanyWorkbooksInBrowser(currentState, activeCompanyId);
+    logAudit('ALL_EXCEL_WORKBOOKS_EXPORTED', 'REPORT', activeCompanyId, null, { companyId: activeCompanyId });
+  };
+
   // Automated scheduled backup check (runs on mount and periodic 60s check when app is open)
   useEffect(() => {
     if (!backupSchedule.isEnabled || backupSchedule.frequency === 'MANUAL_ONLY' || !backupSchedule.nextRunAt) {
@@ -1962,6 +2000,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         executeSystemRestore,
         updateScheduleConfig,
         exportCsvRegister,
+        exportSingleExcelWorkbook,
+        exportAllExcelWorkbooks,
+        exportConsolidatedMasterWorkbook,
       }}
     >
       {children}

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useERP } from '../../context/ERPContext.tsx';
 import { UserRole } from '../../types/index.ts';
 import { AuthModal } from '../auth/AuthModal.tsx';
@@ -37,8 +37,21 @@ import {
   Menu,
   RefreshCw,
   Wifi,
-  WifiOff
+  WifiOff,
+  ArrowLeft,
+  Home
 } from 'lucide-react';
+
+declare global {
+  interface Window {
+    __handleAndroidBack?: () => 'HANDLED' | 'EXIT';
+    AndroidNative?: {
+      printPage?: (jobName: string) => void;
+      shareText?: (title: string, text: string) => void;
+      exitApp?: () => void;
+    };
+  }
+}
 
 export const AppLayout: React.FC = () => {
   const { 
@@ -58,7 +71,112 @@ export const AppLayout: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(() => offlineSyncService.getStatus());
+  const [exitToastVisible, setExitToastVisible] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Track in-app navigation history stack for reliable Android back-swipe & mobile Back button
+  const routeHistoryRef = useRef<string[]>([location.pathname + location.search]);
+  const isPoppingHistoryRef = useRef(false);
+  const lastBackSwipeAtRef = useRef<number>(0);
+
+  useEffect(() => {
+    const fullPath = location.pathname + location.search;
+    if (isPoppingHistoryRef.current) {
+      isPoppingHistoryRef.current = false;
+      return;
+    }
+    const stack = routeHistoryRef.current;
+    if (stack[stack.length - 1] !== fullPath) {
+      stack.push(fullPath);
+      if (stack.length > 30) stack.shift();
+    }
+  }, [location.pathname, location.search]);
+
+  // Attempt to close any active full-screen modal / preview / drawer before leaving the current page
+  const closeActiveOverlayIfOpen = useCallback((): boolean => {
+    if (isMobileDrawerOpen) {
+      setIsMobileDrawerOpen(false);
+      return true;
+    }
+    if (isAlertPopoverOpen) {
+      setIsAlertPopoverOpen(false);
+      return true;
+    }
+    if (isAuthModalOpen) {
+      setIsAuthModalOpen(false);
+      return true;
+    }
+    if (typeof document !== 'undefined') {
+      const overlays = Array.from(document.querySelectorAll('div.fixed.inset-0'));
+      for (let i = overlays.length - 1; i >= 0; i--) {
+        const overlay = overlays[i] as HTMLElement;
+        const buttons = Array.from(overlay.querySelectorAll('button'));
+        const closeBtn = buttons.find((b) => {
+          const txt = (b.textContent || '').trim().toLowerCase();
+          const label = (b.getAttribute('aria-label') || b.getAttribute('title') || '').toLowerCase();
+          return (
+            txt === '×' ||
+            txt === 'x' ||
+            txt === 'cancel' ||
+            txt === 'close' ||
+            txt.includes('close preview') ||
+            txt.includes('back to') ||
+            label.includes('close')
+          );
+        });
+        if (closeBtn) {
+          closeBtn.click();
+          return true;
+        }
+      }
+    }
+    return false;
+  }, [isMobileDrawerOpen, isAlertPopoverOpen, isAuthModalOpen]);
+
+  const handleGoBack = useCallback((): 'HANDLED' | 'EXIT' => {
+    // 1. Close any open modal, print preview, or mobile drawer first
+    if (closeActiveOverlayIfOpen()) {
+      return 'HANDLED';
+    }
+
+    // 2. Pop previous route in our navigation stack if available
+    const stack = routeHistoryRef.current;
+    if (stack.length > 1) {
+      stack.pop(); // remove current route
+      const previousRoute = stack[stack.length - 1] || '/';
+      isPoppingHistoryRef.current = true;
+      navigate(previousRoute);
+      return 'HANDLED';
+    }
+
+    // 3. If on any non-Dashboard page with empty history, return to Dashboard Home ('/')
+    if (location.pathname !== '/') {
+      routeHistoryRef.current = ['/'];
+      isPoppingHistoryRef.current = true;
+      navigate('/');
+      return 'HANDLED';
+    }
+
+    // 4. Already on Dashboard ('/'): require double back-swipe within 2.2 seconds to exit app
+    const now = Date.now();
+    if (now - lastBackSwipeAtRef.current < 2200) {
+      return 'EXIT';
+    }
+    lastBackSwipeAtRef.current = now;
+    setExitToastVisible(true);
+    window.setTimeout(() => {
+      setExitToastVisible(false);
+    }, 2200);
+    return 'HANDLED';
+  }, [closeActiveOverlayIfOpen, location.pathname, navigate]);
+
+  useEffect(() => {
+    window.__handleAndroidBack = handleGoBack;
+    return () => {
+      delete window.__handleAndroidBack;
+    };
+  }, [handleGoBack]);
 
   useEffect(() => {
     const unsubscribe = offlineSyncService.subscribe((status) => {
@@ -212,11 +330,23 @@ export const AppLayout: React.FC = () => {
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header Bar */}
         <header className="bg-white border-b border-slate-200 px-2.5 sm:px-6 h-14 flex items-center justify-between shadow-2xs z-20 safe-top">
-          <div className="flex items-center gap-1.5 sm:gap-4 flex-1 min-w-0">
+          <div className="flex items-center gap-1 sm:gap-3 flex-1 min-w-0">
+            {/* Mobile Back Button (shown whenever not on Dashboard Home) */}
+            {location.pathname !== '/' && (
+              <button
+                onClick={handleGoBack}
+                className="md:hidden p-2 rounded-xl bg-slate-100 text-slate-800 hover:bg-slate-200 active:bg-slate-300 transition-colors shrink-0 min-h-[42px] min-w-[42px] flex items-center justify-center cursor-pointer border border-slate-200"
+                aria-label="Go Back to Previous Page"
+                title="Back to Previous Page"
+              >
+                <ArrowLeft className="w-5 h-5 text-slate-900" />
+              </button>
+            )}
+
             {/* Mobile Drawer Trigger (Mobile Only) */}
             <button
               onClick={() => setIsMobileDrawerOpen(true)}
-              className="md:hidden p-2 rounded-xl text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition-colors shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer"
+              className="md:hidden p-2 rounded-xl text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition-colors shrink-0 min-h-[42px] min-w-[42px] flex items-center justify-center cursor-pointer"
               aria-label="Open Mobile Menu"
             >
               <Menu className="w-5 h-5 text-slate-800" />
@@ -446,11 +576,42 @@ export const AppLayout: React.FC = () => {
           </div>
         </header>
 
+        {/* Mobile Quick Back & Module Breadcrumb Bar (Shown on Mobile when on inner pages) */}
+        {location.pathname !== '/' && (
+          <div className="md:hidden bg-slate-900 text-white px-3 py-1.5 flex items-center justify-between border-b border-slate-800 z-10">
+            <button
+              onClick={handleGoBack}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-xs font-bold text-white transition-colors cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-red-400" />
+              <span>Back</span>
+            </button>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-300 truncate px-2">
+              {navigationItems.find((item) => item.path.split('?')[0] === location.pathname)?.name || 'Module'}
+            </span>
+            <button
+              onClick={() => navigate('/')}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-600/20 border border-red-500/30 text-red-300 hover:bg-red-600/30 text-xs font-bold transition-colors cursor-pointer"
+            >
+              <Home className="w-3.5 h-3.5" />
+              <span>Home</span>
+            </button>
+          </div>
+        )}
+
         {/* Dynamic Page Outlet with Mobile Bottom Padding */}
         <main className="flex-1 overflow-y-auto p-3 sm:p-6 pb-24 md:pb-6 scrollbar-thin">
           <Outlet />
         </main>
       </div>
+
+      {/* Double-Swipe-to-Exit Protection Toast (Mobile / Android APK) */}
+      {exitToastVisible && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 text-white px-4 py-2.5 rounded-full shadow-2xl border border-slate-700 text-xs font-bold flex items-center gap-2 whitespace-nowrap pointer-events-none">
+          <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+          <span>Swipe back again to exit Yashoth Enterprises</span>
+        </div>
+      )}
 
       {/* Mobile Bottom Navigation Bar (Hidden on desktop) */}
       <MobileBottomNav 

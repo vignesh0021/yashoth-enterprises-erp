@@ -47,6 +47,17 @@
           });
         }).catch(() => {});
       }
+      // Bridge window.print() to Android Native System Print / PDF Spooler when running inside APK
+      (function () {
+        const nativeOrigPrint = window.print ? window.print.bind(window) : null;
+        window.print = function () {
+          if (window.AndroidNative && typeof window.AndroidNative.printPage === 'function') {
+            window.AndroidNative.printPage(document.title || 'Yashoth_Enterprises_ERP');
+          } else if (nativeOrigPrint) {
+            nativeOrigPrint();
+          }
+        };
+      })();
       if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js').then((reg) => {

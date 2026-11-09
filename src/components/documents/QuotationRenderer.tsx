@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { CommercialDocument, CompanySettings } from '../../types/index.ts';
-import { Printer, ShieldCheck, ZoomIn, ZoomOut, Maximize2, Minimize2, X, ArrowRight } from 'lucide-react';
+import { Printer, ShieldCheck, ZoomIn, ZoomOut, Maximize2, Minimize2, X, ArrowRight, ArrowLeft, Share2 } from 'lucide-react';
 import {
   QUOTATION_HEADER_BANNER,
   QUOTATION_ADDRESS_BANNER,
@@ -105,7 +105,33 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
   }, [isFitToWidth]);
 
   const handlePrint = () => {
+    if (window.AndroidNative && typeof window.AndroidNative.printPage === 'function') {
+      window.AndroidNative.printPage(`${docTitle}_${docNo}`);
+      return;
+    }
     window.print();
+  };
+
+  const handleShare = () => {
+    const itemLines = items
+      .map((it) => `${it.slNo}. ${it.partName} (${it.qty}) @ ${it.pricePerKg}`)
+      .join('\n');
+    const summaryText = `*YASHOTH ENTERPRISES*\n*${docTitle}: #${docNo}*\nDate: ${docDate}\nParty: ${partyName}\n\n*Items:*\n${itemLines}\n${
+      document?.grandTotal ? `\n*Grand Total: ₹${document.grandTotal.toLocaleString('en-IN')}*\n` : ''
+    }\nAuthorized Signatory: S. YASOTHAI (Proprietor)`;
+
+    if (window.AndroidNative && typeof window.AndroidNative.shareText === 'function') {
+      window.AndroidNative.shareText(`${docTitle} #${docNo} - Yashoth Enterprises`, summaryText);
+      return;
+    }
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      navigator.share({
+        title: `${docTitle} #${docNo} - Yashoth Enterprises`,
+        text: summaryText,
+      }).catch(() => {});
+      return;
+    }
+    window.open(`https://wa.me/?text=${encodeURIComponent(summaryText)}`, '_blank', 'noopener,noreferrer');
   };
 
   const handleToggleFit = () => {
@@ -127,7 +153,18 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
       {/* Top Action Bar (hidden when printing) */}
       <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900 text-white p-2.5 sm:p-3.5 border-b border-slate-800 print:hidden">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="flex items-center gap-1 px-2.5 py-2 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-white rounded-xl text-xs font-bold transition-all cursor-pointer min-h-[40px] border border-slate-700 shrink-0"
+              aria-label="Back to Documents"
+              title="Back"
+            >
+              <ArrowLeft className="w-4 h-4 text-red-400" />
+              <span className="sm:inline">Back</span>
+            </button>
+          )}
+          <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 hidden sm:block" />
           <div className="min-w-0">
             <span className="text-xs sm:text-sm font-black uppercase tracking-wider block text-slate-100 truncate">
               {docTitle} #{docNo}
@@ -193,17 +230,27 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
           </div>
 
           <button
+            onClick={handleShare}
+            className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer min-h-[40px]"
+            title="Share via WhatsApp / Android Share"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            <span>Share</span>
+          </button>
+
+          <button
             onClick={handlePrint}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-xl text-xs font-black shadow-md shadow-red-600/30 transition-all cursor-pointer min-h-[40px]"
           >
             <Printer className="w-4 h-4" />
             <span className="hidden sm:inline">Print / PDF (A4)</span>
-            <span className="sm:hidden">Print</span>
+            <span className="sm:hidden">Print / PDF</span>
           </button>
 
           {onClose && (
             <button
               onClick={onClose}
+              data-close-modal="true"
               className="p-2 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-slate-300 rounded-xl text-xs font-semibold transition-all cursor-pointer min-h-[40px] min-w-[40px] flex items-center justify-center"
               aria-label="Close"
             >

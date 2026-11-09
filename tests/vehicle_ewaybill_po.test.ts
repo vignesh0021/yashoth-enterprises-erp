@@ -228,5 +228,22 @@ describe('Suite 12: Vehicle Insurance Alert Engine, Free Vahan RTO Lookup, GST E
       expect(cssCode).toContain('color-scheme: light');
       expect(docsViewCode).toContain('bg-white text-slate-900');
     });
+
+    it('implements Android native back-gesture navigation stack, modal close interception, and native PrintManager bridge', () => {
+      const root = process.cwd();
+      const mainActivityCode = fs.readFileSync(
+        path.join(root, 'android/app/src/main/java/com/yashothenterprises/erp/MainActivity.java'),
+        'utf-8'
+      );
+      const appLayoutCode = fs.readFileSync(path.join(root, 'src/components/layout/AppLayout.tsx'), 'utf-8');
+
+      expect(mainActivityCode).toContain('OnBackPressedCallback');
+      expect(mainActivityCode).toContain('window.__handleAndroidBack');
+      expect(mainActivityCode).toContain('PrintManager');
+      expect(mainActivityCode).toContain('shareText');
+      expect(appLayoutCode).toContain('__handleAndroidBack');
+      expect(appLayoutCode).toContain('routeHistoryRef');
+      expect(appLayoutCode).toContain('Swipe back again to exit Yashoth Enterprises');
+    });
   });
 });

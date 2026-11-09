@@ -1,0 +1,83 @@
+name: Build Yashoth Enterprises ERP Android APK
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    name: Build & Package Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Setup Java JDK 21 (Required for Capacitor 8 & Android SDK 36)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Install Dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Run Mandatory Unit Test Suite (165 Tests)
+        run: node scripts/test-runner.mjs
+
+      - name: Build Production Web Bundle & Sync Capacitor Android
+        run: |
+          pnpm build
+          pnpm exec cap sync android
+
+      - name: Grant Execute Permission for Gradlew
+        run: chmod +x android/gradlew
+
+      - name: Build Android APK (Debug Installable)
+        working-directory: ./android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Prepare Named APK Artifact
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk Yashoth-Enterprises-ERP.apk
+          ls -lh Yashoth-Enterprises-ERP.apk
+
+      - name: Upload Installable Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Yashoth-Enterprises-ERP-APK
+          path: Yashoth-Enterprises-ERP.apk
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Publish APK to GitHub Releases (Latest)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.0-latest
+          name: "Yashoth Enterprises Scrap ERP — Android APK (Latest)"
+          body: |
+            ### Yashoth Enterprises Scrap ERP (`com.yashothenterprises.erp`)
+            - **1000% Official IMOP Quotation & GST Tax Invoice Replica**
+            - **Vehicle Insurance & Vahan RTO Compliance Alert Engine**
+            - **GSTIN Verification & NIC Form GST EWB-01 (v1.03) E-Way Bill Engine**
+            - **1-Tap Quotations & Purchase Orders (PO) Builder**
+            - **Offline-First Scrap Yard Mode**
+          files: Yashoth-Enterprises-ERP.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -393,9 +393,29 @@ export const INITIAL_VEHICLE_DOCS: VehicleDocument[] = [
     documentType: 'INSURANCE',
     documentNumber: 'POL-NEWINDIA-2026-11',
     issueDate: '2025-10-25',
-    expiryDate: '2026-10-24', // Expiring in 9 days!
+    expiryDate: '2026-10-24', // Expired / Critical Alert!
     reminderDaysBefore: 15,
-    notes: 'Renewal quote requested from agent',
+    notes: 'The New India Assurance Co. Ltd. — Renewal quote requested',
+  },
+  {
+    id: 'vdoc-04',
+    vehicleId: 'veh-01',
+    documentType: 'POLLUTION',
+    documentNumber: 'PUCC-TN18-2026-8821',
+    issueDate: '2026-05-12',
+    expiryDate: '2026-11-12',
+    reminderDaysBefore: 15,
+    notes: 'BS-VI Diesel Smoke Emission Certificate',
+  },
+  {
+    id: 'vdoc-05',
+    vehicleId: 'veh-02',
+    documentType: 'PERMIT',
+    documentNumber: 'NP-TN20-2025-5502',
+    issueDate: '2025-11-20',
+    expiryDate: '2026-11-20',
+    reminderDaysBefore: 30,
+    notes: 'Tamil Nadu & Andhra Pradesh Goods Carrier Permit',
   },
 ];
 
@@ -839,6 +859,67 @@ export const INITIAL_COMMERCIAL_DOCUMENTS: CommercialDocument[] = [
     termsAndConditions: 'Proforma Invoice is non-negotiable and valid for gate delivery.',
     createdBy: 'Yasoth Admin',
     createdAt: '2026-10-12T11:30:00.000Z'
+  },
+  {
+    id: 'doc-po-01',
+    companyId: 'comp-yasoth-01',
+    documentType: 'PURCHASE_ORDER',
+    documentNo: 'PO/26-27/0001',
+    documentDate: '2026-11-05',
+    dueDate: '2026-11-20',
+    referenceNo: 'VENDOR-QUOTE-11',
+    partyId: 'pty-sup-01',
+    partyName: 'Sri Balaji Auto Forge Pvt Ltd',
+    partyGstin: '33AAACB1234D1Z2',
+    partyAddress: 'Plot 45, SIPCOT Industrial Complex, Phase 2, Gummidipoondi, Tamil Nadu - 33',
+    placeOfSupply: 'Tamil Nadu (33)',
+    stateCode: '33',
+    lines: [
+      {
+        id: 'cdl-po-01',
+        serialNo: 1,
+        materialId: 'mat-hms1',
+        description: 'HEAVY MELTING SCRAP (HMS-1) — INDUSTRIAL FORGING TRIM',
+        hsnSac: '7204',
+        quantity: 15,
+        unit: 'ton',
+        rate: 33000.00,
+        taxableValue: 495000.00,
+        gstRate: 18.0,
+        gstAmount: 89100.00,
+        totalAmount: 584100.00
+      },
+      {
+        id: 'cdl-po-02',
+        serialNo: 2,
+        materialId: 'mat-ms-boring',
+        description: 'MACHINING BORING SCRAP — DRY CNC TURNINGS',
+        hsnSac: '7204',
+        quantity: 10,
+        unit: 'ton',
+        rate: 28000.00,
+        taxableValue: 280000.00,
+        gstRate: 18.0,
+        gstAmount: 50400.00,
+        totalAmount: 330400.00
+      }
+    ],
+    subtotalTaxable: 775000.00,
+    cgstRate: 9,
+    cgstAmount: 69750.00,
+    sgstRate: 9,
+    sgstAmount: 69750.00,
+    igstRate: 0,
+    igstAmount: 0,
+    roundOff: 0.00,
+    grandTotal: 914500.00,
+    amountPaid: 0,
+    outstandingBalance: 914500.00,
+    status: 'ISSUED',
+    notes: 'Official Purchase Order for November 2026 scrap lifting schedule. Weighbridge slip mandatory.',
+    termsAndConditions: 'TAX : Taxes Extra | PAYMENT : Immediate upon Weighbridge Verification',
+    createdBy: 'Prop. P. NANDHA KUMAR',
+    createdAt: '2026-11-05T10:15:00.000Z'
   }
 ];
 

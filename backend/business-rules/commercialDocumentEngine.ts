@@ -8,6 +8,7 @@ import type { Company, Party } from '../../src/types/index.ts';
 export type CommercialDocType = 
   | 'SALES_INVOICE'
   | 'PURCHASE_INVOICE'
+  | 'PURCHASE_ORDER'
   | 'QUOTATION'
   | 'PROFORMA_INVOICE'
   | 'CREDIT_NOTE'
@@ -208,11 +209,12 @@ export function createCommercialDocument(
   // Derive prefix based on document type
   let prefix = company.invoicePrefix || 'YE/';
   if (documentType === 'QUOTATION') prefix = company.quotationPrefix || 'QT/';
+  else if (documentType === 'PURCHASE_ORDER') prefix = 'PO/';
   else if (documentType === 'PROFORMA_INVOICE') prefix = 'PI/';
   else if (documentType === 'CREDIT_NOTE') prefix = 'CN/';
   else if (documentType === 'DEBIT_NOTE') prefix = 'DN/';
   else if (documentType === 'PAYMENT_RECEIPT') prefix = 'REC/';
-  else if (documentType === 'PURCHASE_INVOICE') prefix = company.purchasePrefix || 'PO/';
+  else if (documentType === 'PURCHASE_INVOICE') prefix = company.purchasePrefix || 'PUR/';
 
   const cleanPrefix = prefix.endsWith('/') || prefix.endsWith('-') ? prefix : `${prefix}/`;
   const generatedNo = params.documentNo || `${cleanPrefix}${financialYear}/${String(sequenceIndex).padStart(4, '0')}`;
@@ -246,18 +248,18 @@ export function createCommercialDocument(
     outstandingBalance: totals.grandTotal,
     status: 'ISSUED',
     notes: params.notes,
-    termsAndConditions: params.termsAndConditions || 'Payment due within agreed terms. Goods once sold will not be taken back without prior inspection.',
+    termsAndConditions: params.termsAndConditions || 'TAX : Taxes Extra | PAYMENT : Immediate',
     createdBy: params.createdBy,
     createdAt: new Date().toISOString(),
   };
 }
 
 /**
- * Converts a Quotation into a Proforma Invoice or Sales Tax Invoice.
+ * Converts a Quotation or Purchase Order into a Proforma Invoice, Sales Invoice, or Purchase Invoice.
  */
 export function convertDocument(
   sourceDoc: CommercialDocument,
-  targetType: 'PROFORMA_INVOICE' | 'SALES_INVOICE',
+  targetType: 'PROFORMA_INVOICE' | 'SALES_INVOICE' | 'PURCHASE_INVOICE',
   company: Company,
   sequenceIndex: number,
   financialYear: string = '26-27',
@@ -267,7 +269,10 @@ export function convertDocument(
     throw new CommercialDocumentError('Cannot convert a cancelled document.');
   }
 
-  let prefix = targetType === 'PROFORMA_INVOICE' ? 'PI/' : (company.invoicePrefix || 'YE/');
+  let prefix = company.invoicePrefix || 'YE/';
+  if (targetType === 'PROFORMA_INVOICE') prefix = 'PI/';
+  else if (targetType === 'PURCHASE_INVOICE') prefix = company.purchasePrefix || 'PUR/';
+
   const cleanPrefix = prefix.endsWith('/') || prefix.endsWith('-') ? prefix : `${prefix}/`;
   const newDocNo = `${cleanPrefix}${financialYear}/${String(sequenceIndex).padStart(4, '0')}`;
 
@@ -284,6 +289,20 @@ export function convertDocument(
     createdAt: new Date().toISOString(),
   };
 }
+
+export const STANDARD_SCRAP_PRESETS: CommercialDocInputLine[] = [
+  { description: 'Machining boring scrap', hsnSac: '9997', unit: 'ton', quantity: 35, rate: 31000, gstRate: 18 },
+  { description: 'Bevelling slag', hsnSac: '9996', unit: 'ton', quantity: 20, rate: 8000, gstRate: 18 },
+  { description: 'Wooden scrap box', hsnSac: '9977', unit: 'ton', quantity: 20, rate: 2000, gstRate: 18 },
+  { description: 'RM packing cover', hsnSac: '9962', unit: 'ton', quantity: 3, rate: 3000, gstRate: 18 },
+  { description: 'Packing Steel Strip', hsnSac: '9988', unit: 'ton', quantity: 4, rate: 28000, gstRate: 18 },
+  { description: 'MS Cutting Scrap-Painted', hsnSac: '9995', unit: 'ton', quantity: 20, rate: 32000, gstRate: 18 },
+  { description: 'Commercial scrap others', hsnSac: '9954', unit: 'ton', quantity: 30, rate: 30000, gstRate: 18 },
+  { description: 'Equipment Metal Scrap', hsnSac: '9978', unit: 'ton', quantity: 10, rate: 35000, gstRate: 18 },
+  { description: 'Electrical Cables', hsnSac: '9979', unit: 'ton', quantity: 0.5, rate: 180000, gstRate: 18 },
+  { description: 'Equipment Plastic tray', hsnSac: '9929', unit: 'ton', quantity: 1, rate: 5000, gstRate: 18 },
+  { description: 'Welding Spool Bobbin (Good)', hsnSac: '9972', unit: 'nos', quantity: 5000, rate: 17, gstRate: 18 },
+];
 
 /**
  * Creates a Credit Note against an original invoice (e.g. scrap weight shortfall or agreed rate reduction).

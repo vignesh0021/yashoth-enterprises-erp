@@ -176,7 +176,7 @@ interface ERPContextType {
   }) => CommercialDocument;
   updateCommercialDoc: (id: string, updates: Partial<CommercialDocument>) => void;
   deleteCommercialDoc: (id: string) => { success: boolean; message?: string };
-  convertCommercialDoc: (sourceDocId: string, targetType: 'PROFORMA_INVOICE' | 'SALES_INVOICE') => CommercialDocument;
+  convertCommercialDoc: (sourceDocId: string, targetType: 'PROFORMA_INVOICE' | 'SALES_INVOICE' | 'PURCHASE_INVOICE') => CommercialDocument;
   issueCreditNote: (invoiceId: string, reason: string, returnedLines: { description: string; quantity: number; unit: string; rate: number; gstRate: number }[]) => CommercialDocument;
   issueDebitNote: (purchaseId: string, reason: string, debitedLines: { description: string; quantity: number; unit: string; rate: number; gstRate: number }[]) => CommercialDocument;
 
@@ -197,6 +197,10 @@ interface ERPContextType {
   addVehicle: (vehData: Omit<Vehicle, 'id'>) => Vehicle;
   updateVehicle: (id: string, updates: Partial<Vehicle>) => void;
   deleteVehicle: (id: string) => { success: boolean; message?: string };
+  addVehicleDocument: (docData: Omit<VehicleDocument, 'id'>) => VehicleDocument;
+  updateVehicleDocument: (id: string, updates: Partial<VehicleDocument>) => void;
+  deleteVehicleDocument: (id: string) => { success: boolean; message?: string };
+  renewVehicleDocument: (id: string, newExpiryDate?: string, newDocNumber?: string) => VehicleDocument | null;
   addEmployee: (empData: Omit<Employee, 'id'>) => Employee;
   updateEmployee: (id: string, updates: Partial<Employee>) => void;
   deleteEmployee: (id: string) => { success: boolean; message?: string };
@@ -616,6 +620,61 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: true, message: `Vehicle "${existing.registrationNo}" deleted successfully.` };
   };
 
+  const addVehicleDocument = (docData: Omit<VehicleDocument, 'id'>): VehicleDocument => {
+    const newDoc: VehicleDocument = {
+      ...docData,
+      companyId: docData.companyId || activeCompanyId,
+      id: 'vdoc-' + Math.random().toString(36).substring(2, 11),
+    };
+    setVehicleDocuments((prev) => [newDoc, ...prev]);
+    logAudit('ADD_VEHICLE_DOCUMENT', 'VEHICLE_DOCUMENT', newDoc.id, null, newDoc);
+    return newDoc;
+  };
+
+  const updateVehicleDocument = (id: string, updates: Partial<VehicleDocument>) => {
+    const existing = vehicleDocuments.find((d) => d.id === id);
+    if (!existing) return;
+    const updated = { ...existing, ...updates };
+    setVehicleDocuments((prev) => prev.map((d) => (d.id === id ? updated : d)));
+    logAudit('UPDATE_VEHICLE_DOCUMENT', 'VEHICLE_DOCUMENT', id, existing, updated);
+  };
+
+  const deleteVehicleDocument = (id: string): { success: boolean; message?: string } => {
+    const existing = vehicleDocuments.find((d) => d.id === id);
+    if (!existing) return { success: false, message: 'Vehicle document not found.' };
+    setVehicleDocuments((prev) => prev.filter((d) => d.id !== id));
+    logAudit('DELETE_VEHICLE_DOCUMENT', 'VEHICLE_DOCUMENT', id, existing, null);
+    return { success: true, message: `${existing.documentType} record removed.` };
+  };
+
+  const renewVehicleDocument = (
+    id: string,
+    newExpiryDate?: string,
+    newDocNumber?: string
+  ): VehicleDocument | null => {
+    const existing = vehicleDocuments.find((d) => d.id === id);
+    if (!existing) return null;
+    const todayStr = new Date().toISOString().split('T')[0];
+    const baseMs =
+      existing.expiryDate && new Date(existing.expiryDate).getTime() > Date.now()
+        ? new Date(existing.expiryDate).getTime()
+        : Date.now();
+    const daysToAdd = existing.documentType === 'POLLUTION' ? 180 : 365;
+    const computedExpiry =
+      newExpiryDate || new Date(baseMs + daysToAdd * 24 * 3600 * 1000).toISOString().split('T')[0];
+
+    const updated: VehicleDocument = {
+      ...existing,
+      issueDate: todayStr,
+      expiryDate: computedExpiry,
+      documentNumber: newDocNumber || existing.documentNumber,
+      notes: `Renewed on ${todayStr} by ${currentUser.fullName}`,
+    };
+    setVehicleDocuments((prev) => prev.map((d) => (d.id === id ? updated : d)));
+    logAudit('RENEW_VEHICLE_DOCUMENT', 'VEHICLE_DOCUMENT', id, existing, updated);
+    return updated;
+  };
+
   const addEmployee = (empData: Omit<Employee, 'id'>) => {
     const newEmp: Employee = {
       ...empData,
@@ -1006,7 +1065,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: true, message: `Document ${existing.documentNo} deleted successfully.` };
   };
 
-  const convertCommercialDoc = (sourceDocId: string, targetType: 'PROFORMA_INVOICE' | 'SALES_INVOICE'): CommercialDocument => {
+  const convertCommercialDoc = (
+    sourceDocId: string,
+    targetType: 'PROFORMA_INVOICE' | 'SALES_INVOICE' | 'PURCHASE_INVOICE'
+  ): CommercialDocument => {
     enforceAuthorization(currentUser, 'invoice:create', activeCompanyId);
     const sourceDoc = commercialDocuments.find((d) => d.id === sourceDocId);
     if (!sourceDoc) throw new Error('Source document not found');
@@ -1945,6 +2007,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addVehicle,
         updateVehicle,
         deleteVehicle,
+        addVehicleDocument,
+        updateVehicleDocument,
+        deleteVehicleDocument,
+        renewVehicleDocument,
         addEmployee,
         updateEmployee,
         deleteEmployee,

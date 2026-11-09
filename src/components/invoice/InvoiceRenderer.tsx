@@ -1,15 +1,16 @@
 import React, { useRef } from 'react';
 import { Invoice, CompanySettings } from '../../types/index.ts';
 import { formatINR, formatWeight } from '../../utils/calculations.ts';
-import { Printer, ShieldCheck } from 'lucide-react';
+import { Printer, ShieldCheck, Truck } from 'lucide-react';
 
 interface InvoiceRendererProps {
   invoice: Invoice;
   company: CompanySettings;
   onClose?: () => void;
+  onOpenEwayBill?: () => void;
 }
 
-export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({ invoice, company, onClose }) => {
+export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({ invoice, company, onClose, onOpenEwayBill }) => {
   const printRef = useRef<HTMLDivElement>(null);
 
   const handlePrint = () => {
@@ -35,10 +36,19 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({ invoice, compa
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {onOpenEwayBill && (
+            <button
+              onClick={onOpenEwayBill}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[40px]"
+            >
+              <Truck className="w-4 h-4" />
+              <span>Form GST EWB-01 / NIC JSON</span>
+            </button>
+          )}
           <button
             onClick={handlePrint}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold shadow-md shadow-red-600/30 transition-all cursor-pointer"
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-bold shadow-md shadow-red-600/30 transition-all cursor-pointer min-h-[40px]"
           >
             <Printer className="w-4 h-4" />
             <span>Print / Save as PDF (A4)</span>
@@ -46,7 +56,7 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({ invoice, compa
           {onClose && (
             <button
               onClick={onClose}
-              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition-all cursor-pointer"
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition-all cursor-pointer min-h-[40px]"
             >
               Close
             </button>
@@ -54,15 +64,21 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({ invoice, compa
         </div>
       </div>
 
-      {/* Print CSS Rules: Single A4 Sheet Print Only */}
+      {/* Print CSS Rules: Single A4 Sheet Print Only (Zero-Lag Optimized) */}
       <style dangerouslySetInnerHTML={{
         __html: `
           @media print {
+            @page {
+              size: A4 portrait;
+              margin: 5mm;
+            }
             body * {
               visibility: hidden;
             }
             #tax-invoice-single-sheet, #tax-invoice-single-sheet * {
               visibility: visible;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
             }
             #tax-invoice-single-sheet {
               position: absolute;
@@ -71,10 +87,11 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({ invoice, compa
               width: 100% !important;
               max-width: 100% !important;
               margin: 0 !important;
-              padding: 5mm !important;
+              padding: 4mm !important;
               background: white !important;
               box-shadow: none !important;
               border: 1px solid black !important;
+              transform: none !important;
               page-break-after: avoid !important;
               page-break-inside: avoid !important;
             }
@@ -103,6 +120,8 @@ export const InvoiceRenderer: React.FC<InvoiceRendererProps> = ({ invoice, compa
               <img
                 src="/yasoth-logo.png"
                 alt="Yasoth Logo"
+                decoding="sync"
+                loading="eager"
                 className="w-13 h-13 object-contain shrink-0"
                 onError={(e) => {
                   (e.target as HTMLElement).style.display = 'none';

@@ -4,6 +4,8 @@ import { Invoice, InvoiceLine, Party, Material } from '../../types/index.ts';
 import { StatusBadge } from '../../components/common/StatusBadge.tsx';
 import { Modal } from '../../components/common/Modal.tsx';
 import { InvoiceRenderer } from '../../components/invoice/InvoiceRenderer.tsx';
+import { EwayBillRenderer } from '../../components/invoice/EwayBillRenderer.tsx';
+import { verifyGstin } from '../../../backend/business-rules/ewayBillEngine.ts';
 import { 
   formatINR, 
   formatWeight, 
@@ -42,8 +44,9 @@ interface EditableInvoiceLine {
 }
 
 export const InvoicesView: React.FC = () => {
-  const { invoices, company, parties, materials, vehicles, createTaxInvoice, updateTaxInvoice, deleteTaxInvoice } = useERP();
+  const { invoices, company, parties, materials, vehicles, vehicleDocuments, createTaxInvoice, updateTaxInvoice, deleteTaxInvoice } = useERP();
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
+  const [ewayBillInvoice, setEwayBillInvoice] = useState<Invoice | null>(null);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
@@ -477,8 +480,88 @@ export const InvoicesView: React.FC = () => {
         </div>
       </div>
 
-      {/* Invoices List */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      {/* Mobile Card Layout (<= 768px) — Android-First 44px+ Touch Targets */}
+      <div className="md:hidden flex flex-col gap-3">
+        {filteredInvoices.length === 0 ? (
+          <div className="p-8 text-center text-slate-400 italic bg-white rounded-xl border border-slate-200">
+            No issued invoices found. Tap "+ Create Tax Invoice" above.
+          </div>
+        ) : (
+          filteredInvoices.map((inv) => (
+            <div key={inv.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono font-black text-sm text-slate-900">#{inv.invoiceNo}</span>
+                    <StatusBadge status={inv.paymentStatus} />
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Date: {inv.invoiceDate} · {inv.lines.length} {inv.lines.length === 1 ? 'item' : 'items'}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <span className="font-mono font-black text-sm text-slate-900 block">
+                    {formatINR(inv.grandTotal)}
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-500 block">
+                    GST: {formatINR(inv.cgstAmount + inv.sgstAmount + inv.igstAmount)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100 grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Buyer</span>
+                  <span className="font-bold text-slate-900 block truncate">{inv.customerName}</span>
+                  <span className="text-[10px] font-mono text-slate-500 block">{inv.customerGstin || 'Unregistered'}</span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Vehicle & e-Way</span>
+                  <span className="font-mono font-bold text-slate-800 block">{inv.vehicleRegistration || 'TN 05 Y 1936'}</span>
+                  <span className="text-[10px] font-mono text-emerald-700 font-semibold block">{inv.ewayBillNo || 'Ready to Generate'}</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100">
+                <button
+                  onClick={() => setSelectedInvoice(inv)}
+                  className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold min-h-[44px] cursor-pointer"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Invoice A4 / Print</span>
+                </button>
+                <button
+                  onClick={() => setEwayBillInvoice(inv)}
+                  className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold min-h-[44px] cursor-pointer"
+                >
+                  <Truck className="w-4 h-4" />
+                  <span>e-Way Bill / JSON</span>
+                </button>
+              </div>
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={() => handleOpenEditModal(inv)}
+                  className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-lg text-[11px] font-bold flex items-center gap-1 min-h-[38px] cursor-pointer"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  <span>Edit Invoice</span>
+                </button>
+                <button
+                  onClick={() => handleDeleteInvoice(inv)}
+                  className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg text-[11px] font-bold flex items-center gap-1 min-h-[38px] cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete</span>
+                </button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Desktop Invoices List (> 768px) */}
+      <div className="hidden md:block bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
@@ -535,20 +618,28 @@ export const InvoicesView: React.FC = () => {
                       <div className="flex items-center justify-end gap-1.5">
                         <button
                           onClick={() => setSelectedInvoice(inv)}
-                          className="px-2 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[10px] font-bold transition-all inline-flex items-center gap-1 shadow-xs"
+                          className="px-2 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[10px] font-bold transition-all inline-flex items-center gap-1 shadow-xs cursor-pointer"
                           title="View Tax Invoice & e-Way Bill"
                         >
                           <Eye className="w-3.5 h-3.5 text-red-400" />
                           <span>View A4</span>
                         </button>
                         <button
+                          onClick={() => setEwayBillInvoice(inv)}
+                          className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold transition-all inline-flex items-center gap-1 shadow-xs cursor-pointer"
+                          title="Generate Form GST EWB-01 & Download NIC JSON"
+                        >
+                          <Truck className="w-3.5 h-3.5" />
+                          <span>e-Way Bill</span>
+                        </button>
+                        <button
                           onClick={() => {
                             setSelectedInvoice(inv);
                             setTimeout(() => {
                               window.print();
-                            }, 300);
+                            }, 150);
                           }}
-                          className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold transition-all inline-flex items-center gap-1 shadow-xs"
+                          className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg text-[10px] font-bold transition-all inline-flex items-center gap-1 shadow-xs cursor-pointer"
                           title="Instant 1-Click Print"
                         >
                           <Printer className="w-3.5 h-3.5" />
@@ -556,14 +647,14 @@ export const InvoicesView: React.FC = () => {
                         </button>
                         <button
                           onClick={() => handleOpenEditModal(inv)}
-                          className="p-1 hover:bg-amber-50 text-amber-600 rounded transition-colors"
+                          className="p-1 hover:bg-amber-50 text-amber-600 rounded transition-colors cursor-pointer"
                           title="Edit Tax Invoice"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={() => handleDeleteInvoice(inv)}
-                          className="p-1 hover:bg-rose-50 text-rose-600 rounded transition-colors"
+                          className="p-1 hover:bg-rose-50 text-rose-600 rounded transition-colors cursor-pointer"
                           title="Delete Tax Invoice"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -654,6 +745,20 @@ export const InvoicesView: React.FC = () => {
                   className="w-full p-2 border border-slate-300 rounded-lg font-mono uppercase"
                   placeholder="33ADFP06345L1ZA"
                 />
+                {customerGstin.trim().length > 0 && (() => {
+                  const gstCheck = verifyGstin(customerGstin);
+                  return (
+                    <span className={`block text-[10px] font-bold mt-1 ${
+                      gstCheck.isChecksumValid ? 'text-emerald-700' : gstCheck.isValidFormat ? 'text-amber-700' : 'text-red-600'
+                    }`}>
+                      {gstCheck.isChecksumValid
+                        ? `✓ Verified GSTIN (${gstCheck.stateName} - ${gstCheck.stateCode} · ${gstCheck.entityTypeDescription})`
+                        : gstCheck.isValidFormat
+                        ? `⚠ Format OK (${gstCheck.stateName}) — Checksum digit mismatch`
+                        : `✕ Invalid GSTIN Format (${gstCheck.registrationStatus})`}
+                    </span>
+                  );
+                })()}
               </div>
 
               <div className="col-span-2">
@@ -1019,6 +1124,34 @@ export const InvoicesView: React.FC = () => {
             invoice={selectedInvoice}
             company={company}
             onClose={() => setSelectedInvoice(null)}
+            onOpenEwayBill={() => {
+              const inv = selectedInvoice;
+              setSelectedInvoice(null);
+              setEwayBillInvoice(inv);
+            }}
+          />
+        </Modal>
+      )}
+
+      {/* Official Form GST EWB-01 & NIC JSON Export Modal */}
+      {ewayBillInvoice && (
+        <Modal
+          isOpen={!!ewayBillInvoice}
+          onClose={() => setEwayBillInvoice(null)}
+          title={`Form GST EWB-01 (e-Way Bill) — Invoice #${ewayBillInvoice.invoiceNo}`}
+          subtitle="Official NIC e-Way Bill Slip, Vehicle Insurance & RTO Compliance Check, and NIC JSON (v1.03) Export."
+          maxWidth="6xl"
+        >
+          <EwayBillRenderer
+            invoice={ewayBillInvoice}
+            company={company}
+            vehicles={vehicles}
+            vehicleDocuments={vehicleDocuments}
+            onUpdateInvoiceEwb={(ewbNo, vehicleReg) => {
+              updateTaxInvoice(ewayBillInvoice.id, { ewayBillNo: ewbNo, vehicleRegistration: vehicleReg });
+              setEwayBillInvoice({ ...ewayBillInvoice, ewayBillNo: ewbNo, vehicleRegistration: vehicleReg });
+            }}
+            onClose={() => setEwayBillInvoice(null)}
           />
         </Modal>
       )}

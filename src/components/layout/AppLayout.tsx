@@ -54,6 +54,7 @@ export const AppLayout: React.FC = () => {
   
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
+  const [isAlertPopoverOpen, setIsAlertPopoverOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(() => offlineSyncService.getStatus());
@@ -74,12 +75,13 @@ export const AppLayout: React.FC = () => {
     });
   };
 
-  // Calculate live operational alerts count
+  // Calculate live operational alerts count (including expired and expiring vehicle insurance/RTO docs)
   const todayStr = new Date().toISOString().split('T')[0];
-  const expiringDocsCount = vehicleDocuments.filter((d) => {
+  const expiringVehicleDocs = vehicleDocuments.filter((d) => {
     const diffDays = Math.ceil((new Date(d.expiryDate).getTime() - new Date(todayStr).getTime()) / (1000 * 3600 * 24));
-    return diffDays >= 0 && diffDays <= d.reminderDaysBefore;
-  }).length;
+    return diffDays <= (d.reminderDaysBefore || 30);
+  });
+  const expiringDocsCount = expiringVehicleDocs.length;
 
   const pendingPurchasesCount = purchases.filter((p) => p.status === 'SUBMITTED' || p.status === 'VERIFIED').length;
   const unpaidInvoicesCount = invoices.filter((i) => i.paymentStatus === 'UNPAID').length;
@@ -347,17 +349,100 @@ export const AppLayout: React.FC = () => {
               </button>
             </div>
 
-            {/* Notifications Indicator */}
-            <button
-              onClick={() => navigate('/')}
-              className="relative p-2 rounded-lg text-slate-500 hover:bg-slate-100 transition-colors cursor-pointer min-h-[40px] min-w-[40px] flex items-center justify-center"
-              title={`${totalAlerts} Operational Alerts`}
-            >
-              <Bell className="w-4 h-4" />
-              {totalAlerts > 0 && (
-                <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+            {/* Notifications Indicator with Live Alert Popover */}
+            <div className="relative">
+              <button
+                onClick={() => setIsAlertPopoverOpen(!isAlertPopoverOpen)}
+                className="relative p-2 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer min-h-[42px] min-w-[42px] flex items-center justify-center"
+                title={`${totalAlerts} Operational & Fleet Alerts`}
+                aria-label="Open Operational Alerts"
+              >
+                <Bell className="w-4 h-4" />
+                {totalAlerts > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[9px] font-black animate-pulse">
+                    {totalAlerts}
+                  </span>
+                )}
+              </button>
+
+              {isAlertPopoverOpen && (
+                <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden text-xs">
+                  <div className="bg-slate-900 text-white p-3 flex items-center justify-between">
+                    <span className="font-bold uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                      <Bell className="w-3.5 h-3.5 text-amber-400" />
+                      Live Fleet & ERP Alert Center ({totalAlerts})
+                    </span>
+                    <button
+                      onClick={() => setIsAlertPopoverOpen(false)}
+                      className="text-slate-400 hover:text-white font-bold text-sm px-1 cursor-pointer"
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  <div className="p-2.5 space-y-2 max-h-80 overflow-y-auto">
+                    {/* Vehicle Insurance & RTO Compliance Alerts */}
+                    <button
+                      onClick={() => {
+                        setIsAlertPopoverOpen(false);
+                        navigate('/vehicles');
+                      }}
+                      className="w-full text-left p-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors flex items-start justify-between gap-2 cursor-pointer"
+                    >
+                      <div>
+                        <span className="font-black text-rose-900 block">
+                          Vehicle Insurance & RTO Alerts ({expiringDocsCount})
+                        </span>
+                        <span className="text-[11px] text-rose-700 block mt-0.5">
+                          {expiringDocsCount > 0
+                            ? `${expiringDocsCount} policy/permit document(s) expired or due for renewal. Tap for 1-click renewal.`
+                            : 'All fleet vehicles are 100% insured & RTO compliant.'}
+                        </span>
+                      </div>
+                      <Car className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                    </button>
+
+                    {/* Unpaid GST Invoices & e-Way Bills */}
+                    <button
+                      onClick={() => {
+                        setIsAlertPopoverOpen(false);
+                        navigate('/invoices');
+                      }}
+                      className="w-full text-left p-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors flex items-start justify-between gap-2 cursor-pointer"
+                    >
+                      <div>
+                        <span className="font-black text-amber-900 block">
+                          Unpaid GST Invoices & e-Way Bills ({unpaidInvoicesCount})
+                        </span>
+                        <span className="text-[11px] text-amber-800 block mt-0.5">
+                          Generate Form GST EWB-01 slips, download NIC JSON, or record customer receipts.
+                        </span>
+                      </div>
+                      <FileText className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    </button>
+
+                    {/* Quick Quotations & Purchase Orders */}
+                    <button
+                      onClick={() => {
+                        setIsAlertPopoverOpen(false);
+                        navigate('/documents');
+                      }}
+                      className="w-full text-left p-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors flex items-start justify-between gap-2 cursor-pointer"
+                    >
+                      <div>
+                        <span className="font-black text-indigo-900 block">
+                          Quick Quotation & Purchase Order (PO)
+                        </span>
+                        <span className="text-[11px] text-indigo-700 block mt-0.5">
+                          Create 1-tap Scrap Quotations or Purchase Orders with instant A4 print.
+                        </span>
+                      </div>
+                      <FileCheck2 className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                    </button>
+                  </div>
+                </div>
               )}
-            </button>
+            </div>
           </div>
         </header>
 

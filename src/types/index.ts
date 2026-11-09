@@ -558,6 +558,7 @@ export const DOMAIN_TYPE_REGISTRY = 'YE_DOMAIN_TYPES_V1';
 export type CommercialDocType = 
   | 'SALES_INVOICE'
   | 'PURCHASE_INVOICE'
+  | 'PURCHASE_ORDER'
   | 'QUOTATION'
   | 'PROFORMA_INVOICE'
   | 'CREDIT_NOTE'

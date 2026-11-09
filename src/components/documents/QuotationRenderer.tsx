@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { CommercialDocument, CompanySettings } from '../../types/index.ts';
-import { Printer, ShieldCheck, ZoomIn, ZoomOut, Maximize2, Minimize2, X, FileText } from 'lucide-react';
+import { Printer, ShieldCheck, ZoomIn, ZoomOut, Maximize2, Minimize2, X, ArrowRight } from 'lucide-react';
 import {
   QUOTATION_HEADER_BANNER,
   QUOTATION_ADDRESS_BANNER,
@@ -11,12 +11,13 @@ import {
 interface QuotationRendererProps {
   document?: CommercialDocument | null;
   company?: CompanySettings;
+  onConvert?: (docId: string, targetType: 'PROFORMA_INVOICE' | 'SALES_INVOICE' | 'PURCHASE_INVOICE') => void;
   onClose?: () => void;
 }
 
 export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
   document,
-  company,
+  onConvert,
   onClose
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -26,13 +27,35 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [isFitToWidth, setIsFitToWidth] = useState<boolean>(true);
 
+  const docType = document?.documentType || 'QUOTATION';
+  const isPurchaseOrder = docType === 'PURCHASE_ORDER';
+  const isProforma = docType === 'PROFORMA_INVOICE';
+
+  const docTitle = isPurchaseOrder
+    ? 'PURCHASE ORDER'
+    : isProforma
+    ? 'PROFORMA INVOICE'
+    : 'QUOTATION';
+
+  const refLabel = isPurchaseOrder
+    ? 'REF.NO-PO'
+    : isProforma
+    ? 'REF.NO-PROFORMA'
+    : 'REF.NO-QUOTATION';
+
   // Fallback / default data matching the official IMOP PVT LTD Quotation (Doc 65-2026)
   const docNo = document?.documentNo || '65-2026';
   const docDate = document?.documentDate || '02-11-2026';
   const refNo = document?.referenceNo || 'MAIL';
   const partyName = document?.partyName || 'M/S IMOP PVT LTD';
   const partyAddress = document?.partyAddress || 'SRICITY,ANDHRAPRADESH';
-  const partyPincode = '517646';
+  const pinMatch = partyAddress.match(/\b([1-9][0-9]{5})\b/);
+  const partyPincode = pinMatch ? pinMatch[1] : '517646';
+
+  const salutationName =
+    partyName === 'M/S IMOP PVT LTD' || docNo === '65-2026'
+      ? 'Dear IMOP,'
+      : `Dear ${partyName},`;
 
   // Default 11 items matching user's official quotation document (.docx)
   const defaultItems = [
@@ -100,36 +123,52 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
   };
 
   return (
-    <div className="flex flex-col gap-2 sm:gap-4 w-full bg-slate-900 rounded-2xl shadow-2xl overflow-hidden border border-slate-800">
+    <div className="flex flex-col gap-2 sm:gap-3 w-full bg-slate-900 rounded-none sm:rounded-2xl shadow-2xl overflow-hidden border border-slate-800">
       {/* Top Action Bar (hidden when printing) */}
-      <div className="flex items-center justify-between gap-2 bg-slate-900 text-white p-2.5 sm:p-3.5 border-b border-slate-800 print:hidden">
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900 text-white p-2.5 sm:p-3.5 border-b border-slate-800 print:hidden">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400 shrink-0" />
+          <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
           <div className="min-w-0">
-            <span className="text-xs sm:text-sm font-bold uppercase tracking-wider block text-slate-100 truncate">
-              Quotation #{docNo}
+            <span className="text-xs sm:text-sm font-black uppercase tracking-wider block text-slate-100 truncate">
+              {docTitle} #{docNo}
             </span>
             <span className="text-[10px] text-slate-400 hidden sm:block truncate">
-              Yashoth Enterprises · 100% Authentic Letterhead & Seal
+              Yashoth Enterprises · 100% Authentic Letterhead & Seal · Zero-Lag Print Ready
             </span>
           </div>
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 flex-wrap">
+          {document && onConvert && (docType === 'QUOTATION' || docType === 'PURCHASE_ORDER') && (
+            <button
+              onClick={() =>
+                onConvert(
+                  document.id,
+                  isPurchaseOrder ? 'PURCHASE_INVOICE' : 'SALES_INVOICE'
+                )
+              }
+              className="flex items-center gap-1 px-2.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-[11px] font-bold transition-all cursor-pointer min-h-[40px]"
+              title={isPurchaseOrder ? 'Convert PO to Purchase Invoice' : 'Convert Quotation to Sales Invoice'}
+            >
+              <ArrowRight className="w-3.5 h-3.5" />
+              <span>{isPurchaseOrder ? 'To Purchase Bill' : 'To Invoice'}</span>
+            </button>
+          )}
+
           {/* Zoom & Fit Controls */}
-          <div className="flex items-center bg-slate-800 rounded-lg p-0.5 border border-slate-700">
+          <div className="flex items-center bg-slate-800 rounded-xl p-1 border border-slate-700">
             <button
               onClick={() => {
                 setIsFitToWidth(false);
                 setZoomLevel((prev) => Math.max(0.35, prev - 0.1));
               }}
-              className="p-1 hover:bg-slate-700 rounded text-slate-300 hover:text-white"
+              className="p-1.5 hover:bg-slate-700 rounded-lg text-slate-300 hover:text-white cursor-pointer"
               title="Zoom Out"
             >
-              <ZoomOut className="w-3.5 h-3.5" />
+              <ZoomOut className="w-4 h-4" />
             </button>
-            <span className="px-1.5 text-[10px] font-mono text-slate-300">
+            <span className="px-1.5 text-[11px] font-mono font-bold text-slate-200">
               {Math.round(zoomLevel * 100)}%
             </span>
             <button
@@ -137,25 +176,25 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
                 setIsFitToWidth(false);
                 setZoomLevel((prev) => Math.min(1.4, prev + 0.1));
               }}
-              className="p-1 hover:bg-slate-700 rounded text-slate-300 hover:text-white"
+              className="p-1.5 hover:bg-slate-700 rounded-lg text-slate-300 hover:text-white cursor-pointer"
               title="Zoom In"
             >
-              <ZoomIn className="w-3.5 h-3.5" />
+              <ZoomIn className="w-4 h-4" />
             </button>
             <button
               onClick={handleToggleFit}
-              className={`p-1 rounded text-slate-300 hover:text-white ml-0.5 ${
+              className={`p-1.5 rounded-lg text-slate-300 hover:text-white ml-0.5 cursor-pointer ${
                 isFitToWidth ? 'bg-red-600 text-white font-bold' : 'hover:bg-slate-700'
               }`}
               title={isFitToWidth ? 'Fit Active (Click for 100%)' : 'Click to Fit Mobile Screen'}
             >
-              {isFitToWidth ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+              {isFitToWidth ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
             </button>
           </div>
 
           <button
             onClick={handlePrint}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-lg text-xs font-bold shadow-md shadow-red-600/30 transition-all cursor-pointer min-h-[36px]"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-red-600 hover:bg-red-500 active:bg-red-700 text-white rounded-xl text-xs font-black shadow-md shadow-red-600/30 transition-all cursor-pointer min-h-[40px]"
           >
             <Printer className="w-4 h-4" />
             <span className="hidden sm:inline">Print / PDF (A4)</span>
@@ -165,7 +204,7 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
           {onClose && (
             <button
               onClick={onClose}
-              className="p-1.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-slate-300 rounded-lg text-xs font-semibold transition-all cursor-pointer min-h-[36px] min-w-[36px] flex items-center justify-center"
+              className="p-2 bg-slate-800 hover:bg-slate-700 active:bg-slate-600 text-slate-300 rounded-xl text-xs font-semibold transition-all cursor-pointer min-h-[40px] min-w-[40px] flex items-center justify-center"
               aria-label="Close"
             >
               <X className="w-4 h-4" />
@@ -174,31 +213,46 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
         </div>
       </div>
 
-      {/* Print CSS Rules: Single A4 Sheet Print Only */}
+      {/* Zero-Lag Print CSS Rules: Removes GPU scale transforms and prints single A4 sheet instantaneously */}
       <style dangerouslySetInnerHTML={{
         __html: `
           @media print {
+            @page {
+              size: A4 portrait;
+              margin: 6mm;
+            }
+            html, body {
+              background: #ffffff !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
             body * {
               visibility: hidden !important;
+            }
+            #quotation-scale-wrapper {
+              transform: none !important;
+              width: 100% !important;
+              margin: 0 !important;
             }
             #quotation-single-sheet, #quotation-single-sheet * {
               visibility: visible !important;
             }
             #quotation-single-sheet {
-              position: absolute !important;
+              position: fixed !important;
               left: 0 !important;
               top: 0 !important;
               width: 100% !important;
               max-width: 100% !important;
+              min-height: auto !important;
               margin: 0 !important;
-              padding: 5mm 8mm !important;
+              padding: 4mm 6mm !important;
               background: white !important;
               box-shadow: none !important;
               border: none !important;
               page-break-after: avoid !important;
               page-break-inside: avoid !important;
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
             }
           }
         `
@@ -207,20 +261,21 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
       {/* Outer scrollable viewport */}
       <div
         ref={containerRef}
-        className="w-full overflow-x-auto overflow-y-auto max-h-[85vh] p-1 sm:p-4 flex justify-center bg-slate-950/60"
+        className="w-full overflow-x-auto overflow-y-auto max-h-[86vh] p-1 sm:p-4 flex justify-center bg-slate-950/60"
       >
         {/* Scaled wrapper */}
         <div
+          id="quotation-scale-wrapper"
           style={{
             transform: `scale(${zoomLevel})`,
             transformOrigin: 'top center',
             width: '794px',
             marginBottom: zoomLevel < 1 ? `calc((794px * ${1 - zoomLevel}) * -1.2)` : '0px'
           }}
-          className="transition-transform duration-100 ease-out shrink-0"
+          className="transition-transform duration-75 ease-out shrink-0"
         >
           {/* ========================================================================= */}
-          {/* EXACT 1000% OFFICIAL YASHOTH ENTERPRISES QUOTATION DOCUMENT              */}
+          {/* EXACT 1000% OFFICIAL YASHOTH ENTERPRISES QUOTATION / PO DOCUMENT         */}
           {/* ========================================================================= */}
           <div
             ref={printRef}
@@ -236,6 +291,8 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
               <img
                 src={QUOTATION_HEADER_BANNER}
                 alt="Yashoth Enterprises Letterhead & Logo"
+                decoding="sync"
+                loading="eager"
                 className="w-full h-auto object-contain block"
               />
 
@@ -243,6 +300,8 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
               <img
                 src={QUOTATION_ADDRESS_BANNER}
                 alt="Registered Address and Email"
+                decoding="sync"
+                loading="eager"
                 className="w-full h-auto object-contain block mt-1"
               />
 
@@ -250,6 +309,8 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
               <img
                 src={QUOTATION_DIVIDER_BANNER}
                 alt="Red Divider"
+                decoding="sync"
+                loading="eager"
                 className="w-full h-auto object-contain block my-2"
               />
             </div>
@@ -258,9 +319,11 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
             {/* 2. SALUTATION & PREAMBLE                                      */}
             {/* ------------------------------------------------------------- */}
             <div className="mb-2 text-black text-[12px] font-normal leading-relaxed">
-              <p className="font-bold">Dear IMOP,</p>
+              <p className="font-bold">{salutationName}</p>
               <p className="mt-1">
-                We thank you very much for your esteemed enquiry. We are pleased to quote our best price in the market as per the terms and conditions mentioned below.
+                {isPurchaseOrder
+                  ? 'We are pleased to place our official Purchase Order for the supply/lifting of the scrap materials listed below as per agreed terms and conditions.'
+                  : 'We thank you very much for your esteemed enquiry. We are pleased to quote our best price in the market as per the terms and conditions mentioned below.'}
               </p>
             </div>
 
@@ -270,10 +333,10 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
             <div className="border border-black mb-3">
               <table className="w-full border-collapse text-[11px]">
                 <tbody>
-                  {/* Row 0: QUOTATION Header */}
+                  {/* Row 0: Document Header */}
                   <tr className="border-b border-black">
                     <td colSpan={8} className="py-1 text-center font-bold text-sm tracking-wider uppercase bg-white">
-                      QUOTATION
+                      {docTitle}
                     </td>
                   </tr>
 
@@ -290,13 +353,13 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
                     </td>
                   </tr>
 
-                  {/* Row 2: Customer Name & Ref No */}
+                  {/* Row 2: Customer/Vendor Name & Ref No */}
                   <tr className="border-b border-black">
                     <td colSpan={5} className="p-1.5 border-r border-black font-bold uppercase text-black align-top">
                       {partyName}
                     </td>
                     <td colSpan={2} className="p-1.5 border-r border-black font-bold">
-                      REF.NO-QUOTATION
+                      {refLabel}
                     </td>
                     <td colSpan={1} className="p-1.5 font-normal text-right whitespace-nowrap">
                       {docNo}
@@ -339,7 +402,9 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
                   {/* Row 6: Equity Acknowledgment */}
                   <tr className="border-b border-black">
                     <td colSpan={8} className="p-1.5 font-normal text-[11px] leading-snug">
-                      We thank you very much for your esteemed equity. We are pleased to quote our best price as per teams and conditions.
+                      {isPurchaseOrder
+                        ? 'Please arrange material readiness and weighbridge verification as per terms and conditions below.'
+                        : 'We thank you very much for your esteemed equity. We are pleased to quote our best price as per teams and conditions.'}
                     </td>
                   </tr>
 
@@ -353,7 +418,7 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
                     <td colSpan={2} className="p-1.5 text-right w-24">PRICE/Kg</td>
                   </tr>
 
-                  {/* Rows 8 to 18: Scrap Line Items */}
+                  {/* Rows 8 to N: Scrap Line Items */}
                   {items.map((item) => (
                     <tr key={item.slNo} className="border-b border-black">
                       <td className="p-1.5 border-r border-black text-center font-normal">
@@ -406,7 +471,7 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
                   {/* Row 23: Company Name for Signature */}
                   <tr className="border-b-0">
                     <td colSpan={8} className="p-2 text-right font-bold text-xs uppercase pr-6">
-                      For YASHOTH ENTERPRISES
+                      FOR YASHOTH ENTERPRISES
                     </td>
                   </tr>
 
@@ -417,6 +482,8 @@ export const QuotationRenderer: React.FC<QuotationRendererProps> = ({
                         <img
                           src={QUOTATION_STAMP_SIGNATURE}
                           alt="Official Rubber Stamp & Proprietor Signature"
+                          decoding="sync"
+                          loading="eager"
                           className="w-48 h-auto object-contain block mb-1"
                         />
                         <span className="font-bold text-xs text-black block mt-1">

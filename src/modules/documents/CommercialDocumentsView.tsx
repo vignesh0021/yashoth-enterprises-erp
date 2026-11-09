@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { Modal } from '../../components/common/Modal.tsx';
 import { QuotationRenderer } from '../../components/documents/QuotationRenderer.tsx';
+import { PurchaseOrderRenderer } from '../../components/documents/PurchaseOrderRenderer.tsx';
 
 export const CommercialDocumentsView: React.FC = () => {
   const { 
@@ -232,6 +233,19 @@ export const CommercialDocumentsView: React.FC = () => {
           >
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
             <span>Official IMOP Quotation (1000% Replica)</span>
+          </button>
+
+          <button
+            onClick={() => {
+              const imopPo = commercialDocuments.find(d => d.documentNo === '059-2024' || d.id === 'doc-po-imop') || commercialDocuments.find(d => d.documentType === 'PURCHASE_ORDER');
+              if (imopPo) {
+                setSelectedDoc(imopPo);
+              }
+            }}
+            className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[44px] border border-slate-700"
+          >
+            <ShieldCheck className="w-4 h-4 text-indigo-400" />
+            <span>Official IMOP PO (1000% Replica)</span>
           </button>
         </div>
       </div>
@@ -478,12 +492,24 @@ export const CommercialDocumentsView: React.FC = () => {
       </div>
 
       {/* Document View / Print Modal */}
-      {selectedDoc && isLetterheadDoc(selectedDoc.documentType) ? (
+      {selectedDoc && selectedDoc.documentType === 'PURCHASE_ORDER' ? (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4">
+          <div className="relative w-full max-w-4xl max-h-[100dvh] sm:max-h-[94vh] overflow-y-auto rounded-none sm:rounded-2xl">
+            <PurchaseOrderRenderer
+              document={selectedDoc}
+              company={company}
+              onConvert={(docId, targetType) => handleConvert(docId, targetType)}
+              onClose={() => setSelectedDoc(null)}
+            />
+          </div>
+        </div>
+      ) : selectedDoc && isLetterheadDoc(selectedDoc.documentType) ? (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4">
           <div className="relative w-full max-w-4xl max-h-[100dvh] sm:max-h-[94vh] overflow-y-auto rounded-none sm:rounded-2xl">
             <QuotationRenderer
               document={selectedDoc}
               company={company}
+              onConvert={(docId, targetType) => handleConvert(docId, targetType)}
               onClose={() => setSelectedDoc(null)}
             />
           </div>
@@ -774,6 +800,7 @@ export const CommercialDocumentsView: React.FC = () => {
                         className="w-full p-2 border border-slate-300 rounded-lg text-xs font-bold outline-none bg-white text-slate-900"
                       >
                         <option value="ton">ton</option>
+                        <option value="piece">piece</option>
                         <option value="TON">TON</option>
                         <option value="kg">kg</option>
                         <option value="KG">KG</option>

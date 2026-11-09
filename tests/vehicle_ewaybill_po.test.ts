@@ -245,5 +245,37 @@ describe('Suite 12: Vehicle Insurance Alert Engine, Free Vahan RTO Lookup, GST E
       expect(appLayoutCode).toContain('routeHistoryRef');
       expect(appLayoutCode).toContain('Swipe back again to exit Yashoth Enterprises');
     });
+
+    it('replicates 1000% of the official IMOP_PURCHASE_ORDER_FORMAT (059-2024) distinctly from Quotation format', () => {
+      const root = process.cwd();
+      const poCode = fs.readFileSync(path.join(root, 'src/components/documents/PurchaseOrderRenderer.tsx'), 'utf-8');
+      const docsViewCode = fs.readFileSync(path.join(root, 'src/modules/documents/CommercialDocumentsView.tsx'), 'utf-8');
+
+      // Verify exact Purchase Order layout headers, columns, formulas, and terms
+      expect(poCode).toContain('Kindly find the purchase order request.');
+      expect(poCode).toContain('PURCHASE ORDER');
+      expect(poCode).toContain('PO NO');
+      expect(poCode).toContain('YOUR REF');
+      expect(poCode).toContain('DATED');
+      expect(poCode).toContain('PART NAME / MODEL');
+      expect(poCode).toContain('PRICE(INR)');
+      expect(poCode).toContain('TOTAL VALUE');
+      expect(poCode).toContain('AMOUNT IN WORDS:');
+      expect(poCode).toContain('TERMS AND CONDITIONS :');
+      expect(poCode).toContain('TAX             : Taxes Extra');
+      expect(poCode).toContain('PAYMENT : Immediate');
+      expect(poCode).toContain('For YASHOTH ENTERPRISES');
+      expect(poCode).toContain('Authorised Signature');
+      expect(poCode).toContain('PO_HEADER_BANNER');
+      expect(poCode).toContain('PO_STAMP_SIGNATURE');
+      expect(docsViewCode).toContain('<PurchaseOrderRenderer');
+
+      // Verify seeded official IMOP Purchase Order 059-2024
+      const imopPo = INITIAL_COMMERCIAL_DOCUMENTS.find((d) => d.id === 'doc-po-imop');
+      expect(imopPo).toBeDefined();
+      expect(imopPo?.documentNo).toBe('059-2024');
+      expect(imopPo?.partyName).toBe('M/S IMOP PVT LTD');
+      expect(imopPo?.grandTotal).toBe(10180000);
+    });
   });
 });

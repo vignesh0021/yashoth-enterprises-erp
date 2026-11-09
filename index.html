@@ -10,26 +10,47 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#dc2626" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f172a" />
-    <meta name="color-scheme" content="light dark" />
+    <meta name="color-scheme" content="light" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="YE ERP" />
     <link rel="apple-touch-icon" href="/yasoth-logo.png" />
 
-    <!-- Fonts -->
+    <!-- Fonts (Non-blocking for instant offline/mobile load) -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <style>
+      :root, html, body, input, textarea, select {
+        color-scheme: light !important;
+      }
+      :where(input:not([type="checkbox"]):not([type="radio"]), textarea, select) {
+        background-color: #ffffff;
+        color: #0f172a;
+      }
+    </style>
   </head>
   <body class="bg-slate-50 text-slate-900 antialiased font-sans">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
     <script>
-      // Register Service Worker for PWA Offline Readiness
+      // Register Service Worker for PWA Offline Readiness & purge any stale dev module cache
+      if ('caches' in window) {
+        caches.open('ye-erp-pwa-v1').then((cache) => {
+          cache.keys().then((keys) => {
+            keys.forEach((req) => {
+              if (req.url.includes('/src/') || req.url.includes('/backend/')) {
+                cache.delete(req);
+              }
+            });
+          });
+        }).catch(() => {});
+      }
       if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
         window.addEventListener('load', () => {
           navigator.serviceWorker.register('/sw.js').then((reg) => {
+            reg.update();
             console.log('[PWA] Service Worker registered successfully:', reg.scope);
           }).catch((err) => {
             console.warn('[PWA] Service Worker registration failed:', err);

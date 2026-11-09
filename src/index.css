@@ -3,6 +3,7 @@
 @tailwind utilities;
 
 :root {
+  color-scheme: light;
   --sat: env(safe-area-inset-top, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
   --sal: env(safe-area-inset-left, 0px);
@@ -11,6 +12,7 @@
 
 @layer base {
   html {
+    color-scheme: light;
     -webkit-tap-highlight-color: transparent;
     -webkit-text-size-adjust: 100%;
     overscroll-behavior-y: none;
@@ -19,14 +21,26 @@
 
   body {
     @apply bg-slate-100 text-slate-900 font-sans antialiased;
+    color-scheme: light;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     min-height: 100%;
     min-height: 100dvh;
   }
 
-  /* Prevent iOS zoom on input focus by guaranteeing 16px minimum */
+  /* Prevent iOS zoom on input focus by guaranteeing 16px minimum & enforce crisp light-surface contrast on Android Dark Mode */
   input, textarea, select {
     font-size: 16px;
+    color-scheme: light !important;
+  }
+
+  :where(input:not([type="checkbox"]):not([type="radio"]), textarea, select) {
+    background-color: #ffffff;
+    color: #0f172a;
+  }
+
+  input::placeholder, textarea::placeholder {
+    color: #64748b;
+    opacity: 1;
   }
 
   /* Instant tap feedback and prevent accidental text selection on controls */

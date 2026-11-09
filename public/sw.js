@@ -24,16 +24,26 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Activate: Clean up obsolete caches
+// Activate: Clean up obsolete caches and purge any stale dev module entries
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
-        cacheNames.map((name) => {
+        cacheNames.map(async (name) => {
           if (name !== CACHE_NAME) {
             console.log('[ServiceWorker] Deleting old cache:', name);
             return caches.delete(name);
           }
+          const cache = await caches.open(CACHE_NAME);
+          const keys = await cache.keys();
+          await Promise.all(
+            keys.map((req) => {
+              const reqUrl = new URL(req.url);
+              if (reqUrl.pathname.startsWith('/src/') || reqUrl.pathname.startsWith('/backend/')) {
+                return cache.delete(req);
+              }
+            })
+          );
         })
       );
     }).then(() => {
@@ -47,13 +57,16 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);
 
-  // Skip non-GET, cross-origin requests, and Vite dev server dependencies/modules
+  // Skip non-GET, cross-origin requests, and Vite dev server source/dependencies
   if (
     request.method !== 'GET' ||
     url.origin !== self.location.origin ||
     url.pathname.startsWith('/node_modules/') ||
+    url.pathname.startsWith('/src/') ||
+    url.pathname.startsWith('/backend/') ||
     url.pathname.startsWith('/@') ||
-    url.search.includes('v=')
+    url.search.includes('v=') ||
+    url.search.includes('t=')
   ) {
     return;
   }

@@ -663,7 +663,7 @@ export const CommercialDocumentsView: React.FC = () => {
                   value={docDate}
                   onChange={(e) => setDocDate(e.target.value)}
                   required
-                  className="w-full p-2.5 border border-slate-300 rounded-xl outline-none min-h-[44px]"
+                  className="w-full p-2.5 border border-slate-300 rounded-xl outline-none bg-white text-slate-900 font-semibold min-h-[44px]"
                 />
               </div>
 
@@ -673,7 +673,7 @@ export const CommercialDocumentsView: React.FC = () => {
                   type="date"
                   value={dueDate}
                   onChange={(e) => setDueDate(e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl outline-none min-h-[44px]"
+                  className="w-full p-2.5 border border-slate-300 rounded-xl outline-none bg-white text-slate-900 font-semibold min-h-[44px]"
                 />
               </div>
 
@@ -684,7 +684,7 @@ export const CommercialDocumentsView: React.FC = () => {
                   placeholder="e.g. MAIL or VERBAL"
                   value={refNo}
                   onChange={(e) => setRefNo(e.target.value)}
-                  className="w-full p-2.5 border border-slate-300 rounded-xl outline-none min-h-[44px]"
+                  className="w-full p-2.5 border border-slate-300 rounded-xl outline-none bg-white text-slate-900 font-semibold placeholder:text-slate-400 min-h-[44px]"
                 />
               </div>
             </div>
@@ -728,26 +728,32 @@ export const CommercialDocumentsView: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleAddLine}
-                  className="px-3 py-1 bg-red-50 text-red-600 rounded-lg font-bold hover:bg-red-100 flex items-center gap-1 text-xs cursor-pointer"
+                  className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg font-bold hover:bg-red-100 flex items-center gap-1 text-xs cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" /> Add Custom Row
                 </button>
               </div>
 
-              <div className="space-y-2 max-h-60 overflow-y-auto border border-slate-200 p-2.5 rounded-xl bg-slate-50">
+              <div className="space-y-2.5 max-h-72 overflow-y-auto border border-slate-200 p-2.5 rounded-xl bg-slate-50">
                 {lines.map((l, idx) => (
-                  <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-white p-2 rounded-lg border border-slate-200 shadow-2xs">
+                  <div key={idx} className="grid grid-cols-12 gap-2 items-end bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
                     <div className="col-span-12 sm:col-span-5">
+                      <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">
+                        #{idx + 1} Scrap Material Description
+                      </span>
                       <input
                         type="text"
                         placeholder="Item description"
                         value={l.description}
                         onChange={(e) => handleUpdateLine(idx, 'description', e.target.value)}
                         required
-                        className="w-full p-2 border border-slate-300 rounded-lg text-xs font-semibold outline-none"
+                        className="w-full p-2 border border-slate-300 rounded-lg text-xs font-bold bg-white text-slate-900 placeholder:text-slate-400 outline-none focus:border-red-500"
                       />
                     </div>
                     <div className="col-span-4 sm:col-span-2">
+                      <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">
+                        Quantity
+                      </span>
                       <input
                         type="number"
                         placeholder="Qty"
@@ -755,24 +761,31 @@ export const CommercialDocumentsView: React.FC = () => {
                         value={l.quantity}
                         onChange={(e) => handleUpdateLine(idx, 'quantity', parseFloat(e.target.value) || 0)}
                         required
-                        className="w-full p-2 border border-slate-300 rounded-lg text-xs font-mono font-bold text-right outline-none"
+                        className="w-full p-2 border border-slate-300 rounded-lg text-xs font-mono font-bold text-right bg-white text-slate-900 outline-none focus:border-red-500"
                       />
                     </div>
                     <div className="col-span-3 sm:col-span-2">
+                      <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">
+                        Unit
+                      </span>
                       <select
                         value={l.unit}
                         onChange={(e) => handleUpdateLine(idx, 'unit', e.target.value)}
-                        className="w-full p-2 border border-slate-300 rounded-lg text-xs font-bold outline-none bg-white"
+                        className="w-full p-2 border border-slate-300 rounded-lg text-xs font-bold outline-none bg-white text-slate-900"
                       >
                         <option value="ton">ton</option>
                         <option value="TON">TON</option>
                         <option value="kg">kg</option>
                         <option value="KG">KG</option>
                         <option value="lot">lot</option>
+                        <option value="nos">nos</option>
                         <option value="PCS">PCS</option>
                       </select>
                     </div>
                     <div className="col-span-4 sm:col-span-2">
+                      <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5">
+                        Rate (₹)
+                      </span>
                       <input
                         type="number"
                         placeholder="Rate"
@@ -780,15 +793,16 @@ export const CommercialDocumentsView: React.FC = () => {
                         value={l.rate}
                         onChange={(e) => handleUpdateLine(idx, 'rate', parseFloat(e.target.value) || 0)}
                         required
-                        className="w-full p-2 border border-slate-300 rounded-lg text-xs font-mono font-bold text-right outline-none"
+                        className="w-full p-2 border border-slate-300 rounded-lg text-xs font-mono font-bold text-right bg-white text-slate-900 outline-none focus:border-red-500"
                       />
                     </div>
-                    <div className="col-span-1 flex justify-center">
+                    <div className="col-span-1 flex justify-center pb-1">
                       <button
                         type="button"
                         onClick={() => handleRemoveLine(idx)}
                         disabled={lines.length === 1}
                         className="p-1.5 text-slate-400 hover:text-red-600 disabled:opacity-30 cursor-pointer"
+                        title="Remove Item"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -804,7 +818,7 @@ export const CommercialDocumentsView: React.FC = () => {
                 <span className="font-bold text-slate-800">Tax Regime: </span>
                 {isInterStatePreview ? 'Inter-State (IGST 18%)' : 'Intra-State (CGST 9% + SGST 9%)'}
               </div>
-              <div className="flex items-center gap-4 font-mono text-xs">
+              <div className="flex items-center gap-4 font-mono text-xs text-slate-900">
                 <span>Taxable: <strong>{formatINR(previewTaxable)}</strong></span>
                 <span>GST (18%): <strong>{formatINR(previewGst)}</strong></span>
                 <span className="text-sm font-black text-red-600">Total: {formatINR(previewGrandTotal)}</span>
@@ -818,7 +832,7 @@ export const CommercialDocumentsView: React.FC = () => {
                 placeholder="Optional notes, delivery schedule, or payment terms..."
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                className="w-full p-2.5 border border-slate-300 rounded-xl outline-none"
+                className="w-full p-2.5 border border-slate-300 rounded-xl outline-none bg-white text-slate-900 font-medium placeholder:text-slate-400"
               />
             </div>
 

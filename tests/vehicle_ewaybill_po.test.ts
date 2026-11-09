@@ -216,5 +216,17 @@ describe('Suite 12: Vehicle Insurance Alert Engine, Free Vahan RTO Lookup, GST E
       expect(eCode).toContain('@media print');
       expect(eCode).toContain('#eway-bill-print-sheet');
     });
+
+    it('enforces light color-scheme and high-contrast white inputs so Android System Dark Mode never hides form fields', () => {
+      const root = process.cwd();
+      const htmlCode = fs.readFileSync(path.join(root, 'index.html'), 'utf-8');
+      const cssCode = fs.readFileSync(path.join(root, 'src/index.css'), 'utf-8');
+      const docsViewCode = fs.readFileSync(path.join(root, 'src/modules/documents/CommercialDocumentsView.tsx'), 'utf-8');
+
+      expect(htmlCode).toContain('name="color-scheme" content="light"');
+      expect(htmlCode).toContain('color-scheme: light !important');
+      expect(cssCode).toContain('color-scheme: light');
+      expect(docsViewCode).toContain('bg-white text-slate-900');
+    });
   });
 });

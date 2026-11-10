@@ -22,6 +22,9 @@ import {
   convertDocument,
   STANDARD_SCRAP_PRESETS,
 } from '../backend/business-rules/commercialDocumentEngine.ts';
+import { parseCarInfoText, getCarInfoUrl } from '../src/utils/carInfoScraper.ts';
+import { cleanPhoneNumber } from '../src/utils/contactPicker.ts';
+import { teamSyncService, MASTER_VAULT_ID, OFFICIAL_SYNC_EMAIL } from '../src/services/teamSyncService.ts';
 import {
   INITIAL_COMPANY_SETTINGS,
   INITIAL_PARTIES,
@@ -383,6 +386,81 @@ describe('Suite 12: Vehicle Insurance Alert Engine, Free Vahan RTO Lookup, GST E
       expect(vehicleCode).toContain('+ Upload Vehicle Paper');
       expect(vehicleCode).toContain('UPLOADED_DOCS');
       expect(vehicleCode).toContain('VEHICLE_DOC');
+    });
+  });
+
+  describe('12.6 CarInfo Scraping, Alert Reminders, Contact Picker & Multi-Device Cloud Sync Hub', () => {
+    it('parses copied CarInfo text and extracts accurate two-wheeler bike specs and insurance dates', () => {
+      const sampleBikeText = `
+        Registration Number: TN 37 BY 1234
+        Vehicle Model: Hero Splendor Plus (Self Cast)
+        Vehicle Class: Two-Wheeler / Motorcycle
+        Owner Name: P. NANDHA KUMAR
+        Insurance Company: ICICI Lombard General Insurance
+        Policy No: POL-ICICI-998822
+        Insurance Valid Upto: 15-Nov-2026
+        Fitness Valid Upto: 20-Oct-2029
+        PUCC Valid Upto: 12-Apr-2027
+        RC Status: Active
+        Fuel Type: Petrol
+      `;
+
+      const parsed = parseCarInfoText(sampleBikeText);
+      expect(parsed.registrationNo).toBe('TN 37 BY 1234');
+      expect(parsed.regNo).toBe('TN 37 BY 1234');
+      expect(parsed.vehicleClass).toBe('TWO_WHEELER');
+      expect(parsed.vehicleCategory).toBe('TWO_WHEELER');
+      expect(parsed.unladenWeightKg).toBe(120);
+      expect(parsed.insuranceCompany).toBe('ICICI Lombard General Insurance');
+      expect(parsed.insurancePolicyNo).toBe('POL-ICICI-998822');
+      expect(parsed.insuranceValidUpto).toBe('2026-11-15');
+      expect(parsed.fitnessValidUpto).toBe('2029-10-20');
+      expect(parsed.puccValidUpto).toBe('2027-04-12');
+      expect(parsed.rcStatus).toBe('ACTIVE');
+      expect(parsed.fuelType).toBe('PETROL');
+    });
+
+    it('generates direct 1-tap CarInfo live search URLs', () => {
+      const url = getCarInfoUrl('TN 18 BY 0420');
+      expect(url).toBe('https://www.carinfo.app/rc-details/TN18BY0420');
+
+      const bikeUrl = getCarInfoUrl('TN-37-BY-1234');
+      expect(bikeUrl).toBe('https://www.carinfo.app/rc-details/TN37BY1234');
+    });
+
+    it('cleans and extracts standard 10-digit Indian phone numbers from phonebook contacts', () => {
+      expect(cleanPhoneNumber('+91 96009 10944')).toBe('9600910944');
+      expect(cleanPhoneNumber('096009-10944')).toBe('9600910944');
+      expect(cleanPhoneNumber('+91-98765-43210')).toBe('9876543210');
+      expect(cleanPhoneNumber('9876543210')).toBe('9876543210');
+    });
+
+    it('verifies Master Vault ID and official team sync identity configuration', () => {
+      expect(MASTER_VAULT_ID).toBe('ff808181a09d98f701a1c56d14f07de2');
+      expect(OFFICIAL_SYNC_EMAIL).toBe('nandhakumar4290@gmail.com');
+      expect(teamSyncService.getVaultId()).toBe('ff808181a09d98f701a1c56d14f07de2');
+    });
+
+    it('verifies Quotation upload and leading zero fix across views', () => {
+      const root = process.cwd();
+      const commercialCode = fs.readFileSync(path.join(root, 'src/modules/documents/CommercialDocumentsView.tsx'), 'utf-8');
+      const employeeCode = fs.readFileSync(path.join(root, 'src/modules/employees/EmployeesView.tsx'), 'utf-8');
+      const vehicleCode = fs.readFileSync(path.join(root, 'src/modules/vehicles/VehiclesView.tsx'), 'utf-8');
+
+      // Quotation upload support
+      expect(commercialCode).toContain('+ Upload Quotation');
+      expect(commercialCode).toContain('UPLOADED_QUOTES');
+      expect(commercialCode).toContain('PREVIOUS_QUOTATION');
+
+      // Leading zero fix
+      expect(employeeCode).toContain("dailyWage === 0 ? '' : dailyWage");
+      expect(employeeCode).toContain('e.target.select()');
+
+      // Vehicle CarInfo and Remind Alert buttons
+      expect(vehicleCode).toContain('Sync Alerts to Daily Tasks');
+      expect(vehicleCode).toContain('Auto-Scrape from CarInfo');
+      expect(vehicleCode).toContain('Check Live on CarInfo');
+      expect(vehicleCode).toContain('Bike / 2-Wheeler');
     });
   });
 });

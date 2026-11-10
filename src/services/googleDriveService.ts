@@ -27,6 +27,8 @@ export interface GoogleDriveStatus {
   hasClientId: boolean;
 }
 
+import { teamSyncService } from './teamSyncService.ts';
+
 function safeGetItem(key: string): string | null {
   try {
     if (typeof localStorage !== 'undefined') {
@@ -270,10 +272,19 @@ class GoogleDriveService {
     mimeType: string = 'application/json'
   ): Promise<{ success: boolean; fileId?: string; error?: string }> {
     if (!this.accessToken) {
-      // In Gmail email backup mode, download locally and offer email dispatch
+      // In mobile / standalone mode: silently download locally to device storage
       this.downloadBackupLocally(filename, content, mimeType);
-      this.sendBackupViaEmail(filename, content);
-      return { success: true, fileId: 'email-backup-' + Date.now() };
+      
+      // Also sync to Team Cloud Vault for 3-member shared access
+      try {
+        const parsed = JSON.parse(content);
+        const payload = parsed.data || parsed;
+        await teamSyncService.pushToCloud(payload);
+      } catch (err) {
+        console.warn('Team sync background update note:', err);
+      }
+
+      return { success: true, fileId: 'device-backup-' + Date.now() };
     }
 
     try {

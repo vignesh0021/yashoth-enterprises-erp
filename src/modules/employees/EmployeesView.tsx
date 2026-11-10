@@ -18,8 +18,10 @@ import {
   Printer,
   History,
   ShieldCheck,
-  Zap
+  Zap,
+  BookUser
 } from 'lucide-react';
+import { pickContactFromPhonebook, isContactPickerSupported } from '../../utils/contactPicker.ts';
 
 export const EmployeesView: React.FC = () => {
   const { 
@@ -1060,9 +1062,28 @@ export const EmployeesView: React.FC = () => {
             </div>
 
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Phone Number</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-bold text-slate-700">Phone Number</label>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const c = await pickContactFromPhonebook();
+                    if (c) {
+                      if (c.phone) setPhone(c.phone);
+                      if (c.name && (!name || !name.trim())) setName(c.name);
+                      setFeedbackMsg({ type: 'success', text: `Fetched contact: ${c.name || c.phone}` });
+                      setTimeout(() => setFeedbackMsg(null), 3000);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-full border border-blue-200 transition-colors cursor-pointer"
+                  title="Pick directly from your phone's contacts"
+                >
+                  <BookUser className="w-3.5 h-3.5" />
+                  <span>Fetch from Contacts</span>
+                </button>
+              </div>
               <input
-                type="text"
+                type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 className="w-full p-2 border border-slate-200 rounded-lg font-mono"
@@ -1071,22 +1092,53 @@ export const EmployeesView: React.FC = () => {
             </div>
 
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Daily Wage Rate (₹)</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-bold text-slate-700">Daily Wage Rate (₹)</label>
+                {dailyWage > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setDailyWage(0)}
+                    className="text-[10px] text-slate-400 hover:text-slate-600"
+                  >
+                    Clear (₹0)
+                  </button>
+                )}
+              </div>
               <input
                 type="number"
-                value={dailyWage}
-                onChange={(e) => setDailyWage(parseFloat(e.target.value) || 0)}
+                value={dailyWage === 0 ? '' : dailyWage}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setDailyWage(val === '' ? 0 : parseFloat(val) || 0);
+                }}
                 className="w-full p-2 border border-slate-200 rounded-lg font-mono font-bold"
                 min="0"
+                placeholder="0"
               />
             </div>
 
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Monthly Salary (₹) - If salaried</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-bold text-slate-700">Monthly Salary (₹) - If salaried</label>
+                {monthlySalary > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setMonthlySalary(0)}
+                    className="text-[10px] text-slate-400 hover:text-slate-600"
+                  >
+                    Clear (₹0)
+                  </button>
+                )}
+              </div>
               <input
                 type="number"
-                value={monthlySalary}
-                onChange={(e) => setMonthlySalary(parseFloat(e.target.value) || 0)}
+                value={monthlySalary === 0 ? '' : monthlySalary}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setMonthlySalary(val === '' ? 0 : parseFloat(val) || 0);
+                }}
                 className="w-full p-2 border border-slate-200 rounded-lg font-mono"
                 min="0"
                 placeholder="0 if daily wage earner"
@@ -1094,14 +1146,29 @@ export const EmployeesView: React.FC = () => {
             </div>
 
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Current Advance Balance (₹)</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-bold text-slate-700">Current Advance Balance (₹)</label>
+                {advanceBalance > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setAdvanceBalance(0)}
+                    className="text-[10px] text-slate-400 hover:text-slate-600"
+                  >
+                    Clear (₹0)
+                  </button>
+                )}
+              </div>
               <input
                 type="number"
-                value={advanceBalance}
-                onChange={(e) => setAdvanceBalance(parseFloat(e.target.value) || 0)}
+                value={advanceBalance === 0 ? '' : advanceBalance}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setAdvanceBalance(val === '' ? 0 : parseFloat(val) || 0);
+                }}
                 className="w-full p-2 border border-slate-200 rounded-lg font-mono text-rose-700 font-bold"
                 min="0"
-                placeholder="Deducted from salary"
+                placeholder="0"
               />
             </div>
           </div>

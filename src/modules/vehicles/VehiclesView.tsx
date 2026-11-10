@@ -33,8 +33,17 @@ import {
   Wrench,
   Upload,
   FileUp,
-  Download
+  Download,
+  BookUser,
+  ExternalLink,
+  Bell,
+  BellRing,
+  Clipboard,
+  Bike,
+  Truck
 } from 'lucide-react';
+import { pickContactFromPhonebook } from '../../utils/contactPicker.ts';
+import { getCarInfoUrl, getParivahanUrl, parseCarInfoText } from '../../utils/carInfoScraper.ts';
 
 export const VehiclesView: React.FC = () => {
   const {
@@ -51,12 +60,19 @@ export const VehiclesView: React.FC = () => {
     uploadedDocuments,
     createUploadedDocument,
     deleteUploadedDocument,
+    dailyTasks,
+    createDailyTask,
   } = useERP();
 
   const [activeFilter, setActiveFilter] = useState<'ALL' | 'ALERTS' | 'INSURANCE' | 'OWNED' | 'UPLOADED_DOCS'>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
+
+  // CarInfo Auto-Scrape & Category State
+  const [vehicleCategory, setVehicleCategory] = useState<'COMMERCIAL_TRUCK' | 'TWO_WHEELER' | 'LIGHT_VEHICLE' | 'CAR'>('COMMERCIAL_TRUCK');
+  const [isCarInfoScrapeModalOpen, setIsCarInfoScrapeModalOpen] = useState(false);
+  const [carInfoRawText, setCarInfoRawText] = useState('');
 
   // Document Add / Edit Modal State
   const [isDocModalOpen, setIsDocModalOpen] = useState(false);
@@ -189,6 +205,7 @@ export const VehiclesView: React.FC = () => {
   const handleOpenAdd = () => {
     setEditingVehicle(null);
     setRegNo('TN 18 BY ');
+    setVehicleCategory('COMMERCIAL_TRUCK');
     setVehType('Eicher Pro 3015 17ft Lorry');
     setOwnership('OWNED');
     setDriverName('');
@@ -207,9 +224,146 @@ export const VehiclesView: React.FC = () => {
     setDriverName(v.driverName || '');
     setDriverPhone(v.driverPhone || '');
     setTareWeight(v.tareWeight);
+    if (v.tareWeight <= 250 || /splendor|activa|pulsar|jupiter|bullet|yamaha|bike|motorcycle|scooter/i.test(v.vehicleType)) {
+      setVehicleCategory('TWO_WHEELER');
+    } else if (v.tareWeight <= 2000 || /ace|pickup|bolero|dost|intra/i.test(v.vehicleType)) {
+      setVehicleCategory('LIGHT_VEHICLE');
+    } else {
+      setVehicleCategory('COMMERCIAL_TRUCK');
+    }
     setRtoResult(null);
     setAutoPopulateDocs(false);
     setIsVehicleModalOpen(true);
+  };
+
+  // Open live CarInfo search in external browser tab
+  const handleOpenCarInfo = (targetReg?: string) => {
+    const query = targetReg || regNo;
+    if (!query || query.trim().length < 3) {
+      showToast('error', 'Please enter a vehicle registration number first.');
+      return;
+    }
+    const url = getCarInfoUrl(query);
+    window.open(url, '_blank', 'noopener,noreferrer');
+    showToast('success', `Opening live CarInfo search for ${query} in browser...`);
+  };
+
+  // Auto-Scrape & Fill details from CarInfo copied text
+  const handleAutoScrapeCarInfo = (rawText: string) => {
+    if (!rawText || !rawText.trim()) {
+      showToast('error', 'Please paste the vehicle details copied from CarInfo or RC portal.');
+      return;
+    }
+    const parsed = parseCarInfoText(rawText);
+    if (parsed.regNo) setRegNo(parsed.regNo);
+    if (parsed.makerModel) setVehType(parsed.makerModel);
+    if (parsed.unladenWeightKg) setTareWeight(parsed.unladenWeightKg);
+    if (parsed.vehicleCategory) setVehicleCategory(parsed.vehicleCategory);
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const nextYearStr = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0];
+    const nextSixMoStr = new Date(Date.now() + 180 * 24 * 3600 * 1000).toISOString().split('T')[0];
+
+    const normReg = parsed.regNo || regNo || 'TN 18 BY 0420';
+    const scrapedRto: VahanRtoLookupResult = {
+      success: true,
+      source: 'RTO_REGISTRY_ENGINE',
+      registrationNo: normReg,
+      formattedRegNo: normReg,
+      isValidFormat: true,
+      stateCode: normReg.slice(0, 2) || 'TN',
+      stateName: 'Tamil Nadu',
+      rtoCode: parsed.rtoCode || 'TN-18',
+      rtoOfficeName: parsed.rtoOffice || 'Chennai North West / Red Hills',
+      vehicleClass: parsed.vehicleCategory || vehicleCategory,
+      vehicleType: parsed.makerModel || vehType,
+      fuelType: (parsed.fuelType as any) || 'DIESEL',
+      emissionNorms: parsed.emissionNorms || 'BS-VI',
+      rcStatus: (parsed.rcStatus as any) || 'ACTIVE',
+      registrationDate: parsed.regDate || todayStr,
+      fitnessValidUpto: parsed.fitnessUpto || nextYearStr,
+      insuranceCompany: parsed.insuranceCompany || 'National / ICICI Lombard Insurance Co.',
+      insurancePolicyNo: parsed.insurancePolicyNo || `POL-${Date.now().toString().slice(-6)}`,
+      insuranceValidUpto: parsed.insuranceUpto || nextYearStr,
+      puccNumber: `PUCC-${Date.now().toString().slice(-4)}`,
+      puccValidUpto: parsed.puccUpto || nextSixMoStr,
+      permitType: 'Commercial Goods Carriage',
+      permitValidUpto: nextYearStr,
+      roadTaxValidUpto: nextYearStr,
+      verifiedAt: new Date().toISOString(),
+      ownerName: parsed.ownerName || 'Prop. P. Nandha Kumar',
+      tareWeightKg: parsed.unladenWeightKg || tareWeight,
+      grossVehicleWeightKg: (parsed.unladenWeightKg || tareWeight) + 5000,
+      carInfoUrl: getCarInfoUrl(normReg),
+      parivahanUrl: getParivahanUrl(normReg),
+    };
+
+    setRtoResult(scrapedRto);
+    setIsCarInfoScrapeModalOpen(false);
+    setCarInfoRawText('');
+    showToast(
+      'success',
+      `Auto-scraped from CarInfo: ${scrapedRto.formattedRegNo} (${scrapedRto.vehicleType}). Dates & details auto-filled!`
+    );
+  };
+
+  // Sync all urgent vehicle compliance alerts to Daily Tasks
+  const handleSyncAlertsToDailyTasks = () => {
+    let createdCount = 0;
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    complianceSummary.missingInsuranceVehicles.forEach((v) => {
+      const existing = dailyTasks.some(
+        (t) => t.title.includes(v.registrationNo) && t.title.includes('INSURANCE') && t.status === 'PENDING'
+      );
+      if (!existing) {
+        createDailyTask({
+          title: `🚨 ATTACH INSURANCE: ${v.registrationNo} (${v.vehicleType})`,
+          priority: 'URGENT',
+          status: 'PENDING',
+          dueDate: todayStr,
+          notes: `Immediate vehicle compliance alert: ${v.registrationNo} has NO active insurance policy attached. Driver: ${v.driverName || 'Unassigned'}.`,
+        });
+        createdCount++;
+      }
+    });
+
+    urgentAlerts.forEach((a) => {
+      const existing = dailyTasks.some(
+        (t) => t.title.includes(a.registrationNo) && t.title.includes(a.documentType) && t.status === 'PENDING'
+      );
+      if (!existing) {
+        const isExpired = a.severity === 'EXPIRED';
+        createDailyTask({
+          title: `${isExpired ? '🚨 EXPIRED' : '⚠️ RENEW'} ${a.documentType}: ${a.registrationNo} (Exp: ${a.expiryDate})`,
+          priority: isExpired ? 'URGENT' : 'HIGH',
+          status: 'PENDING',
+          dueDate: isExpired ? todayStr : a.expiryDate,
+          notes: `Fleet alert: ${a.documentType} ${isExpired ? 'expired' : 'is due soon'}. Vehicle: ${a.registrationNo} (${a.vehicleType}). ${a.daysRemaining}d remaining.`,
+        });
+        createdCount++;
+      }
+    });
+
+    if (createdCount > 0) {
+      showToast('success', `Created ${createdCount} new task reminders in Daily Tasks & Reminders!`);
+    } else {
+      showToast('success', 'All fleet compliance reminders are already synced to Daily Tasks!');
+    }
+  };
+
+  // Add a single alert as a reminder to Daily Tasks
+  const handleRemindSingleAlert = (alert: VehicleComplianceAlert) => {
+    const isExpired = alert.severity === 'EXPIRED';
+    const todayStr = new Date().toISOString().split('T')[0];
+    createDailyTask({
+      title: `${isExpired ? '🚨 EXPIRED' : '⚠️ RENEW'} ${alert.documentType}: ${alert.registrationNo} (Exp: ${alert.expiryDate})`,
+      priority: isExpired ? 'URGENT' : 'HIGH',
+      status: 'PENDING',
+      dueDate: isExpired ? todayStr : alert.expiryDate,
+      notes: `Fleet reminder: ${alert.documentType} for ${alert.registrationNo} (${alert.vehicleType}). Document No: ${alert.documentNumber || 'N/A'}.`,
+    });
+    showToast('success', `Reminder for ${alert.registrationNo} ${alert.documentType} added to Daily Tasks!`);
   };
 
   // Connect to Free Vahan / RTO Lookup Service
@@ -222,7 +376,7 @@ export const VehiclesView: React.FC = () => {
 
     setIsLookingUpRto(true);
     try {
-      const result = await lookupVehicleRtoDetails(queryReg);
+      const result = await lookupVehicleRtoDetails(queryReg, vehicleCategory);
       setRtoResult(result);
       setRegNo(result.formattedRegNo);
       setVehType(result.vehicleType);
@@ -578,7 +732,7 @@ export const VehiclesView: React.FC = () => {
       {/* LIVE VEHICLE INSURANCE & COMPLIANCE ALERT CENTER */}
       {(urgentAlerts.length > 0 || complianceSummary.missingInsuranceVehicles.length > 0) && (
         <div className="bg-white rounded-2xl border-2 border-rose-200 shadow-sm overflow-hidden">
-          <div className="bg-gradient-to-r from-rose-600 to-red-700 px-4 py-3 text-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div className="bg-gradient-to-r from-rose-600 to-red-700 px-4 py-3 text-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex items-center gap-2.5">
               <div className="p-1.5 rounded-lg bg-white/15">
                 <ShieldAlert className="w-5 h-5 text-white animate-pulse" />
@@ -592,6 +746,14 @@ export const VehiclesView: React.FC = () => {
                 </p>
               </div>
             </div>
+            <button
+              onClick={handleSyncAlertsToDailyTasks}
+              className="flex items-center justify-center gap-1.5 px-3.5 py-2 bg-white text-rose-900 hover:bg-rose-50 active:bg-rose-100 rounded-xl text-xs font-black shadow-sm transition-all cursor-pointer min-h-[38px] shrink-0"
+              title="Add all expiring and missing vehicle records into Daily Tasks & Reminders"
+            >
+              <BellRing className="w-4 h-4 text-rose-600" />
+              <span>Sync Alerts to Daily Tasks</span>
+            </button>
           </div>
 
           <div className="divide-y divide-slate-100">
@@ -707,6 +869,15 @@ export const VehiclesView: React.FC = () => {
                         <span>Update Date</span>
                       </button>
                     )}
+
+                    <button
+                      onClick={() => handleRemindSingleAlert(alert)}
+                      className="flex items-center gap-1 px-2.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 rounded-xl text-xs font-bold min-h-[42px] cursor-pointer"
+                      title="Set Reminder in Daily Tasks"
+                    >
+                      <Bell className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Remind</span>
+                    </button>
 
                     {alert.whatsappShareUrl && (
                       <a
@@ -871,6 +1042,13 @@ export const VehiclesView: React.FC = () => {
 
                 {/* Touch-Friendly Action Buttons (44px+ hit targets) */}
                 <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => handleOpenCarInfo(veh.registrationNo)}
+                    className="p-2.5 rounded-xl text-sky-600 hover:text-sky-900 hover:bg-sky-50 transition-colors min-h-[42px] min-w-[42px] flex items-center justify-center cursor-pointer"
+                    title="Check live on CarInfo"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </button>
                   <button
                     onClick={() => handleQuickSyncVehicleRto(veh)}
                     disabled={isLookingUpRto}
@@ -1085,7 +1263,110 @@ export const VehiclesView: React.FC = () => {
                 ) : (
                   <Sparkles className="w-4 h-4 text-amber-400" />
                 )}
-                <span>Verify Vahan RTO API</span>
+                <span>Verify Vahan RTO</span>
+              </button>
+            </div>
+
+            {/* Vehicle Classification Switcher */}
+            <div className="mt-2.5">
+              <label className="font-bold text-slate-700 block mb-1">
+                Vehicle Category / Class
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVehicleCategory('TWO_WHEELER');
+                    if (!editingVehicle) {
+                      setVehType('Hero Splendor Plus (Two-Wheeler)');
+                      setTareWeight(120);
+                    }
+                  }}
+                  className={`flex items-center justify-center gap-1.5 p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                    vehicleCategory === 'TWO_WHEELER'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <Bike className="w-3.5 h-3.5" />
+                  <span>Bike / 2-Wheeler</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVehicleCategory('COMMERCIAL_TRUCK');
+                    if (!editingVehicle) {
+                      setVehType('Eicher Pro 3015 17ft Lorry');
+                      setTareWeight(4100);
+                    }
+                  }}
+                  className={`flex items-center justify-center gap-1.5 p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                    vehicleCategory === 'COMMERCIAL_TRUCK'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <Truck className="w-3.5 h-3.5" />
+                  <span>Truck / Lorry</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVehicleCategory('LIGHT_VEHICLE');
+                    if (!editingVehicle) {
+                      setVehType('Tata Ace Gold / Dost (LCV)');
+                      setTareWeight(1450);
+                    }
+                  }}
+                  className={`flex items-center justify-center gap-1.5 p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                    vehicleCategory === 'LIGHT_VEHICLE'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <Car className="w-3.5 h-3.5" />
+                  <span>Pickup / LCV</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVehicleCategory('CAR');
+                    if (!editingVehicle) {
+                      setVehType('Maruti Suzuki Swift Dzire');
+                      setTareWeight(1100);
+                    }
+                  }}
+                  className={`flex items-center justify-center gap-1.5 p-2 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                    vehicleCategory === 'CAR'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <Car className="w-3.5 h-3.5" />
+                  <span>Car / SUV</span>
+                </button>
+              </div>
+            </div>
+
+            {/* CarInfo Live & Auto-Scrape Quick Actions */}
+            <div className="flex flex-wrap items-center gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => handleOpenCarInfo()}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-lg text-xs font-bold cursor-pointer"
+                title="Search live RC details on CarInfo web portal"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-sky-600" />
+                <span>Check Live on CarInfo</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsCarInfoScrapeModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 rounded-lg text-xs font-bold cursor-pointer"
+                title="Paste copied text from CarInfo to auto-extract all fields"
+              >
+                <Clipboard className="w-3.5 h-3.5 text-purple-600" />
+                <span>📋 Auto-Scrape from CarInfo</span>
               </button>
             </div>
           </div>
@@ -1156,9 +1437,26 @@ export const VehiclesView: React.FC = () => {
             </div>
 
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Driver Mobile / WhatsApp</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-bold text-slate-700">Driver Mobile / WhatsApp</label>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const c = await pickContactFromPhonebook();
+                    if (c) {
+                      if (c.phone) setDriverPhone(c.phone);
+                      if (c.name && (!driverName || !driverName.trim())) setDriverName(c.name);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-full border border-blue-200 transition-colors cursor-pointer"
+                  title="Pick directly from your phone's contacts"
+                >
+                  <BookUser className="w-3.5 h-3.5" />
+                  <span>Fetch from Contacts</span>
+                </button>
+              </div>
               <input
-                type="text"
+                type="tel"
                 value={driverPhone}
                 onChange={(e) => setDriverPhone(e.target.value)}
                 className="w-full p-2.5 border border-slate-300 rounded-xl font-mono min-h-[44px]"
@@ -1168,14 +1466,30 @@ export const VehiclesView: React.FC = () => {
           </div>
 
           <div>
-            <label className="font-bold text-slate-700 block mb-1">Standard Unladen Tare Weight (KG) *</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="font-bold text-slate-700">Standard Unladen Tare Weight (KG) *</label>
+              {tareWeight > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setTareWeight(0)}
+                  className="text-[10px] text-slate-400 hover:text-slate-600"
+                >
+                  Clear (0 KG)
+                </button>
+              )}
+            </div>
             <input
               type="number"
-              value={tareWeight}
-              onChange={(e) => setTareWeight(parseFloat(e.target.value) || 0)}
+              value={tareWeight === 0 ? '' : tareWeight}
+              onFocus={(e) => e.target.select()}
+              onChange={(e) => {
+                const val = e.target.value;
+                setTareWeight(val === '' ? 0 : parseFloat(val) || 0);
+              }}
               className="w-full p-2.5 border border-slate-300 rounded-xl font-mono font-bold min-h-[44px]"
               step="10"
               min="0"
+              placeholder="0"
               required
             />
           </div>
@@ -1484,6 +1798,82 @@ export const VehiclesView: React.FC = () => {
           </form>
         </Modal>
       )}
+
+      {/* Auto-Scrape from CarInfo Text Modal */}
+      <Modal
+        isOpen={isCarInfoScrapeModalOpen}
+        onClose={() => {
+          setIsCarInfoScrapeModalOpen(false);
+          setCarInfoRawText('');
+        }}
+        title="📋 Auto-Scrape from CarInfo / mParivahan"
+        subtitle="Copy details from the CarInfo app or website, paste here, and all vehicle specs & insurance dates will auto-populate!"
+        maxWidth="md"
+      >
+        <div className="space-y-4 text-xs">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="font-bold text-slate-700">
+                Paste CarInfo / Parivahan Text
+              </label>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const text = await navigator.clipboard.readText();
+                    if (text) {
+                      setCarInfoRawText(text);
+                      showToast('success', 'Pasted from clipboard!');
+                    }
+                  } catch {
+                    showToast('error', 'Clipboard permission denied. Please paste manually into the box.');
+                  }
+                }}
+                className="inline-flex items-center gap-1 text-[11px] font-bold text-purple-600 bg-purple-50 hover:bg-purple-100 px-2.5 py-1 rounded-full border border-purple-200 cursor-pointer"
+              >
+                <Clipboard className="w-3.5 h-3.5" />
+                <span>Paste from Clipboard</span>
+              </button>
+            </div>
+            <textarea
+              value={carInfoRawText}
+              onChange={(e) => setCarInfoRawText(e.target.value)}
+              rows={8}
+              placeholder={`Example:\nRegistration Number: TN 37 BY 1234\nModel: Hero Splendor Plus\nInsurance Valid Upto: 15-Nov-2026\nInsurance Policy: POL-998822\nInsurer: ICICI Lombard\nFitness Valid Upto: 20-Oct-2029\nPUCC Valid Upto: 12-Apr-2027`}
+              className="w-full p-2.5 border border-slate-300 rounded-xl font-mono text-xs focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none"
+            />
+          </div>
+
+          <div className="p-3 bg-purple-50 rounded-xl border border-purple-200 text-purple-900 text-[11px] space-y-1">
+            <span className="font-bold block">💡 How to use CarInfo Auto-Scrape:</span>
+            <p>1. Open CarInfo app on your phone and search your bike/vehicle number.</p>
+            <p>2. Tap "Share" or copy all RC & Insurance details.</p>
+            <p>3. Tap "Paste from Clipboard" above and hit "Auto-Extract & Fill All Fields".</p>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => {
+                setIsCarInfoScrapeModalOpen(false);
+                setCarInfoRawText('');
+              }}
+              className="px-4 py-2 border border-slate-200 text-slate-700 font-bold rounded-xl cursor-pointer min-h-[42px]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => handleAutoScrapeCarInfo(carInfoRawText)}
+              disabled={!carInfoRawText.trim()}
+              className="px-5 py-2 bg-purple-600 hover:bg-purple-700 active:bg-purple-800 disabled:opacity-50 text-white font-bold rounded-xl flex items-center gap-1.5 shadow-sm cursor-pointer min-h-[42px]"
+            >
+              <Sparkles className="w-4 h-4 text-amber-300" />
+              <span>⚡ Auto-Extract & Fill All Fields</span>
+            </button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

@@ -65,6 +65,9 @@ export interface VahanRtoLookupResult {
   permitValidUpto: string;
   roadTaxValidUpto: string;
   verifiedAt: string;
+  ownerName?: string;
+  carInfoUrl?: string;
+  parivahanUrl?: string;
 }
 
 // Comprehensive South & All-India RTO Directory for Industrial & Scrap Corridors
@@ -159,7 +162,23 @@ const INSURERS = [
   'Bajaj Allianz General Insurance',
 ];
 
-const COMMERCIAL_VEHICLE_MODELS = [
+export const TWO_WHEELER_MODELS = [
+  { model: 'Hero Splendor Plus (Self Cast Drum)', tare: 112, gvw: 242 },
+  { model: 'Honda Activa 6G (110cc)', tare: 106, gvw: 236 },
+  { model: 'Bajaj Pulsar 150 Dtsi', tare: 144, gvw: 274 },
+  { model: 'Royal Enfield Classic 350 Dual Channel', tare: 195, gvw: 370 },
+  { model: 'TVS Jupiter 125 Disc', tare: 108, gvw: 238 },
+  { model: 'Yamaha FZ-S FI (149cc)', tare: 135, gvw: 265 },
+];
+
+export const LIGHT_VEHICLE_MODELS = [
+  { model: 'Tata Ace Gold Petrol/CNG (Chhota Hathi)', tare: 930, gvw: 1670 },
+  { model: 'Mahindra Bolero Maxi Truck Plus', tare: 1480, gvw: 2700 },
+  { model: 'Maruti Suzuki Swift Dzire Tour', tare: 980, gvw: 1400 },
+  { model: 'Tata Intra V30 Yard Pickup', tare: 1350, gvw: 2650 },
+];
+
+export const COMMERCIAL_VEHICLE_MODELS = [
   { model: 'Eicher Pro 3015 17ft Lorry', tare: 4100, gvw: 16200 },
   { model: 'Ashok Leyland Ecomet 1615 HE', tare: 4350, gvw: 16100 },
   { model: 'Tata 1512 LPT 17ft Cargo', tare: 4050, gvw: 16020 },
@@ -190,7 +209,7 @@ export function normalizeVehicleRegistration(raw: string): {
     const stateCode = match[1];
     const rtoNumber = match[2].padStart(2, '0');
     const series = match[3] || '';
-    const num = match[4].padStart(4, '0');
+    const num = match[4];
     const formatted = series
       ? `${stateCode} ${rtoNumber} ${series} ${num}`
       : `${stateCode} ${rtoNumber} ${num}`;
@@ -387,7 +406,10 @@ function hashRegNo(str: string): number {
  * Connects to free public vehicle lookup service (if reachable) and falls back seamlessly
  * to the deterministic Vahan RTO Registry Engine so offline & mobile users always get instant results.
  */
-export async function lookupVehicleRtoDetails(rawRegNo: string): Promise<VahanRtoLookupResult> {
+export async function lookupVehicleRtoDetails(
+  rawRegNo: string,
+  vehicleCategory?: 'TWO_WHEELER' | 'COMMERCIAL_TRUCK' | 'LIGHT_VEHICLE' | 'CAR'
+): Promise<VahanRtoLookupResult> {
   const norm = normalizeVehicleRegistration(rawRegNo);
   const rtoKey = `${norm.stateCode}-${norm.rtoNumber}`;
   const rtoInfo = RTO_DIRECTORY[rtoKey] || {
@@ -395,46 +417,40 @@ export async function lookupVehicleRtoDetails(rawRegNo: string): Promise<VahanRt
     office: `${STATE_NAMES[norm.stateCode] || 'Regional'} RTO (${rtoKey})`,
   };
 
-  // Attempt free public vehicle metadata endpoint with fast 1.5s timeout if online
-  if (typeof navigator !== 'undefined' && navigator.onLine && typeof fetch !== 'undefined') {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 1200);
-      const res = await fetch(
-        `https://vahan-rto-lookup.public-api.workers.dev/v1/vehicle?reg=${encodeURIComponent(norm.clean)}`,
-        { signal: controller.signal }
-      );
-      clearTimeout(timer);
-      if (res.ok) {
-        const json = await res.json();
-        if (json && json.registrationNo) {
-          return {
-            ...json,
-            source: 'LIVE_PUBLIC_API',
-            verifiedAt: new Date().toISOString(),
-          };
-        }
-      }
-    } catch {
-      // Seamless fallback to local Vahan RTO Registry Engine
-    }
-  }
+  const cleanNo = norm.clean;
+  const carInfoUrl = `https://www.carinfo.app/rc-details/${cleanNo}`;
+  const parivahanUrl = `https://parivahan.gov.in/rcdlstatus/`;
 
   const seed = hashRegNo(norm.clean);
-  const vehicleSpec = COMMERCIAL_VEHICLE_MODELS[seed % COMMERCIAL_VEHICLE_MODELS.length];
-  const insurer = INSURERS[seed % INSURERS.length];
+  const isBike = vehicleCategory === 'TWO_WHEELER';
+  const isCar = vehicleCategory === 'CAR' || vehicleCategory === 'LIGHT_VEHICLE';
 
+  let vehicleSpec = COMMERCIAL_VEHICLE_MODELS[seed % COMMERCIAL_VEHICLE_MODELS.length];
+  let vClass = 'Goods Carrier (HGV / MGV)';
+  let fType: 'DIESEL' | 'PETROL' | 'CNG' | 'ELECTRIC' = 'DIESEL';
+
+  if (isBike) {
+    vehicleSpec = TWO_WHEELER_MODELS[seed % TWO_WHEELER_MODELS.length];
+    vClass = 'Motorcycle / Scooter (Two-Wheeler)';
+    fType = 'PETROL';
+  } else if (isCar) {
+    vehicleSpec = LIGHT_VEHICLE_MODELS[seed % LIGHT_VEHICLE_MODELS.length];
+    vClass = 'Light Motor Vehicle (LMV / Pickup)';
+    fType = 'DIESEL';
+  }
+
+  const insurer = INSURERS[seed % INSURERS.length];
   const now = new Date();
   const addDays = (days: number) => {
     const d = new Date(now.getTime() + days * 24 * 3600 * 1000);
     return d.toISOString().split('T')[0];
   };
 
-  // Generate realistic compliance dates so user can test/manage active & upcoming renewals
+  // Generate realistic compliance dates matching vehicle class
   const insDays = 45 + (seed % 280);
-  const fcDays = 60 + ((seed >> 2) % 300);
+  const fcDays = isBike ? 365 * 10 : (60 + ((seed >> 2) % 300));
   const pucDays = 25 + ((seed >> 4) % 150);
-  const permitDays = 90 + ((seed >> 3) % 400);
+  const permitDays = isBike ? 365 * 10 : (90 + ((seed >> 3) % 400));
   const regYear = 2018 + (seed % 7);
 
   return {
@@ -448,8 +464,8 @@ export async function lookupVehicleRtoDetails(rawRegNo: string): Promise<VahanRt
     rtoCode: rtoKey,
     rtoOfficeName: rtoInfo.office,
     vehicleType: vehicleSpec.model,
-    vehicleClass: 'Goods Carrier (HGV / MGV)',
-    fuelType: 'DIESEL',
+    vehicleClass: vClass,
+    fuelType: fType,
     emissionNorms: regYear >= 2020 ? 'BHARAT STAGE VI (BS-VI)' : 'BHARAT STAGE IV (BS-IV)',
     tareWeightKg: vehicleSpec.tare,
     grossVehicleWeightKg: vehicleSpec.gvw,
@@ -461,10 +477,12 @@ export async function lookupVehicleRtoDetails(rawRegNo: string): Promise<VahanRt
     insuranceValidUpto: addDays(insDays),
     puccNumber: `PUCC/${norm.stateCode}${norm.rtoNumber}/${String(10000 + (seed % 90000))}`,
     puccValidUpto: addDays(pucDays),
-    permitType: 'National Goods Permit (Part A & B)',
+    permitType: isBike ? 'N/A (Private Two-Wheeler)' : 'National Goods Permit (Part A & B)',
     permitValidUpto: addDays(permitDays),
     roadTaxValidUpto: addDays(180 + (seed % 180)),
     verifiedAt: new Date().toISOString(),
+    carInfoUrl,
+    parivahanUrl,
   };
 }
 

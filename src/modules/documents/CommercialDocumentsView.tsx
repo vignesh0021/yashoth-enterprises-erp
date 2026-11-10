@@ -40,23 +40,45 @@ export const CommercialDocumentsView: React.FC = () => {
   } = useERP();
 
   const uploadedPoDocs = uploadedDocuments.filter((d) => d.category === 'PREVIOUS_PO');
+  const uploadedQuoteDocs = uploadedDocuments.filter((d) => d.category === 'PREVIOUS_QUOTATION');
 
-  const [activeTab, setActiveTab] = useState<CommercialDocType | 'ALL' | 'UPLOADED_POS'>('ALL');
+  const [activeTab, setActiveTab] = useState<CommercialDocType | 'ALL' | 'UPLOADED_POS' | 'UPLOADED_QUOTES'>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDoc, setSelectedDoc] = useState<CommercialDocument | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Upload Previous PO Modal State
-  const [isUploadPoModalOpen, setIsUploadPoModalOpen] = useState(false);
-  const [uploadPoTitle, setUploadPoTitle] = useState('Historical Purchase Order');
-  const [uploadPoRefNo, setUploadPoRefNo] = useState('');
-  const [uploadPoParty, setUploadPoParty] = useState('M/S IMOP PVT LTD');
-  const [uploadPoDate, setUploadPoDate] = useState(new Date().toISOString().split('T')[0]);
-  const [uploadPoAmount, setUploadPoAmount] = useState<number>(0);
-  const [uploadPoNotes, setUploadPoNotes] = useState('');
-  const [uploadPoFileData, setUploadPoFileData] = useState<{ name: string; type: string; size: number; dataUrl: string } | null>(null);
+  // Upload Previous Document (Quotation or PO) Modal State
+  const [isUploadDocModalOpen, setIsUploadDocModalOpen] = useState(false);
+  const [uploadCategory, setUploadCategory] = useState<'PREVIOUS_PO' | 'PREVIOUS_QUOTATION'>('PREVIOUS_QUOTATION');
+  const [uploadDocTitle, setUploadDocTitle] = useState('Client / Vendor Quotation');
+  const [uploadDocRefNo, setUploadDocRefNo] = useState('');
+  const [uploadDocParty, setUploadDocParty] = useState('M/S IMOP PVT LTD');
+  const [uploadDocDate, setUploadDocDate] = useState(new Date().toISOString().split('T')[0]);
+  const [uploadDocAmount, setUploadDocAmount] = useState<number>(0);
+  const [uploadDocNotes, setUploadDocNotes] = useState('');
+  const [uploadDocFileData, setUploadDocFileData] = useState<{ name: string; type: string; size: number; dataUrl: string } | null>(null);
+
+  const openUploadQuotation = () => {
+    setUploadCategory('PREVIOUS_QUOTATION');
+    setUploadDocTitle('Client / Vendor Quotation');
+    setUploadDocRefNo(`QT-${new Date().getFullYear()}-001`);
+    setUploadDocAmount(0);
+    setUploadDocNotes('');
+    setUploadDocFileData(null);
+    setIsUploadDocModalOpen(true);
+  };
+
+  const openUploadPO = () => {
+    setUploadCategory('PREVIOUS_PO');
+    setUploadDocTitle('Historical Purchase Order');
+    setUploadDocRefNo(`PO-${new Date().getFullYear()}-001`);
+    setUploadDocAmount(0);
+    setUploadDocNotes('');
+    setUploadDocFileData(null);
+    setIsUploadDocModalOpen(true);
+  };
 
   // Form State
   const [docType, setDocType] = useState<CommercialDocType>('QUOTATION');
@@ -270,13 +292,13 @@ export const CommercialDocumentsView: React.FC = () => {
     setSelectedDoc(draftDoc);
   };
 
-  // Upload Previous PO File Handler
-  const handleUploadPoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Upload Previous Document (Quotation or PO) File Handler
+  const handleUploadDocFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      setUploadPoFileData({
+      setUploadDocFileData({
         name: file.name,
         type: file.type || 'application/pdf',
         size: file.size,
@@ -286,29 +308,33 @@ export const CommercialDocumentsView: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
-  const handleSaveUploadedPo = (e: React.FormEvent) => {
+  const handleSaveUploadedDoc = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!uploadPoRefNo.trim()) {
-      alert('Please enter a PO Reference Number.');
+    if (!uploadDocRefNo.trim()) {
+      alert('Please enter a Reference Number.');
       return;
     }
+    const isQuotation = uploadCategory === 'PREVIOUS_QUOTATION';
     createUploadedDocument({
-      category: 'PREVIOUS_PO',
-      referenceNo: uploadPoRefNo.trim(),
-      title: uploadPoTitle.trim() || `Previous PO #${uploadPoRefNo.trim()}`,
-      partyName: uploadPoParty.trim() || 'M/S IMOP PVT LTD',
-      documentDate: uploadPoDate,
-      amount: uploadPoAmount || 0,
-      fileName: uploadPoFileData?.name || 'Scanned_Purchase_Order.pdf',
-      fileType: uploadPoFileData?.type || 'application/pdf',
-      fileSize: uploadPoFileData?.size || 150000,
-      fileDataUrl: uploadPoFileData?.dataUrl || '',
-      notes: uploadPoNotes.trim()
+      category: uploadCategory,
+      referenceNo: uploadDocRefNo.trim(),
+      title: uploadDocTitle.trim() || `${isQuotation ? 'Quotation' : 'PO'} #${uploadDocRefNo.trim()}`,
+      partyName: uploadDocParty.trim() || 'M/S IMOP PVT LTD',
+      documentDate: uploadDocDate,
+      amount: uploadDocAmount || 0,
+      fileName: uploadDocFileData?.name || (isQuotation ? 'Scanned_Quotation.pdf' : 'Scanned_Purchase_Order.pdf'),
+      fileType: uploadDocFileData?.type || 'application/pdf',
+      fileSize: uploadDocFileData?.size || 150000,
+      fileDataUrl: uploadDocFileData?.dataUrl || '',
+      notes: uploadDocNotes.trim()
     });
-    setFeedback({ type: 'success', text: `Previous PO (${uploadPoRefNo}) uploaded and saved successfully!` });
-    setIsUploadPoModalOpen(false);
-    setUploadPoRefNo('');
-    setUploadPoFileData(null);
+    setFeedback({
+      type: 'success',
+      text: `${isQuotation ? 'Quotation' : 'Purchase Order'} (${uploadDocRefNo}) uploaded and saved successfully!`
+    });
+    setIsUploadDocModalOpen(false);
+    setUploadDocRefNo('');
+    setUploadDocFileData(null);
   };
 
   const handleConvert = (docId: string, target: 'PROFORMA_INVOICE' | 'SALES_INVOICE' | 'PURCHASE_INVOICE') => {
@@ -393,7 +419,15 @@ export const CommercialDocumentsView: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setIsUploadPoModalOpen(true)}
+            onClick={openUploadQuotation}
+            className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[44px]"
+          >
+            <Upload className="w-4 h-4" />
+            <span>+ Upload Quotation</span>
+          </button>
+
+          <button
+            onClick={openUploadPO}
             className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[44px]"
           >
             <Upload className="w-4 h-4" />
@@ -414,10 +448,11 @@ export const CommercialDocumentsView: React.FC = () => {
       {/* Filter Tabs */}
       <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs font-semibold no-scrollbar">
         {[
-          { id: 'ALL', label: `All (${commercialDocuments.length})` },
+          { id: 'ALL', label: `All (${commercialDocuments.length + uploadedDocuments.filter(d => d.category === 'PREVIOUS_PO' || d.category === 'PREVIOUS_QUOTATION').length})` },
           { id: 'QUOTATION', label: `Quotations (${commercialDocuments.filter(d => d.documentType === 'QUOTATION').length})` },
           { id: 'PURCHASE_ORDER', label: `Purchase Orders (${commercialDocuments.filter(d => d.documentType === 'PURCHASE_ORDER').length})` },
-          { id: 'UPLOADED_POS', label: `Uploaded Previous POs (${uploadedDocuments.filter(d => d.category === 'PREVIOUS_PO').length})` },
+          { id: 'UPLOADED_QUOTES', label: `Uploaded Quotations (${uploadedDocuments.filter(d => d.category === 'PREVIOUS_QUOTATION').length})` },
+          { id: 'UPLOADED_POS', label: `Uploaded POs (${uploadedDocuments.filter(d => d.category === 'PREVIOUS_PO').length})` },
           { id: 'PROFORMA_INVOICE', label: 'Proforma Invoices' },
           { id: 'CREDIT_NOTE', label: 'Credit Notes' },
           { id: 'DEBIT_NOTE', label: 'Debit Notes' },
@@ -451,20 +486,32 @@ export const CommercialDocumentsView: React.FC = () => {
 
       {/* Mobile Card Layout (<= 768px) */}
       <div className="md:hidden flex flex-col gap-3">
-        {activeTab === 'UPLOADED_POS' ? (
-          uploadedDocuments.filter(d => d.category === 'PREVIOUS_PO').length === 0 ? (
-            <div className="p-8 text-center text-slate-400 italic bg-white rounded-xl border border-slate-200">
-              No previous POs uploaded yet. Tap "+ Upload Previous PO" above to attach historical documents.
-            </div>
-          ) : (
-            uploadedDocuments.filter(d => d.category === 'PREVIOUS_PO').map((up) => (
+        {activeTab === 'UPLOADED_POS' || activeTab === 'UPLOADED_QUOTES' ? (
+          (() => {
+            const isQuotes = activeTab === 'UPLOADED_QUOTES';
+            const targetCat = isQuotes ? 'PREVIOUS_QUOTATION' : 'PREVIOUS_PO';
+            const filteredUploaded = uploadedDocuments.filter(d => d.category === targetCat);
+            if (filteredUploaded.length === 0) {
+              return (
+                <div className="p-8 text-center text-slate-400 italic bg-white rounded-xl border border-slate-200">
+                  {isQuotes
+                    ? 'No quotations uploaded yet. Tap "+ Upload Quotation" above to attach documents.'
+                    : 'No previous POs uploaded yet. Tap "+ Upload Previous PO" above to attach historical documents.'}
+                </div>
+              );
+            }
+            return filteredUploaded.map((up) => (
               <div key={up.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-mono font-black text-sm text-slate-900">{up.referenceNo}</span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-800">
-                        HISTORICAL PO
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        up.category === 'PREVIOUS_QUOTATION'
+                          ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                          : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                      }`}>
+                        {up.category === 'PREVIOUS_QUOTATION' ? 'UPLOADED QUOTATION' : 'HISTORICAL PO'}
                       </span>
                     </div>
                     <p className="font-bold text-slate-800 text-xs mt-1">{up.title}</p>
@@ -500,8 +547,8 @@ export const CommercialDocumentsView: React.FC = () => {
                   </button>
                 </div>
               </div>
-            ))
-          )
+            ));
+          })()
         ) : filteredDocs.length === 0 ? (
           <div className="p-8 text-center text-slate-400 italic bg-white rounded-xl border border-slate-200">
             No commercial documents found matching the filter.
@@ -614,20 +661,31 @@ export const CommercialDocumentsView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-              {activeTab === 'UPLOADED_POS' ? (
-                uploadedPoDocs.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className="p-8 text-center text-slate-400 italic">
-                      No uploaded previous purchase orders found. Click "+ Upload Previous PO" above to add one.
-                    </td>
-                  </tr>
-                ) : (
-                  uploadedPoDocs.map((doc) => (
+              {activeTab === 'UPLOADED_POS' || activeTab === 'UPLOADED_QUOTES' ? (
+                (() => {
+                  const isQuotes = activeTab === 'UPLOADED_QUOTES';
+                  const currentList = isQuotes ? uploadedQuoteDocs : uploadedPoDocs;
+                  if (currentList.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={9} className="p-8 text-center text-slate-400 italic">
+                          {isQuotes
+                            ? 'No uploaded quotations found. Click "+ Upload Quotation" above to add one.'
+                            : 'No uploaded previous purchase orders found. Click "+ Upload Previous PO" above to add one.'}
+                        </td>
+                      </tr>
+                    );
+                  }
+                  return currentList.map((doc) => (
                     <tr key={doc.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="p-3 font-mono font-bold text-slate-900">{doc.referenceNo}</td>
                       <td className="p-3">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
-                          UPLOADED PO
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          doc.category === 'PREVIOUS_QUOTATION'
+                            ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                            : 'bg-purple-100 text-purple-800 border border-purple-200'
+                        }`}>
+                          {doc.category === 'PREVIOUS_QUOTATION' ? 'UPLOADED QUOTE' : 'UPLOADED PO'}
                         </span>
                       </td>
                       <td className="p-3 text-slate-500">{doc.documentDate}</td>
@@ -665,8 +723,8 @@ export const CommercialDocumentsView: React.FC = () => {
                         </div>
                       </td>
                     </tr>
-                  ))
-                )
+                  ));
+                })()
               ) : filteredDocs.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="p-8 text-center text-slate-400 italic">
@@ -1039,10 +1097,11 @@ export const CommercialDocumentsView: React.FC = () => {
                       </span>
                       <input
                         type="number"
-                        placeholder="Qty"
+                        placeholder="0"
                         step="any"
-                        value={l.quantity}
-                        onChange={(e) => handleUpdateLine(idx, 'quantity', parseFloat(e.target.value) || 0)}
+                        value={l.quantity === 0 ? '' : l.quantity}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => handleUpdateLine(idx, 'quantity', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                         required
                         className="w-full p-2 border border-slate-300 rounded-lg text-xs font-mono font-bold text-right bg-white text-slate-900 outline-none focus:border-red-500"
                       />
@@ -1072,10 +1131,11 @@ export const CommercialDocumentsView: React.FC = () => {
                       </span>
                       <input
                         type="number"
-                        placeholder="Rate"
+                        placeholder="0"
                         step="any"
-                        value={l.rate}
-                        onChange={(e) => handleUpdateLine(idx, 'rate', parseFloat(e.target.value) || 0)}
+                        value={l.rate === 0 ? '' : l.rate}
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => handleUpdateLine(idx, 'rate', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                         required
                         className="w-full p-2 border border-slate-300 rounded-lg text-xs font-mono font-bold text-right bg-white text-slate-900 outline-none focus:border-red-500"
                       />
@@ -1156,24 +1216,62 @@ export const CommercialDocumentsView: React.FC = () => {
         </Modal>
       )}
 
-      {/* Upload Previous PO Modal */}
-      {isUploadPoModalOpen && (
+      {/* Upload Previous Quotation / PO Modal */}
+      {isUploadDocModalOpen && (
         <Modal
           isOpen={true}
-          onClose={() => setIsUploadPoModalOpen(false)}
-          title="Upload Previous Purchase Order (PO)"
-          subtitle="Attach a scanned PDF copy or photo of a historical customer or supplier PO for official records."
+          onClose={() => setIsUploadDocModalOpen(false)}
+          title={uploadCategory === 'PREVIOUS_QUOTATION' ? 'Upload Quotation / Estimate (QT)' : 'Upload Previous Purchase Order (PO)'}
+          subtitle="Attach a scanned PDF copy or photo of an incoming quotation or historical purchase order for official records."
           maxWidth="xl"
         >
-          <form onSubmit={handleSaveUploadedPo} className="space-y-4 text-xs">
+          <form onSubmit={handleSaveUploadedDoc} className="space-y-4 text-xs">
+            {/* Document Type Selector Toggle */}
+            <div className="flex rounded-xl bg-slate-100 p-1 border border-slate-200">
+              <button
+                type="button"
+                onClick={() => {
+                  setUploadCategory('PREVIOUS_QUOTATION');
+                  if (!uploadDocTitle || uploadDocTitle.includes('Purchase Order')) {
+                    setUploadDocTitle('Client / Vendor Quotation');
+                  }
+                }}
+                className={`flex-1 py-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                  uploadCategory === 'PREVIOUS_QUOTATION'
+                    ? 'bg-blue-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                📄 Quotation / Estimate (QT)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setUploadCategory('PREVIOUS_PO');
+                  if (!uploadDocTitle || uploadDocTitle.includes('Quotation')) {
+                    setUploadDocTitle('Historical Purchase Order');
+                  }
+                }}
+                className={`flex-1 py-2 rounded-lg font-bold text-xs transition-all cursor-pointer ${
+                  uploadCategory === 'PREVIOUS_PO'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                📦 Purchase Order (PO)
+              </button>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">PO Reference Number *</label>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  {uploadCategory === 'PREVIOUS_QUOTATION' ? 'Quotation Ref / Estimate Number *' : 'PO Reference Number *'}
+                </label>
                 <input
                   type="text"
-                  placeholder="e.g. 059-2024 or PO-IMOP-001"
-                  value={uploadPoRefNo}
-                  onChange={(e) => setUploadPoRefNo(e.target.value)}
+                  placeholder={uploadCategory === 'PREVIOUS_QUOTATION' ? 'e.g. QT-2024-089 or EST-IMOP' : 'e.g. 059-2024 or PO-IMOP-001'}
+                  value={uploadDocRefNo}
+                  onChange={(e) => setUploadDocRefNo(e.target.value)}
                   required
                   className="w-full p-2.5 border border-slate-300 rounded-xl outline-none font-bold text-slate-900 bg-white min-h-[44px]"
                 />
@@ -1184,8 +1282,8 @@ export const CommercialDocumentsView: React.FC = () => {
                 <input
                   type="text"
                   placeholder="e.g. M/S IMOP PVT LTD"
-                  value={uploadPoParty}
-                  onChange={(e) => setUploadPoParty(e.target.value)}
+                  value={uploadDocParty}
+                  onChange={(e) => setUploadDocParty(e.target.value)}
                   required
                   className="w-full p-2.5 border border-slate-300 rounded-xl outline-none font-bold text-slate-900 bg-white min-h-[44px]"
                 />
@@ -1194,35 +1292,38 @@ export const CommercialDocumentsView: React.FC = () => {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">PO Issue Date *</label>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  {uploadCategory === 'PREVIOUS_QUOTATION' ? 'Quotation Date *' : 'PO Issue Date *'}
+                </label>
                 <input
                   type="date"
-                  value={uploadPoDate}
-                  onChange={(e) => setUploadPoDate(e.target.value)}
+                  value={uploadDocDate}
+                  onChange={(e) => setUploadDocDate(e.target.value)}
                   required
                   className="w-full p-2.5 border border-slate-300 rounded-xl outline-none text-slate-900 font-semibold bg-white min-h-[44px]"
                 />
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">Total Order Value (₹)</label>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Total Document Value (₹)</label>
                 <input
                   type="number"
-                  placeholder="e.g. 10180000"
-                  value={uploadPoAmount || ''}
-                  onChange={(e) => setUploadPoAmount(parseFloat(e.target.value) || 0)}
+                  placeholder="0"
+                  value={uploadDocAmount === 0 ? '' : uploadDocAmount}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setUploadDocAmount(e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
                   className="w-full p-2.5 border border-slate-300 rounded-xl outline-none font-mono text-slate-900 font-bold bg-white min-h-[44px]"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-[11px] font-bold text-slate-700 mb-1">PO Title / Description</label>
+              <label className="block text-[11px] font-bold text-slate-700 mb-1">Document Title / Material Summary</label>
               <input
                 type="text"
-                placeholder="e.g. Historical Purchase Order for Machining Boring Scrap"
-                value={uploadPoTitle}
-                onChange={(e) => setUploadPoTitle(e.target.value)}
+                placeholder={uploadCategory === 'PREVIOUS_QUOTATION' ? 'e.g. Quotation for Boring Scrap Lifting' : 'e.g. Historical Purchase Order for Machining Boring Scrap'}
+                value={uploadDocTitle}
+                onChange={(e) => setUploadDocTitle(e.target.value)}
                 className="w-full p-2.5 border border-slate-300 rounded-xl outline-none text-slate-900 font-medium bg-white min-h-[44px]"
               />
             </div>
@@ -1233,18 +1334,18 @@ export const CommercialDocumentsView: React.FC = () => {
               <div className="border-2 border-dashed border-slate-300 hover:border-indigo-500 rounded-xl p-4 text-center bg-slate-50 transition-colors">
                 <input
                   type="file"
-                  id="po-file-upload"
+                  id="doc-file-upload"
                   accept="application/pdf,image/*"
-                  onChange={handleUploadPoFileChange}
+                  onChange={handleUploadDocFileChange}
                   className="hidden"
                 />
-                <label htmlFor="po-file-upload" className="cursor-pointer flex flex-col items-center justify-center gap-1.5">
+                <label htmlFor="doc-file-upload" className="cursor-pointer flex flex-col items-center justify-center gap-1.5">
                   <FileUp className="w-6 h-6 text-indigo-600" />
                   <span className="font-bold text-slate-800 text-xs">
-                    {uploadPoFileData ? uploadPoFileData.name : 'Tap to select PDF or take photo of previous PO'}
+                    {uploadDocFileData ? uploadDocFileData.name : `Tap to select PDF or take photo of ${uploadCategory === 'PREVIOUS_QUOTATION' ? 'Quotation' : 'PO'}`}
                   </span>
                   <span className="text-[10px] text-slate-500">
-                    {uploadPoFileData ? `${(uploadPoFileData.size / 1024).toFixed(1)} KB · Ready to save` : 'Supports PDF, JPEG, PNG'}
+                    {uploadDocFileData ? `${(uploadDocFileData.size / 1024).toFixed(1)} KB · Ready to save` : 'Supports PDF, JPEG, PNG'}
                   </span>
                 </label>
               </div>
@@ -1255,8 +1356,8 @@ export const CommercialDocumentsView: React.FC = () => {
               <textarea
                 rows={2}
                 placeholder="Optional notes or terms recorded from the physical paper copy..."
-                value={uploadPoNotes}
-                onChange={(e) => setUploadPoNotes(e.target.value)}
+                value={uploadDocNotes}
+                onChange={(e) => setUploadDocNotes(e.target.value)}
                 className="w-full p-2.5 border border-slate-300 rounded-xl outline-none bg-white text-slate-900 font-medium"
               />
             </div>
@@ -1264,17 +1365,19 @@ export const CommercialDocumentsView: React.FC = () => {
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setIsUploadPoModalOpen(false)}
+                onClick={() => setIsUploadDocModalOpen(false)}
                 className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold min-h-[44px]"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow-md flex items-center gap-1.5 min-h-[44px] cursor-pointer"
+                className={`px-5 py-2.5 text-white rounded-xl font-bold shadow-md flex items-center gap-1.5 min-h-[44px] cursor-pointer ${
+                  uploadCategory === 'PREVIOUS_QUOTATION' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'
+                }`}
               >
                 <Upload className="w-4 h-4" />
-                <span>Save Uploaded PO</span>
+                <span>Save Uploaded {uploadCategory === 'PREVIOUS_QUOTATION' ? 'Quotation' : 'PO'}</span>
               </button>
             </div>
           </form>

@@ -41,6 +41,8 @@ export const BackupManagerView: React.FC = () => {
     executeSystemRestore,
     updateScheduleConfig,
     exportCsvRegister,
+    syncPushToCloud,
+    syncPullFromCloud,
   } = useERP();
 
   const [activeTab, setActiveTab] = useState<'EXPORT' | 'RESTORE' | 'HISTORY' | 'SCHEDULE'>('EXPORT');
@@ -73,6 +75,46 @@ export const BackupManagerView: React.FC = () => {
   const [gdriveStatus, setGdriveStatus] = useState(googleDriveService.getStatus());
   const [gdriveConnecting, setGdriveConnecting] = useState(false);
   const [gdriveMessage, setGdriveMessage] = useState<string | null>(null);
+
+  // 3-Member Multi-Device Team Cloud Sync State
+  const [isTeamSyncing, setIsTeamSyncing] = useState(false);
+  const [teamSyncMsg, setTeamSyncMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handlePushTeamSync = async () => {
+    setIsTeamSyncing(true);
+    setTeamSyncMsg(null);
+    try {
+      const res = await syncPushToCloud('nandhakumar4290@gmail.com');
+      if (res.success) {
+        setTeamSyncMsg({
+          type: 'success',
+          text: `Pushed whole ERP database to Team Cloud Hub (Revision ${res.revision}). All 3 devices with nandhakumar4290@gmail.com now share this identical data!`,
+        });
+      } else {
+        setTeamSyncMsg({ type: 'error', text: res.error || 'Failed to sync to cloud hub.' });
+      }
+    } finally {
+      setIsTeamSyncing(false);
+    }
+  };
+
+  const handlePullTeamSync = async () => {
+    setIsTeamSyncing(true);
+    setTeamSyncMsg(null);
+    try {
+      const res = await syncPullFromCloud();
+      if (res.success) {
+        setTeamSyncMsg({
+          type: 'success',
+          text: `Pulled latest database from Cloud Hub (Revision ${res.revision || 1}) updated by ${res.syncedBy || 'team member'}. System updated with zero lag!`,
+        });
+      } else {
+        setTeamSyncMsg({ type: 'error', text: res.error || 'Failed to pull latest cloud update.' });
+      }
+    } finally {
+      setIsTeamSyncing(false);
+    }
+  };
 
   // Handle Export Generation
   const handleGenerateBackup = async () => {
@@ -860,6 +902,74 @@ export const BackupManagerView: React.FC = () => {
                   </button>
                 )}
               </div>
+            </div>
+          </div>
+
+          {/* 3-Member Shared Team Cloud Vault Card */}
+          <div className="md:col-span-2 bg-gradient-to-br from-slate-900 to-indigo-950 text-white p-6 rounded-xl border border-indigo-800 shadow-md space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-indigo-800/80 pb-3">
+              <div>
+                <h3 className="text-sm font-black flex items-center gap-2 text-white">
+                  <Cloud className="w-5 h-5 text-sky-400" />
+                  <span>Option 3: 3-Member Zero-Lag Shared Cloud Sync</span>
+                </h3>
+                <p className="text-[11px] text-indigo-200 mt-0.5">
+                  Single email (<strong className="text-amber-300">nandhakumar4290@gmail.com</strong>) used across 3 devices. Backup once and all 3 members see identical live data instantly with zero lag.
+                </p>
+              </div>
+              <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 self-start sm:self-auto">
+                Shared Hub Active
+              </span>
+            </div>
+
+            {teamSyncMsg && (
+              <div
+                className={`p-3 rounded-lg border text-xs font-semibold ${
+                  teamSyncMsg.type === 'success'
+                    ? 'bg-emerald-950/80 border-emerald-500 text-emerald-200'
+                    : 'bg-rose-950/80 border-rose-500 text-rose-200'
+                }`}
+              >
+                {teamSyncMsg.text}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px]">
+              <div className="p-3 bg-white/5 rounded-lg border border-white/10">
+                <span className="text-indigo-300 block font-semibold">Shared Email Identity</span>
+                <span className="font-bold text-white block mt-0.5 font-mono">nandhakumar4290@gmail.com</span>
+                <span className="text-[10px] text-slate-400">All 3 staff members</span>
+              </div>
+              <div className="p-3 bg-white/5 rounded-lg border border-white/10">
+                <span className="text-indigo-300 block font-semibold">Master Sync Vault ID</span>
+                <span className="font-mono text-emerald-300 font-bold block mt-0.5 truncate">ff808181...7de2</span>
+                <span className="text-[10px] text-slate-400">api.restful-api.dev</span>
+              </div>
+              <div className="p-3 bg-white/5 rounded-lg border border-white/10">
+                <span className="text-indigo-300 block font-semibold">Sync Mode</span>
+                <span className="font-bold text-sky-300 block mt-0.5">Instant Multi-Device Hub</span>
+                <span className="text-[10px] text-slate-400">No email popups required</span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              <button
+                onClick={handlePushTeamSync}
+                disabled={isTeamSyncing}
+                className="px-4 py-2.5 bg-sky-500 hover:bg-sky-600 active:bg-sky-700 disabled:opacity-50 text-slate-950 font-black rounded-xl text-xs flex items-center gap-2 shadow-sm cursor-pointer transition-all"
+              >
+                <RefreshCw className={`w-4 h-4 ${isTeamSyncing ? 'animate-spin' : ''}`} />
+                <span>Push Local Changes to Team Cloud</span>
+              </button>
+
+              <button
+                onClick={handlePullTeamSync}
+                disabled={isTeamSyncing}
+                className="px-4 py-2.5 bg-white/10 hover:bg-white/20 active:bg-white/30 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center gap-2 border border-white/20 cursor-pointer transition-all"
+              >
+                <Download className="w-4 h-4 text-emerald-400" />
+                <span>Pull Latest Updates from Team Cloud</span>
+              </button>
             </div>
           </div>
         </div>

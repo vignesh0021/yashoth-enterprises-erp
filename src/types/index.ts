@@ -820,8 +820,8 @@ export interface WorkNote {
   updatedAt: string;
 }
 
-// Uploaded Historical Documents (Vehicle Docs, Previous Invoices, Previous POs)
-export type UploadCategory = 'VEHICLE_DOC' | 'PREVIOUS_INVOICE' | 'PREVIOUS_PO' | 'EWAY_BILL';
+// Uploaded Historical Documents (Vehicle Docs, Previous Invoices, Previous POs, Quotations)
+export type UploadCategory = 'VEHICLE_DOC' | 'PREVIOUS_INVOICE' | 'PREVIOUS_PO' | 'PREVIOUS_QUOTATION' | 'EWAY_BILL';
 
 export interface UploadedDocument {
   id: string;

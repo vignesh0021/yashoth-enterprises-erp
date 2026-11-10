@@ -123,6 +123,7 @@ import {
 } from '../services/mockData.ts';
 
 import { postPurchaseTransaction } from '../../backend/business-rules/purchaseEngine.ts';
+import { teamSyncService } from '../services/teamSyncService.ts';
 import { dispatchSalesTransaction } from '../../backend/business-rules/salesEngine.ts';
 import { postPaymentVoucher, executeContraTransfer } from '../../backend/business-rules/financeEngine.ts';
 import { migrateParties, migrateOpeningStock } from '../../backend/business-rules/dataMigration.ts';
@@ -292,10 +293,16 @@ interface ERPContextType {
   updateWorkNote: (id: string, updates: Partial<WorkNote>) => void;
   deleteWorkNote: (id: string) => void;
 
-  // Uploaded Historical Documents (Vehicle Docs, Previous Invoices, Previous POs)
+  // Uploaded Historical Documents (Vehicle Docs, Previous Invoices, Previous POs, Quotations)
   uploadedDocuments: UploadedDocument[];
   createUploadedDocument: (doc: Omit<UploadedDocument, 'id' | 'createdAt'>) => UploadedDocument;
   deleteUploadedDocument: (id: string) => void;
+
+  // Option 2 & 3: Multi-Member Team Cloud Sync & Daily Snapshots
+  getCurrentDatabasePayload: () => BackupDatabasePayload;
+  applyRestoredPayload: (data: BackupDatabasePayload) => void;
+  syncPushToCloud: (actorOverride?: string) => Promise<{ success: boolean; revision: number; error?: string }>;
+  syncPullFromCloud: () => Promise<{ success: boolean; payload?: BackupDatabasePayload; revision?: number; syncedBy?: string; syncedAt?: string; error?: string }>;
 }
 
 const ERPContext = createContext<ERPContextType | undefined>(undefined);
@@ -1781,6 +1788,20 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const syncPushToCloud = async (actorOverride?: string) => {
+    const payload = getCurrentDatabasePayload();
+    const actor = actorOverride || currentUser.fullName || 'Prop. P. Nandha Kumar';
+    return await teamSyncService.pushToCloud(payload, actor);
+  };
+
+  const syncPullFromCloud = async () => {
+    const res = await teamSyncService.pullFromCloud();
+    if (res.success && res.payload) {
+      applyRestoredPayload(res.payload);
+    }
+    return res;
+  };
+
   // Phase 5 Dedicated Backup Manager Implementations
   const createBackup = async (options?: {
     companyScoped?: boolean;
@@ -2211,6 +2232,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         uploadedDocuments,
         createUploadedDocument,
         deleteUploadedDocument,
+        getCurrentDatabasePayload,
+        applyRestoredPayload,
+        syncPushToCloud,
+        syncPullFromCloud,
       }}
     >
       {children}

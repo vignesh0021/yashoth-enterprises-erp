@@ -62,7 +62,9 @@ export const DashboardView: React.FC = () => {
     createWorkNote,
     deleteWorkNote,
     uploadedDocuments,
-    renewVehicleDocument
+    renewVehicleDocument,
+    syncPushToCloud,
+    syncPullFromCloud
   } = useERP();
 
   const navigate = useNavigate();
@@ -87,10 +89,40 @@ export const DashboardView: React.FC = () => {
 
   // Feedback Toast
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
 
   const showToast = (type: 'success' | 'error', text: string) => {
     setToastMsg({ type, text });
     setTimeout(() => setToastMsg(null), 4000);
+  };
+
+  // 3-Member Multi-Device Cloud Sync Handlers
+  const handleCloudPush = async () => {
+    setIsSyncingCloud(true);
+    try {
+      const res = await syncPushToCloud(officialEmail);
+      if (res.success) {
+        showToast('success', `☁️ Pushed to Cloud Hub (Rev ${res.revision}). All 3 devices now share this live data!`);
+      } else {
+        showToast('error', res.error || 'Cloud sync failed.');
+      }
+    } finally {
+      setIsSyncingCloud(false);
+    }
+  };
+
+  const handleCloudPull = async () => {
+    setIsSyncingCloud(true);
+    try {
+      const res = await syncPullFromCloud();
+      if (res.success) {
+        showToast('success', `☁️ Pulled latest team data (Rev ${res.revision || 1}) updated by ${res.syncedBy || 'team member'}!`);
+      } else {
+        showToast('error', res.error || 'Failed to pull cloud update.');
+      }
+    } finally {
+      setIsSyncingCloud(false);
+    }
   };
 
   // 1. Calculations: Financials & Cashflow
@@ -263,7 +295,17 @@ export const DashboardView: React.FC = () => {
         </div>
 
         {/* Quick Top Bar Actions */}
-        <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+        <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto flex-wrap">
+          <button
+            onClick={handleCloudPush}
+            disabled={isSyncingCloud}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:opacity-50 text-white rounded-xl text-[11px] font-bold shadow-xs transition-colors min-h-[36px] cursor-pointer"
+            title="Push data to shared Cloud Hub so all 3 members see identical data with zero lag"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-blue-200 ${isSyncingCloud ? 'animate-spin' : ''}`} />
+            <span>Sync Cloud (3 Members)</span>
+          </button>
+
           <a
             href={ewayBillPortalUrl}
             target="_blank"

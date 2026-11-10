@@ -17,8 +17,10 @@ import {
   Edit3,
   Trash2,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  BookUser
 } from 'lucide-react';
+import { pickContactFromPhonebook } from '../../utils/contactPicker.ts';
 
 export const PartiesView: React.FC = () => {
   const { parties, addParty, updateParty, deleteParty, invoices, purchases, payments } = useERP();
@@ -374,12 +376,30 @@ export const PartiesView: React.FC = () => {
             </div>
 
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Phone / Mobile *</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="font-bold text-slate-700">Phone / Mobile *</label>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const c = await pickContactFromPhonebook();
+                    if (c) {
+                      if (c.phone) setPhone(c.phone);
+                      if (c.name && (!contactPerson || !contactPerson.trim())) setContactPerson(c.name);
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-full border border-blue-200 transition-colors cursor-pointer"
+                  title="Pick directly from your phone's contacts"
+                >
+                  <BookUser className="w-3.5 h-3.5" />
+                  <span>Fetch from Contacts</span>
+                </button>
+              </div>
               <input
-                type="text"
+                type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 className="w-full p-2 border border-slate-200 rounded-lg font-mono"
+                placeholder="+91 98765 43210"
                 required
               />
             </div>

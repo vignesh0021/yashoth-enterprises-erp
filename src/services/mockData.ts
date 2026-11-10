@@ -27,7 +27,10 @@ import type {
   JournalEntry,
   BackupHistoryItem,
   RestoreLog,
-  BackupScheduleConfig
+  BackupScheduleConfig,
+  DailyTask,
+  WorkNote,
+  UploadedDocument
 } from '../types/index.ts';
 
 export const INITIAL_COMPANY_SETTINGS: Company = {
@@ -1109,4 +1112,125 @@ export const INITIAL_BACKUP_SCHEDULE: BackupScheduleConfig = {
   createdAt: '2026-10-01T00:00:00.000Z',
   updatedAt: '2026-10-01T00:00:00.000Z'
 };
+
+export const INITIAL_DAILY_TASKS: DailyTask[] = [
+  {
+    id: 'task-01',
+    companyId: 'comp-yasoth-01',
+    title: 'Weigh Inward Lorry (TN 04 AB 1234) with Machining Scrap',
+    priority: 'URGENT',
+    status: 'PENDING',
+    dueDate: new Date().toISOString().split('T')[0],
+    assignedTo: 'Weighbridge Operator',
+    notes: 'Verify Gross and Tare with IMOP delivery challan.',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'task-02',
+    companyId: 'comp-yasoth-01',
+    title: 'Generate E-Way Bill for 20 MT HMS Scrap to Andhra Pradesh',
+    priority: 'HIGH',
+    status: 'PENDING',
+    dueDate: new Date().toISOString().split('T')[0],
+    assignedTo: 'Dispatch Manager',
+    notes: 'National E-Way Bill Portal https://ewaybillgst.gov.in/Login.aspx',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'task-03',
+    companyId: 'comp-yasoth-01',
+    title: 'Follow up Insurance Renewal for Ashok Leyland Tipper',
+    priority: 'HIGH',
+    status: 'PENDING',
+    dueDate: new Date().toISOString().split('T')[0],
+    assignedTo: 'Fleet Admin',
+    notes: 'Upload renewed insurance policy document to vehicle manager.',
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'task-04',
+    companyId: 'comp-yasoth-01',
+    title: 'Send Official Quotation 65-2026 to M/S IMOP PVT LTD',
+    priority: 'NORMAL',
+    status: 'DONE',
+    dueDate: new Date().toISOString().split('T')[0],
+    assignedTo: 'Proprietor P. Nandha Kumar',
+    notes: 'Sent via email with 11 item scrap rate contract.',
+    createdAt: new Date().toISOString()
+  }
+];
+
+export const INITIAL_WORK_NOTES: WorkNote[] = [
+  {
+    id: 'note-01',
+    companyId: 'comp-yasoth-01',
+    title: 'Yard Gate 1 Weighbridge Calibration Note',
+    content: 'Weighbridge test weights verified at 10,000 KG. Zero error observed. Next annual stamping due November 2027.',
+    category: 'YARD',
+    date: new Date().toISOString().split('T')[0],
+    updatedAt: new Date().toISOString()
+  },
+  {
+    id: 'note-02',
+    companyId: 'comp-yasoth-01',
+    title: 'IMOP Sri City Lifting Agreement',
+    content: 'Rates fixed for 35 MT Machining boring scrap at ₹31/KG and 25 MT MS Scrap (HMS-1&2) at ₹37/KG. Lifting within 48 hours.',
+    category: 'CLIENT',
+    date: new Date().toISOString().split('T')[0],
+    updatedAt: new Date().toISOString()
+  }
+];
+
+export const INITIAL_UPLOADED_DOCS: UploadedDocument[] = [
+  {
+    id: 'updoc-01',
+    companyId: 'comp-yasoth-01',
+    category: 'PREVIOUS_PO',
+    relatedId: 'doc-po-imop',
+    referenceNo: '059-2024',
+    title: 'Original Purchase Order 059-2024 (IMOP PVT LTD)',
+    partyName: 'M/S IMOP PVT LTD',
+    documentDate: '2024-12-12',
+    amount: 10180000,
+    fileName: 'IMOP_PO_059_2024.pdf',
+    fileType: 'application/pdf',
+    fileSize: 245000,
+    fileDataUrl: '',
+    notes: 'Uploaded historical signed purchase order copy.',
+    createdAt: '2024-12-12T10:00:00Z'
+  },
+  {
+    id: 'updoc-02',
+    companyId: 'comp-yasoth-01',
+    category: 'PREVIOUS_INVOICE',
+    relatedId: 'inv-prev-01',
+    referenceNo: 'YE/24-25/089',
+    title: 'Historical Tax Invoice YE/24-25/089',
+    partyName: 'M/S IMOP PVT LTD',
+    documentDate: '2024-11-20',
+    amount: 1450000,
+    fileName: 'YE_Invoice_089_Scanned.pdf',
+    fileType: 'application/pdf',
+    fileSize: 189000,
+    fileDataUrl: '',
+    notes: 'Scanned customer copy signed and stamped.',
+    createdAt: '2024-11-20T14:30:00Z'
+  },
+  {
+    id: 'updoc-03',
+    companyId: 'comp-yasoth-01',
+    category: 'VEHICLE_DOC',
+    relatedId: 'veh-01',
+    referenceNo: 'TN 04 AB 1234 - RC',
+    title: 'Registration Certificate (RC Book) — Ashok Leyland Tipper',
+    partyName: 'RTO Chennai North',
+    documentDate: '2021-03-15',
+    fileName: 'RC_TN04AB1234.pdf',
+    fileType: 'application/pdf',
+    fileSize: 312000,
+    fileDataUrl: '',
+    notes: 'Original RC copy attached for vehicle compliance.',
+    createdAt: '2021-03-15T09:00:00Z'
+  }
+];
 

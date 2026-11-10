@@ -29,7 +29,11 @@ import {
   INITIAL_VEHICLE_DOCS,
   INITIAL_INVOICES,
   INITIAL_COMMERCIAL_DOCUMENTS,
+  INITIAL_DAILY_TASKS,
+  INITIAL_WORK_NOTES,
+  INITIAL_UPLOADED_DOCS,
 } from '../src/services/mockData.ts';
+import { googleDriveService } from '../src/services/googleDriveService.ts';
 
 describe('Suite 12: Vehicle Insurance Alert Engine, Free Vahan RTO Lookup, GST E-Way Bill NIC v1.03 & Purchase Orders', () => {
   describe('12.1 Vehicle Registration Normalization & Expiry Severity Engine', () => {
@@ -276,6 +280,109 @@ describe('Suite 12: Vehicle Insurance Alert Engine, Free Vahan RTO Lookup, GST E
       expect(imopPo?.documentNo).toBe('059-2024');
       expect(imopPo?.partyName).toBe('M/S IMOP PVT LTD');
       expect(imopPo?.grandTotal).toBe(10180000);
+    });
+  });
+
+  describe('12.5 Daily Tasks, Work Notes, Document Uploads & Official E-Way Bill / Gmail Integration', () => {
+    it('verifies operational Daily Tasks fixtures and completion states', () => {
+      expect(Array.isArray(INITIAL_DAILY_TASKS)).toBe(true);
+      expect(INITIAL_DAILY_TASKS.length).toBeGreaterThanOrEqual(4);
+      const highPriorityTask = INITIAL_DAILY_TASKS.find((t) => t.id === 'task-03');
+      expect(highPriorityTask).toBeDefined();
+      expect(highPriorityTask?.priority).toBe('HIGH');
+      expect(highPriorityTask?.status).toBe('PENDING');
+
+      const poTask = INITIAL_DAILY_TASKS.find((t) => t.id === 'task-04');
+      expect(poTask).toBeDefined();
+      expect(poTask?.title).toContain('IMOP PVT LTD');
+    });
+
+    it('verifies Yard Work Notes fixtures with operational scrap categories', () => {
+      expect(Array.isArray(INITIAL_WORK_NOTES)).toBe(true);
+      expect(INITIAL_WORK_NOTES.length).toBeGreaterThanOrEqual(2);
+      const weighbridgeNote = INITIAL_WORK_NOTES.find((n) => n.id === 'note-01');
+      expect(weighbridgeNote).toBeDefined();
+      expect(weighbridgeNote?.content).toContain('Weighbridge');
+
+      const clientNote = INITIAL_WORK_NOTES.find((n) => n.id === 'note-02');
+      expect(clientNote).toBeDefined();
+      expect(clientNote?.title).toContain('IMOP');
+    });
+
+    it('verifies Uploaded Documents fixtures for Vehicle Papers, Invoices, and Historical POs', () => {
+      expect(Array.isArray(INITIAL_UPLOADED_DOCS)).toBe(true);
+      expect(INITIAL_UPLOADED_DOCS.length).toBeGreaterThanOrEqual(3);
+
+      const vehDoc = INITIAL_UPLOADED_DOCS.find((d) => d.category === 'VEHICLE_DOC');
+      expect(vehDoc).toBeDefined();
+      expect(vehDoc?.referenceNo).toContain('RC');
+      expect(vehDoc?.fileName).toContain('.pdf');
+
+      const prevInvoice = INITIAL_UPLOADED_DOCS.find((d) => d.category === 'PREVIOUS_INVOICE');
+      expect(prevInvoice).toBeDefined();
+      expect(prevInvoice?.referenceNo).toBe('YE/24-25/089');
+      expect(prevInvoice?.amount).toBe(1450000);
+
+      const prevPo = INITIAL_UPLOADED_DOCS.find((d) => d.category === 'PREVIOUS_PO');
+      expect(prevPo).toBeDefined();
+      expect(prevPo?.referenceNo).toBe('059-2024');
+      expect(prevPo?.amount).toBe(10180000);
+    });
+
+    it('verifies Google Drive Service Gmail connection and fallback email backup mechanism', () => {
+      const status = googleDriveService.getStatus();
+      expect(status.userEmail).toBe('nandhakumar4290@gmail.com');
+
+      const connected = googleDriveService.connectGmailAccount('nandhakumar4290@gmail.com');
+      expect(connected.success).toBe(true);
+      expect(connected.userEmail).toBe('nandhakumar4290@gmail.com');
+      expect(googleDriveService.getUserEmail()).toBe('nandhakumar4290@gmail.com');
+    });
+
+    it('verifies zero-scroll DashboardView layout and the 6 tappable portions', () => {
+      const root = process.cwd();
+      const dashboardCode = fs.readFileSync(path.join(root, 'src/modules/dashboard/DashboardView.tsx'), 'utf-8');
+
+      // Verify zero-scroll viewport styling
+      expect(dashboardCode).toContain('overflow-y-auto sm:overflow-hidden');
+      expect(dashboardCode).toContain('Prop. P. NANDHA KUMAR');
+      expect(dashboardCode).toContain('nandhakumar4290@gmail.com');
+      expect(dashboardCode).toContain('https://ewaybillgst.gov.in/Login.aspx');
+
+      // Verify the 6 tappable portions
+      expect(dashboardCode).toContain('1. Cashflow & Funds');
+      expect(dashboardCode).toContain('2. Tasks & Notes');
+      expect(dashboardCode).toContain('3. Fleet & Insurance');
+      expect(dashboardCode).toContain('4. Quotations & POs');
+      expect(dashboardCode).toContain('5. e-Way Bill Hub');
+      expect(dashboardCode).toContain('6. Stock & Yard');
+
+      // Verify complete detail drilldown modals
+      expect(dashboardCode).toContain("activeDetailModal === 'FINANCE'");
+      expect(dashboardCode).toContain("activeDetailModal === 'TASKS'");
+      expect(dashboardCode).toContain("activeDetailModal === 'VEHICLES'");
+      expect(dashboardCode).toContain("activeDetailModal === 'DOCS'");
+      expect(dashboardCode).toContain("activeDetailModal === 'EWAY'");
+      expect(dashboardCode).toContain("activeDetailModal === 'STOCK'");
+    });
+
+    it('verifies uploaded documents support in CommercialDocumentsView, InvoicesView, and VehiclesView', () => {
+      const root = process.cwd();
+      const commercialCode = fs.readFileSync(path.join(root, 'src/modules/documents/CommercialDocumentsView.tsx'), 'utf-8');
+      const invoiceCode = fs.readFileSync(path.join(root, 'src/modules/invoices/InvoicesView.tsx'), 'utf-8');
+      const vehicleCode = fs.readFileSync(path.join(root, 'src/modules/vehicles/VehiclesView.tsx'), 'utf-8');
+
+      expect(commercialCode).toContain('+ Upload Previous PO');
+      expect(commercialCode).toContain('UPLOADED_POS');
+      expect(commercialCode).toContain('Instant Live Preview');
+
+      expect(invoiceCode).toContain('+ Upload Previous Invoice');
+      expect(invoiceCode).toContain('UPLOADED_INVOICES');
+      expect(invoiceCode).toContain('PREVIOUS_INVOICE');
+
+      expect(vehicleCode).toContain('+ Upload Vehicle Paper');
+      expect(vehicleCode).toContain('UPLOADED_DOCS');
+      expect(vehicleCode).toContain('VEHICLE_DOC');
     });
   });
 });

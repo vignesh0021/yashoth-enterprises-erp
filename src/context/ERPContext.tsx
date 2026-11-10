@@ -36,7 +36,10 @@ import type {
   BackupScheduleConfig,
   BackupDestination,
   RestorePreviewResult,
-  BackupDatabasePayload
+  BackupDatabasePayload,
+  DailyTask,
+  WorkNote,
+  UploadedDocument
 } from '../types/index.ts';
 
 import { authService } from '../services/authService.ts';
@@ -113,7 +116,10 @@ import {
   INITIAL_JOURNAL_ENTRIES,
   INITIAL_BACKUP_HISTORY,
   INITIAL_RESTORE_LOGS,
-  INITIAL_BACKUP_SCHEDULE
+  INITIAL_BACKUP_SCHEDULE,
+  INITIAL_DAILY_TASKS,
+  INITIAL_WORK_NOTES,
+  INITIAL_UPLOADED_DOCS
 } from '../services/mockData.ts';
 
 import { postPurchaseTransaction } from '../../backend/business-rules/purchaseEngine.ts';
@@ -273,6 +279,23 @@ interface ERPContextType {
   exportSingleExcelWorkbook: (filename: string) => void;
   exportAllExcelWorkbooks: () => Promise<void>;
   exportConsolidatedMasterWorkbook: () => void;
+
+  // Daily Tasks & Work Notes
+  dailyTasks: DailyTask[];
+  createDailyTask: (task: Omit<DailyTask, 'id' | 'createdAt'>) => DailyTask;
+  updateDailyTask: (id: string, updates: Partial<DailyTask>) => void;
+  toggleDailyTask: (id: string) => void;
+  deleteDailyTask: (id: string) => void;
+
+  workNotes: WorkNote[];
+  createWorkNote: (note: Omit<WorkNote, 'id' | 'updatedAt'>) => WorkNote;
+  updateWorkNote: (id: string, updates: Partial<WorkNote>) => void;
+  deleteWorkNote: (id: string) => void;
+
+  // Uploaded Historical Documents (Vehicle Docs, Previous Invoices, Previous POs)
+  uploadedDocuments: UploadedDocument[];
+  createUploadedDocument: (doc: Omit<UploadedDocument, 'id' | 'createdAt'>) => UploadedDocument;
+  deleteUploadedDocument: (id: string) => void;
 }
 
 const ERPContext = createContext<ERPContextType | undefined>(undefined);
@@ -368,6 +391,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const loaded = load<BackupScheduleConfig>('backupSchedule', INITIAL_BACKUP_SCHEDULE);
     return loaded || INITIAL_BACKUP_SCHEDULE;
   });
+  const [dailyTasks, setDailyTasks] = useState<DailyTask[]>(() => {
+    const loaded = load<DailyTask[]>('dailyTasks', []);
+    return loaded && loaded.length > 0 ? loaded : INITIAL_DAILY_TASKS;
+  });
+  const [workNotes, setWorkNotes] = useState<WorkNote[]>(() => {
+    const loaded = load<WorkNote[]>('workNotes', []);
+    return loaded && loaded.length > 0 ? loaded : INITIAL_WORK_NOTES;
+  });
+  const [uploadedDocuments, setUploadedDocuments] = useState<UploadedDocument[]>(() => {
+    const loaded = load<UploadedDocument[]>('uploadedDocuments', []);
+    return loaded && loaded.length > 0 ? loaded : INITIAL_UPLOADED_DOCS;
+  });
 
   // Persist state updates to localStorage
   useEffect(() => {
@@ -400,6 +435,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(STORAGE_PREFIX + 'backupHistory', JSON.stringify(backupHistory));
       localStorage.setItem(STORAGE_PREFIX + 'restoreLogs', JSON.stringify(restoreLogs));
       localStorage.setItem(STORAGE_PREFIX + 'backupSchedule', JSON.stringify(backupSchedule));
+      localStorage.setItem(STORAGE_PREFIX + 'dailyTasks', JSON.stringify(dailyTasks));
+      localStorage.setItem(STORAGE_PREFIX + 'workNotes', JSON.stringify(workNotes));
+      localStorage.setItem(STORAGE_PREFIX + 'uploadedDocuments', JSON.stringify(uploadedDocuments));
     } catch (e) {
       console.warn('Error saving to localStorage', e);
     }
@@ -408,7 +446,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     employees, attendance, accounts, accountTransactions, expenses,
     weighments, collectionJobs, purchases, inventoryLots, stockMovements,
     sales, invoices, payments, stockCounts, auditLogs, commercialDocuments, journalEntries,
-    backupHistory, restoreLogs, backupSchedule
+    backupHistory, restoreLogs, backupSchedule, dailyTasks, workNotes, uploadedDocuments
   ]);
 
   const logAudit = (action: string, entityType: string, entityId: string, oldState?: any, newState?: any) => {
@@ -1021,7 +1059,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Phase 4: Commercial Documents & Financial Reports Management
   const createCommercialDoc = (params: {
-    party: Party;
+    party?: Party;
     documentType: CommercialDocType;
     documentDate: string;
     dueDate?: string;
@@ -1030,11 +1068,16 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     notes?: string;
     termsAndConditions?: string;
   }): CommercialDocument => {
+    authService.touchActivity();
+    if (currentUser) {
+      currentUser.lastActiveAt = Date.now();
+    }
     enforceAuthorization(currentUser, 'invoice:create', activeCompanyId);
     const count = commercialDocuments.filter((d) => d.documentType === params.documentType).length + 1;
+    const effectiveParty = params.party || parties.find((p) => p.partyType === 'CUSTOMER' || p.partyType === 'BOTH') || parties[0] || INITIAL_PARTIES[0];
     const doc = createCommercialDocument({
       company: activeCompany,
-      party: params.party,
+      party: effectiveParty,
       documentType: params.documentType,
       documentDate: params.documentDate,
       dueDate: params.dueDate,
@@ -1294,6 +1337,75 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAccounts((prev) => prev.filter((a) => a.id !== id));
     logAudit('DELETE_ACCOUNT', 'ACCOUNT', id, existing, null);
     return { success: true, message: `Account "${existing.accountName}" deleted.` };
+  };
+
+  // Daily Tasks Management
+  const createDailyTask = (task: Omit<DailyTask, 'id' | 'createdAt'>): DailyTask => {
+    const newTask: DailyTask = {
+      ...task,
+      id: 'task-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 6),
+      createdAt: new Date().toISOString()
+    };
+    setDailyTasks((prev) => [newTask, ...prev]);
+    logAudit('CREATE_DAILY_TASK', 'DAILY_TASK', newTask.id, null, newTask);
+    return newTask;
+  };
+
+  const updateDailyTask = (id: string, updates: Partial<DailyTask>) => {
+    setDailyTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...updates } : t)));
+    logAudit('UPDATE_DAILY_TASK', 'DAILY_TASK', id, null, updates);
+  };
+
+  const toggleDailyTask = (id: string) => {
+    setDailyTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, status: t.status === 'DONE' ? 'PENDING' : 'DONE' } : t))
+    );
+  };
+
+  const deleteDailyTask = (id: string) => {
+    setDailyTasks((prev) => prev.filter((t) => t.id !== id));
+    logAudit('DELETE_DAILY_TASK', 'DAILY_TASK', id, null, null);
+  };
+
+  // Work Notes Management
+  const createWorkNote = (note: Omit<WorkNote, 'id' | 'updatedAt'>): WorkNote => {
+    const newNote: WorkNote = {
+      ...note,
+      id: 'note-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 6),
+      updatedAt: new Date().toISOString()
+    };
+    setWorkNotes((prev) => [newNote, ...prev]);
+    logAudit('CREATE_WORK_NOTE', 'WORK_NOTE', newNote.id, null, newNote);
+    return newNote;
+  };
+
+  const updateWorkNote = (id: string, updates: Partial<WorkNote>) => {
+    setWorkNotes((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, ...updates, updatedAt: new Date().toISOString() } : n))
+    );
+    logAudit('UPDATE_WORK_NOTE', 'WORK_NOTE', id, null, updates);
+  };
+
+  const deleteWorkNote = (id: string) => {
+    setWorkNotes((prev) => prev.filter((n) => n.id !== id));
+    logAudit('DELETE_WORK_NOTE', 'WORK_NOTE', id, null, null);
+  };
+
+  // Uploaded Historical Documents (Vehicle Docs, Previous Invoices, Previous POs)
+  const createUploadedDocument = (doc: Omit<UploadedDocument, 'id' | 'createdAt'>): UploadedDocument => {
+    const newDoc: UploadedDocument = {
+      ...doc,
+      id: 'updoc-' + Date.now().toString(36) + '-' + Math.random().toString(36).substring(2, 6),
+      createdAt: new Date().toISOString()
+    };
+    setUploadedDocuments((prev) => [newDoc, ...prev]);
+    logAudit('UPLOAD_DOCUMENT', 'UPLOADED_DOCUMENT', newDoc.id, null, newDoc);
+    return newDoc;
+  };
+
+  const deleteUploadedDocument = (id: string) => {
+    setUploadedDocuments((prev) => prev.filter((d) => d.id !== id));
+    logAudit('DELETE_UPLOADED_DOCUMENT', 'UPLOADED_DOCUMENT', id, null, null);
   };
 
   const updateExpense = (id: string, updates: Partial<Expense>) => {
@@ -1591,6 +1703,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       auditLogs,
       commercialDocuments,
       journalEntries,
+      dailyTasks,
+      workNotes,
+      uploadedDocuments,
     };
     return JSON.stringify(backup, null, 2);
   };
@@ -1621,6 +1736,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     auditLogs,
     commercialDocuments,
     journalEntries,
+    dailyTasks,
+    workNotes,
+    uploadedDocuments,
   });
 
   const applyRestoredPayload = (data: BackupDatabasePayload) => {
@@ -1648,6 +1766,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (data.stockCounts) setStockCounts(data.stockCounts);
     if (data.commercialDocuments) setCommercialDocuments(data.commercialDocuments);
     if (data.journalEntries) setJournalEntries(data.journalEntries);
+    if (data.dailyTasks) setDailyTasks(data.dailyTasks);
+    if (data.workNotes) setWorkNotes(data.workNotes);
+    if (data.uploadedDocuments) setUploadedDocuments(data.uploadedDocuments);
   };
 
   const restoreBackup = (jsonStr: string): boolean => {
@@ -2078,6 +2199,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         exportSingleExcelWorkbook,
         exportAllExcelWorkbooks,
         exportConsolidatedMasterWorkbook,
+        dailyTasks,
+        createDailyTask,
+        updateDailyTask,
+        toggleDailyTask,
+        deleteDailyTask,
+        workNotes,
+        createWorkNote,
+        updateWorkNote,
+        deleteWorkNote,
+        uploadedDocuments,
+        createUploadedDocument,
+        deleteUploadedDocument,
       }}
     >
       {children}

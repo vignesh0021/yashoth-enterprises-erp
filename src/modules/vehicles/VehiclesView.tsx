@@ -31,6 +31,9 @@ import {
   CheckCircle2,
   MapPin,
   Wrench,
+  Upload,
+  FileUp,
+  Download
 } from 'lucide-react';
 
 export const VehiclesView: React.FC = () => {
@@ -45,9 +48,12 @@ export const VehiclesView: React.FC = () => {
     updateVehicleDocument,
     deleteVehicleDocument,
     renewVehicleDocument,
+    uploadedDocuments,
+    createUploadedDocument,
+    deleteUploadedDocument,
   } = useERP();
 
-  const [activeFilter, setActiveFilter] = useState<'ALL' | 'ALERTS' | 'INSURANCE' | 'OWNED'>('ALL');
+  const [activeFilter, setActiveFilter] = useState<'ALL' | 'ALERTS' | 'INSURANCE' | 'OWNED' | 'UPLOADED_DOCS'>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [isVehicleModalOpen, setIsVehicleModalOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
@@ -56,6 +62,22 @@ export const VehiclesView: React.FC = () => {
   const [isDocModalOpen, setIsDocModalOpen] = useState(false);
   const [targetVehicleForDoc, setTargetVehicleForDoc] = useState<Vehicle | null>(null);
   const [editingDoc, setEditingDoc] = useState<VehicleDocument | null>(null);
+
+  // Upload Vehicle Document Modal State
+  const [isUploadVehicleDocModalOpen, setIsUploadVehicleDocModalOpen] = useState(false);
+  const [uploadVehReg, setUploadVehReg] = useState('TN 05 Y 1936');
+  const [uploadDocCategory, setUploadDocCategory] = useState<'RC' | 'INSURANCE' | 'FITNESS' | 'POLLUTION' | 'PERMIT' | 'TAX'>('INSURANCE');
+  const [uploadDocRefNo, setUploadDocRefNo] = useState('');
+  const [uploadDocTitle, setUploadDocTitle] = useState('');
+  const [uploadDocDate, setUploadDocDate] = useState(new Date().toISOString().split('T')[0]);
+  const [uploadDocExpiry, setUploadDocExpiry] = useState('');
+  const [uploadDocNotes, setUploadDocNotes] = useState('');
+  const [uploadVehFileData, setUploadVehFileData] = useState<{
+    name: string;
+    type: string;
+    size: number;
+    dataUrl: string;
+  } | null>(null);
 
   // Vahan RTO API Lookup State
   const [isLookingUpRto, setIsLookingUpRto] = useState(false);
@@ -113,6 +135,51 @@ export const VehiclesView: React.FC = () => {
       return true;
     });
   }, [vehicles, searchTerm, activeFilter, urgentAlerts, complianceSummary]);
+
+  const uploadedVehDocs = useMemo(
+    () => uploadedDocuments.filter((d) => d.category === 'VEHICLE_DOC'),
+    [uploadedDocuments]
+  );
+
+  const handleUploadVehFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setUploadVehFileData({
+        name: file.name,
+        type: file.type || 'application/pdf',
+        size: file.size,
+        dataUrl: reader.result as string,
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveUploadedVehDoc = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!uploadDocRefNo.trim()) {
+      alert('Please enter a Document / Policy Reference Number.');
+      return;
+    }
+    createUploadedDocument({
+      category: 'VEHICLE_DOC',
+      referenceNo: uploadDocRefNo.trim(),
+      title: uploadDocTitle.trim() || `${uploadDocCategory} - ${uploadVehReg}`,
+      partyName: uploadVehReg,
+      documentDate: uploadDocDate,
+      amount: 0,
+      fileName: uploadVehFileData?.name || `${uploadDocCategory}_${uploadVehReg.replace(/\s+/g, '')}.pdf`,
+      fileType: uploadVehFileData?.type || 'application/pdf',
+      fileSize: uploadVehFileData?.size || 150000,
+      fileDataUrl: uploadVehFileData?.dataUrl || '',
+      notes: `${uploadDocNotes ? uploadDocNotes + ' | ' : ''}Expiry: ${uploadDocExpiry || 'N/A'}`,
+    });
+    showToast('success', `${uploadDocCategory} Document for ${uploadVehReg} uploaded and saved!`);
+    setIsUploadVehicleDocModalOpen(false);
+    setUploadDocRefNo('');
+    setUploadVehFileData(null);
+  };
 
   const showToast = (type: 'success' | 'error', text: string) => {
     setFeedbackMsg({ type, text });
@@ -409,6 +476,13 @@ export const VehiclesView: React.FC = () => {
 
         <div className="flex items-center gap-2 flex-wrap">
           <button
+            onClick={() => setIsUploadVehicleDocModalOpen(true)}
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-md transition-all min-h-[44px] cursor-pointer"
+          >
+            <Upload className="w-4 h-4 text-amber-400" />
+            <span>+ Upload Vehicle Paper</span>
+          </button>
+          <button
             onClick={handleOpenAdd}
             className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all min-h-[44px] cursor-pointer"
           >
@@ -662,6 +736,7 @@ export const VehiclesView: React.FC = () => {
             { id: 'ALERTS', label: `⚠️ Alerts (${complianceSummary.vehiclesWithAlerts})` },
             { id: 'INSURANCE', label: '🛡️ Insurance Status' },
             { id: 'OWNED', label: '🚛 Company Owned' },
+            { id: 'UPLOADED_DOCS', label: `📁 Uploaded Papers (${uploadedVehDocs.length})` },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -689,9 +764,68 @@ export const VehiclesView: React.FC = () => {
         </div>
       </div>
 
-      {/* Vehicles Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {filteredVehicles.map((veh) => {
+      {/* Vehicles Grid or Uploaded Documents Grid */}
+      {activeFilter === 'UPLOADED_DOCS' ? (
+        uploadedVehDocs.length === 0 ? (
+          <div className="p-12 text-center text-slate-400 italic bg-white rounded-2xl border border-slate-200">
+            No uploaded vehicle documents or certificates found. Tap "+ Upload Vehicle Paper" above to attach RC, Insurance, or Fitness copies.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {uploadedVehDocs.map((doc) => (
+              <div key={doc.id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="font-mono font-black text-sm text-slate-900 block">{doc.partyName}</span>
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 inline-block mt-1">
+                      {doc.title}
+                    </span>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded">
+                    {doc.documentDate}
+                  </span>
+                </div>
+
+                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Ref / Policy:</span>
+                    <span className="font-mono font-bold text-slate-800">{doc.referenceNo}</span>
+                  </div>
+                  {doc.notes && (
+                    <p className="text-[11px] text-slate-600 pt-1 border-t border-slate-200/60">
+                      {doc.notes}
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                  {doc.fileDataUrl ? (
+                    <a
+                      href={doc.fileDataUrl}
+                      download={doc.fileName}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold min-h-[40px] cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download Paper</span>
+                    </a>
+                  ) : (
+                    <span className="text-xs text-slate-400 italic">No File</span>
+                  )}
+                  <button
+                    onClick={() => deleteUploadedDocument(doc.id)}
+                    className="p-2 text-rose-600 hover:bg-rose-50 rounded-xl transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center cursor-pointer"
+                    title="Delete Record"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {filteredVehicles.map((veh) => {
           const docs = vehicleDocuments.filter((d) => d.vehicleId === veh.id);
           const vehAlerts = complianceSummary.alerts.filter((a) => a.vehicleId === veh.id);
           const hasExpired = vehAlerts.some((a) => a.severity === 'EXPIRED');
@@ -916,6 +1050,7 @@ export const VehiclesView: React.FC = () => {
           );
         })}
       </div>
+      )}
 
       {/* Add / Edit Vehicle Modal with Free Vahan RTO API Verification */}
       <Modal
@@ -1185,6 +1320,170 @@ export const VehiclesView: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      {/* Upload Vehicle Document / Paper Modal */}
+      {isUploadVehicleDocModalOpen && (
+        <Modal
+          isOpen={isUploadVehicleDocModalOpen}
+          onClose={() => setIsUploadVehicleDocModalOpen(false)}
+          title="Upload Vehicle Document / Paper"
+          subtitle="Attach and store scanned RC book, Insurance policy copy, Fitness (FC), PUCC, or Permit certificate (PDF, JPG, PNG)."
+          maxWidth="2xl"
+        >
+          <form onSubmit={handleSaveUploadedVehDoc} className="space-y-4 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                  Target Vehicle *
+                </label>
+                <select
+                  value={uploadVehReg}
+                  onChange={(e) => setUploadVehReg(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono font-bold text-slate-900 focus:outline-none"
+                >
+                  {vehicles.map((v) => (
+                    <option key={v.id} value={v.registrationNo}>
+                      {v.registrationNo} ({v.vehicleType})
+                    </option>
+                  ))}
+                  <option value="TN 05 Y 1936">TN 05 Y 1936 (Default)</option>
+                  <option value="TN 18 BY 4920">TN 18 BY 4920</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                  Document Type / Category *
+                </label>
+                <select
+                  value={uploadDocCategory}
+                  onChange={(e) => setUploadDocCategory(e.target.value as any)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-bold text-slate-900 focus:outline-none"
+                >
+                  <option value="INSURANCE">Insurance Policy (Commercial Goods Package)</option>
+                  <option value="RC">RC Book / Registration Certificate</option>
+                  <option value="FITNESS">Fitness Certificate (FC)</option>
+                  <option value="POLLUTION">Pollution Under Control (PUCC)</option>
+                  <option value="PERMIT">National / State Goods Permit</option>
+                  <option value="TAX">Motor Vehicle Road Tax Receipt</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                  Policy / Certificate / Ref No *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. POL-NEWINDIA-2026-9012 or FC/TN05/2026"
+                  value={uploadDocRefNo}
+                  onChange={(e) => setUploadDocRefNo(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono font-bold text-slate-900 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                  Document Issue Date
+                </label>
+                <input
+                  type="date"
+                  value={uploadDocDate}
+                  onChange={(e) => setUploadDocDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                  Expiry Date (for Alert Tracking)
+                </label>
+                <input
+                  type="date"
+                  value={uploadDocExpiry}
+                  onChange={(e) => setUploadDocExpiry(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                  Document Custom Label / Title
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. 2026 Comprehensive Commercial Insurance Policy"
+                  value={uploadDocTitle}
+                  onChange={(e) => setUploadDocTitle(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                Attach Scanned File / Photo (PDF or Image)
+              </label>
+              <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 text-center hover:bg-slate-50 transition-colors">
+                <input
+                  type="file"
+                  accept="application/pdf,image/*"
+                  onChange={handleUploadVehFileChange}
+                  className="hidden"
+                  id="veh-file-upload-input"
+                />
+                <label
+                  htmlFor="veh-file-upload-input"
+                  className="cursor-pointer flex flex-col items-center justify-center gap-2"
+                >
+                  <FileUp className="w-8 h-8 text-red-500" />
+                  <span className="font-bold text-slate-700">
+                    {uploadVehFileData ? uploadVehFileData.name : 'Click to select PDF or Certificate Photo'}
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    Supports PDF, JPG, PNG from device storage or mobile camera
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                Notes & Insurer Details
+              </label>
+              <textarea
+                rows={2}
+                placeholder="e.g. The New India Assurance Co. Ltd, Policy IDV ₹6,50,000"
+                value={uploadDocNotes}
+                onChange={(e) => setUploadDocNotes(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setIsUploadVehicleDocModalOpen(false)}
+                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-bold min-h-[44px] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold shadow-md shadow-red-600/20 flex items-center gap-1.5 min-h-[44px] cursor-pointer"
+              >
+                <Upload className="w-4 h-4 text-amber-300" />
+                <span>Save to Registry</span>
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 };

@@ -30,7 +30,10 @@ import {
   ArrowRightLeft, 
   Calculator,
   ShieldCheck,
-  Truck
+  Truck,
+  Upload,
+  FileUp,
+  Download
 } from 'lucide-react';
 
 interface EditableInvoiceLine {
@@ -44,7 +47,20 @@ interface EditableInvoiceLine {
 }
 
 export const InvoicesView: React.FC = () => {
-  const { invoices, company, parties, materials, vehicles, vehicleDocuments, createTaxInvoice, updateTaxInvoice, deleteTaxInvoice } = useERP();
+  const { 
+    invoices, 
+    company, 
+    parties, 
+    materials, 
+    vehicles, 
+    vehicleDocuments, 
+    createTaxInvoice, 
+    updateTaxInvoice, 
+    deleteTaxInvoice,
+    uploadedDocuments,
+    createUploadedDocument,
+    deleteUploadedDocument
+  } = useERP();
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [ewayBillInvoice, setEwayBillInvoice] = useState<Invoice | null>(null);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
@@ -52,6 +68,21 @@ export const InvoicesView: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Upload Previous Invoice state
+  const [isUploadInvoiceModalOpen, setIsUploadInvoiceModalOpen] = useState(false);
+  const [uploadInvRefNo, setUploadInvRefNo] = useState('');
+  const [uploadInvTitle, setUploadInvTitle] = useState('');
+  const [uploadInvParty, setUploadInvParty] = useState('TEJAS STEEL');
+  const [uploadInvDate, setUploadInvDate] = useState(new Date().toISOString().split('T')[0]);
+  const [uploadInvAmount, setUploadInvAmount] = useState<number>(0);
+  const [uploadInvNotes, setUploadInvNotes] = useState('');
+  const [uploadInvFileData, setUploadInvFileData] = useState<{
+    name: string;
+    type: string;
+    size: number;
+    dataUrl: string;
+  } | null>(null);
 
   // Form State for creating direct Tax Invoice
   const [selectedPartyId, setSelectedPartyId] = useState<string>('');
@@ -84,8 +115,10 @@ export const InvoicesView: React.FC = () => {
 
   const customerParties = parties.filter((p) => p.partyType === 'CUSTOMER' || p.partyType === 'BOTH');
 
+  const uploadedInvoiceDocs = uploadedDocuments.filter((d) => d.category === 'PREVIOUS_INVOICE');
+
   const filteredInvoices = invoices.filter((inv) => {
-    if (filterStatus !== 'ALL' && inv.paymentStatus !== filterStatus) return false;
+    if (filterStatus !== 'ALL' && filterStatus !== 'UPLOADED_INVOICES' && inv.paymentStatus !== filterStatus) return false;
     if (searchTerm) {
       const matchNo = inv.invoiceNo.toLowerCase().includes(searchTerm.toLowerCase());
       const matchCust = inv.customerName.toLowerCase().includes(searchTerm.toLowerCase());
@@ -93,6 +126,49 @@ export const InvoicesView: React.FC = () => {
     }
     return true;
   });
+
+  const handleUploadInvoiceFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setUploadInvFileData({
+        name: file.name,
+        type: file.type || 'application/pdf',
+        size: file.size,
+        dataUrl: reader.result as string,
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveUploadedInvoice = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!uploadInvRefNo.trim()) {
+      alert('Please enter an Invoice Reference Number.');
+      return;
+    }
+    createUploadedDocument({
+      category: 'PREVIOUS_INVOICE',
+      referenceNo: uploadInvRefNo.trim(),
+      title: uploadInvTitle.trim() || `Previous Invoice #${uploadInvRefNo.trim()}`,
+      partyName: uploadInvParty.trim() || 'TEJAS STEEL',
+      documentDate: uploadInvDate,
+      amount: uploadInvAmount || 0,
+      fileName: uploadInvFileData?.name || 'Scanned_Invoice.pdf',
+      fileType: uploadInvFileData?.type || 'application/pdf',
+      fileSize: uploadInvFileData?.size || 150000,
+      fileDataUrl: uploadInvFileData?.dataUrl || '',
+      notes: uploadInvNotes.trim(),
+    });
+    setFeedbackMsg({
+      type: 'success',
+      text: `Previous Invoice (${uploadInvRefNo}) uploaded and stored safely!`,
+    });
+    setIsUploadInvoiceModalOpen(false);
+    setUploadInvRefNo('');
+    setUploadInvFileData(null);
+  };
 
   const handleOpenCreateModal = () => {
     const nextSeq = invoices.length + 1;
@@ -421,10 +497,17 @@ export const InvoicesView: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={() => setIsUploadInvoiceModalOpen(true)}
+            className="flex items-center gap-2 px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-md transition-all cursor-pointer min-h-[44px]"
+          >
+            <Upload className="w-4 h-4 text-amber-400" />
+            <span>+ Upload Previous Invoice</span>
+          </button>
           <button
             onClick={handleOpenCreateModal}
-            className="flex items-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all cursor-pointer"
+            className="flex items-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all cursor-pointer min-h-[44px]"
           >
             <Plus className="w-4 h-4" />
             <span>+ Create Tax Invoice</span>
@@ -452,18 +535,18 @@ export const InvoicesView: React.FC = () => {
 
       {/* Filter and Search Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-3 rounded-xl border border-slate-200">
-        <div className="flex items-center gap-2 text-xs font-semibold">
-          {['ALL', 'UNPAID', 'PARTIALLY_PAID', 'PAID'].map((status) => (
+        <div className="flex items-center gap-2 text-xs font-semibold overflow-x-auto pb-1 sm:pb-0">
+          {['ALL', 'UNPAID', 'PARTIALLY_PAID', 'PAID', 'UPLOADED_INVOICES'].map((status) => (
             <button
               key={status}
               onClick={() => setFilterStatus(status)}
-              className={`px-3 py-1.5 rounded-lg transition-all ${
+              className={`px-3 py-1.5 rounded-lg transition-all shrink-0 ${
                 filterStatus === status
                   ? 'bg-slate-900 text-white shadow-sm'
                   : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
-              {status}
+              {status === 'UPLOADED_INVOICES' ? `Uploaded Invoices (${uploadedInvoiceDocs.length})` : status}
             </button>
           ))}
         </div>
@@ -482,7 +565,67 @@ export const InvoicesView: React.FC = () => {
 
       {/* Mobile Card Layout (<= 768px) — Android-First 44px+ Touch Targets */}
       <div className="md:hidden flex flex-col gap-3">
-        {filteredInvoices.length === 0 ? (
+        {filterStatus === 'UPLOADED_INVOICES' ? (
+          uploadedInvoiceDocs.length === 0 ? (
+            <div className="p-8 text-center text-slate-400 italic bg-white rounded-xl border border-slate-200">
+              No uploaded historical invoices found. Tap "+ Upload Previous Invoice" above to add one.
+            </div>
+          ) : (
+            uploadedInvoiceDocs.map((doc) => (
+              <div key={doc.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-black text-sm text-slate-900">{doc.referenceNo}</span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                        HISTORICAL INVOICE
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Date: {doc.documentDate} · Party: {doc.partyName}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <span className="font-mono font-black text-sm text-slate-900 block">
+                      {formatINR(doc.amount || 0)}
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-500 block">
+                      {doc.fileName ? 'FILE ATTACHED' : 'RECORD'}
+                    </span>
+                  </div>
+                </div>
+
+                {doc.notes && (
+                  <p className="text-xs text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                    {doc.notes}
+                  </p>
+                )}
+
+                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                  {doc.fileDataUrl ? (
+                    <a
+                      href={doc.fileDataUrl}
+                      download={doc.fileName}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold min-h-[44px] cursor-pointer"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Download File</span>
+                    </a>
+                  ) : (
+                    <span className="text-xs text-slate-400 italic">No File Uploaded</span>
+                  )}
+                  <button
+                    onClick={() => deleteUploadedDocument(doc.id)}
+                    className="p-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl min-h-[44px] min-w-[44px] flex items-center justify-center cursor-pointer"
+                    title="Delete Uploaded Invoice"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))
+          )
+        ) : filteredInvoices.length === 0 ? (
           <div className="p-8 text-center text-slate-400 italic bg-white rounded-xl border border-slate-200">
             No issued invoices found. Tap "+ Create Tax Invoice" above.
           </div>
@@ -578,7 +721,58 @@ export const InvoicesView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredInvoices.length === 0 ? (
+              {filterStatus === 'UPLOADED_INVOICES' ? (
+                uploadedInvoiceDocs.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-12 text-center text-slate-400 italic">
+                      No uploaded historical invoices found. Click "+ Upload Previous Invoice" to add one.
+                    </td>
+                  </tr>
+                ) : (
+                  uploadedInvoiceDocs.map((doc) => (
+                    <tr key={doc.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="py-3 px-4 font-mono font-bold text-slate-900 text-xs">{doc.referenceNo}</td>
+                      <td className="py-3 px-4 text-slate-600">{doc.documentDate}</td>
+                      <td className="py-3 px-4 font-bold text-slate-900">{doc.partyName}</td>
+                      <td className="py-3 px-4 text-slate-500 font-mono">{doc.notes || 'Previous Scanned Invoice'}</td>
+                      <td className="py-3 px-4 text-right text-slate-400 font-mono">-</td>
+                      <td className="py-3 px-4 text-right text-slate-400 font-mono">-</td>
+                      <td className="py-3 px-4 text-right font-mono font-black text-slate-900 text-xs">
+                        {formatINR(doc.amount || 0)}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                          UPLOADED
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {doc.fileDataUrl ? (
+                            <a
+                              href={doc.fileDataUrl}
+                              download={doc.fileName}
+                              className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                              title="Download Attached Document"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                              <span>Download</span>
+                            </a>
+                          ) : (
+                            <span className="text-[10px] text-slate-400 italic">No File</span>
+                          )}
+                          <button
+                            onClick={() => deleteUploadedDocument(doc.id)}
+                            className="p-1 hover:bg-rose-50 text-rose-600 rounded transition-colors cursor-pointer"
+                            title="Delete Uploaded Record"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )
+              ) : filteredInvoices.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="py-12 text-center text-slate-400 italic">
                     No issued invoices found. Click "+ Create Tax Invoice" to create a new multi-line invoice.
@@ -1153,6 +1347,149 @@ export const InvoicesView: React.FC = () => {
             }}
             onClose={() => setEwayBillInvoice(null)}
           />
+        </Modal>
+      )}
+
+      {/* Upload Previous / Scanned Invoice Modal */}
+      {isUploadInvoiceModalOpen && (
+        <Modal
+          isOpen={isUploadInvoiceModalOpen}
+          onClose={() => setIsUploadInvoiceModalOpen(false)}
+          title="Upload Previous Invoice / Historical Bill"
+          subtitle="Upload scanned customer/supplier bills, tax invoices, and delivery challans (PDF, JPG, PNG) into the ERP registry."
+          maxWidth="2xl"
+        >
+          <form onSubmit={handleSaveUploadedInvoice} className="space-y-4 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                  Invoice / Bill Reference No *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. YE/24-25/089 or INV-8921"
+                  value={uploadInvRefNo}
+                  onChange={(e) => setUploadInvRefNo(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-red-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                  Document Date *
+                </label>
+                <input
+                  type="date"
+                  required
+                  value={uploadInvDate}
+                  onChange={(e) => setUploadInvDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                  Buyer / Customer / Vendor Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. TEJAS STEEL or M/S IMOP PVT LTD"
+                  value={uploadInvParty}
+                  onChange={(e) => setUploadInvParty(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 font-semibold focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                  Invoice Grand Total (₹)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="e.g. 146367.00"
+                  value={uploadInvAmount || ''}
+                  onChange={(e) => setUploadInvAmount(parseFloat(e.target.value) || 0)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono font-bold text-slate-900 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                Document Description / Title
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. March 2025 Heavy Melting Scrap Dispatch"
+                value={uploadInvTitle}
+                onChange={(e) => setUploadInvTitle(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                Attach Scanned File / Photo (PDF or Image)
+              </label>
+              <div className="border-2 border-dashed border-slate-300 rounded-xl p-4 text-center hover:bg-slate-50 transition-colors">
+                <input
+                  type="file"
+                  accept="application/pdf,image/*"
+                  onChange={handleUploadInvoiceFileChange}
+                  className="hidden"
+                  id="invoice-file-upload-input"
+                />
+                <label
+                  htmlFor="invoice-file-upload-input"
+                  className="cursor-pointer flex flex-col items-center justify-center gap-2"
+                >
+                  <FileUp className="w-8 h-8 text-red-500" />
+                  <span className="font-bold text-slate-700">
+                    {uploadInvFileData ? uploadInvFileData.name : 'Click to select PDF or Invoice Photo'}
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    Supports PDF, JPG, PNG from device storage or mobile camera
+                  </span>
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 uppercase mb-1">
+                Notes & Remarks (HSN, Weights, Vehicle No)
+              </label>
+              <textarea
+                rows={2}
+                placeholder="e.g. MS Scrap 4.430 Tons, Truck TN 05 Y 1936, e-Way Bill generated"
+                value={uploadInvNotes}
+                onChange={(e) => setUploadInvNotes(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-slate-900 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setIsUploadInvoiceModalOpen(false)}
+                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-bold min-h-[44px] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold shadow-md shadow-red-600/20 flex items-center gap-1.5 min-h-[44px] cursor-pointer"
+              >
+                <Upload className="w-4 h-4 text-amber-300" />
+                <span>Save to Registry</span>
+              </button>
+            </div>
+          </form>
         </Modal>
       )}
     </div>

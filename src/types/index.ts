@@ -712,6 +712,9 @@ export interface BackupDatabasePayload {
   auditLogs?: AuditLog[];
   commercialDocuments?: CommercialDocument[];
   journalEntries?: JournalEntry[];
+  dailyTasks?: DailyTask[];
+  workNotes?: WorkNote[];
+  uploadedDocuments?: UploadedDocument[];
 }
 
 export interface BackupArchive {
@@ -789,5 +792,52 @@ export interface RestorePreviewResult {
   targetCompany?: string;
   warnings: string[];
   errors: string[];
+}
+
+// Daily Task & Work Notes
+export type TaskPriority = 'URGENT' | 'HIGH' | 'NORMAL';
+export type TaskStatus = 'PENDING' | 'DONE';
+
+export interface DailyTask {
+  id: string;
+  companyId?: string;
+  title: string;
+  priority: TaskPriority;
+  status: TaskStatus;
+  dueDate: string;
+  assignedTo?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface WorkNote {
+  id: string;
+  companyId?: string;
+  title: string;
+  content: string;
+  category: 'YARD' | 'CLIENT' | 'ACCOUNTS' | 'DISPATCH' | 'GENERAL';
+  date: string;
+  updatedAt: string;
+}
+
+// Uploaded Historical Documents (Vehicle Docs, Previous Invoices, Previous POs)
+export type UploadCategory = 'VEHICLE_DOC' | 'PREVIOUS_INVOICE' | 'PREVIOUS_PO' | 'EWAY_BILL';
+
+export interface UploadedDocument {
+  id: string;
+  companyId?: string;
+  category: UploadCategory;
+  relatedId?: string;
+  referenceNo: string; // e.g. "INV-2023-89", "PO-059-2024", "RC-TN04"
+  title: string;
+  partyName?: string;
+  documentDate: string;
+  amount?: number;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  fileDataUrl: string; // Base64 data URL
+  notes?: string;
+  createdAt: string;
 }
 

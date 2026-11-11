@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS expenses (
     category VARCHAR(100) NOT NULL, -- Daily Labour, Food / Lunch, Tea / Drinking Water, etc.
     description TEXT,
     amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
-    account_id UUID REFERENCES accounts(id) ON DELETE SET NULL,
+    account_id UUID REFERENCES cash_bank_accounts(id) ON DELETE SET NULL,
     payment_mode VARCHAR(20) NOT NULL DEFAULT 'CASH' CHECK (payment_mode IN ('CASH', 'BANK', 'UNPAID')),
     status VARCHAR(20) NOT NULL DEFAULT 'PAID' CHECK (status IN ('PAID', 'UNPAID', 'REVERSED')),
     approval_status VARCHAR(20) NOT NULL DEFAULT 'APPROVED' CHECK (approval_status IN ('APPROVED', 'PENDING', 'REJECTED')),
@@ -56,7 +56,7 @@ CREATE TABLE IF NOT EXISTS salary_records (
     remaining_balance NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     payment_date DATE,
     payment_mode VARCHAR(20) DEFAULT 'BANK' CHECK (payment_mode IN ('CASH', 'BANK')),
-    account_id UUID REFERENCES accounts(id) ON DELETE SET NULL,
+    account_id UUID REFERENCES cash_bank_accounts(id) ON DELETE SET NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PARTIALLY_PAID', 'PAID')),
     notes TEXT,
     created_by VARCHAR(100),
@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS daily_labour_entries (
     amount_paid NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     remaining_balance NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     payment_mode VARCHAR(20) NOT NULL DEFAULT 'CASH' CHECK (payment_mode IN ('CASH', 'BANK', 'UNPAID')),
-    account_id UUID REFERENCES accounts(id) ON DELETE SET NULL,
+    account_id UUID REFERENCES cash_bank_accounts(id) ON DELETE SET NULL,
     notes TEXT,
     created_by VARCHAR(100),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS contractor_work_entries (
     current_payment NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     remaining_balance NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     payment_mode VARCHAR(20) NOT NULL DEFAULT 'BANK' CHECK (payment_mode IN ('CASH', 'BANK', 'UNPAID')),
-    account_id UUID REFERENCES accounts(id) ON DELETE SET NULL,
+    account_id UUID REFERENCES cash_bank_accounts(id) ON DELETE SET NULL,
     notes TEXT,
     created_by VARCHAR(100),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

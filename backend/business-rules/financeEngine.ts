@@ -484,7 +484,12 @@ export function calculateAuthoritativeProfitAndLoss(params: {
   utilitiesAndMaintenance?: number;
   officeFoodAndMisc?: number;
   dateRange?: { startDate: string; endDate: string };
-  isCogsVerified?: boolean;
+  fifoVerification?: {
+    isValid: boolean;
+    unverifiedReason?: string;
+    discrepancies?: string[];
+  };
+  isCogsVerified?: boolean; // legacy compatibility fallback
 }): {
   revenue: number;
   totalOperatingIncome: number;
@@ -520,7 +525,16 @@ export function calculateAuthoritativeProfitAndLoss(params: {
   const totalExpenses = roundTo2(opExp + staffSalaries + directLabour + contractorWork);
   const netProfit = roundTo2(grossProfit - totalExpenses);
 
+  // Blocker 7: Derive verification STRICTLY from actual validated FIFO COGS audit data.
+  // A caller-provided boolean flag is strictly disallowed from certifying COGS.
+  const isVerified = Boolean(params.fifoVerification && params.fifoVerification.isValid === true);
+
+  const auditPrefix = isVerified
+    ? '[VERIFIED FIFO COGS] '
+    : `[UNVERIFIED COGS: ${params.fifoVerification?.unverifiedReason || 'COGS has not been audited against physical FIFO lot movements'}] `;
+
   const explanation =
+    auditPrefix +
     `Gross Profit (₹${grossProfit.toLocaleString('en-IN')}) = Sales Revenue (₹${revenue.toLocaleString('en-IN')}) - Cost of Goods Sold (₹${cogs.toLocaleString('en-IN')}). ` +
     `Net Operating Profit (₹${netProfit.toLocaleString('en-IN')}) = Gross Profit (₹${grossProfit.toLocaleString('en-IN')}) - ` +
     `Total Operating Expenses (₹${totalExpenses.toLocaleString('en-IN')}) [Operating: ₹${opExp.toLocaleString('en-IN')}, Salaries: ₹${staffSalaries.toLocaleString('en-IN')}, Labour: ₹${directLabour.toLocaleString('en-IN')}, Contractors: ₹${contractorWork.toLocaleString('en-IN')}].`;
@@ -540,7 +554,7 @@ export function calculateAuthoritativeProfitAndLoss(params: {
     netProfit,
     netOperatingProfit: netProfit,
     explanation,
-    isVerified: Boolean(params.isCogsVerified),
+    isVerified,
   };
 }
 

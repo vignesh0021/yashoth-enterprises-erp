@@ -307,7 +307,8 @@ export class DatabaseRepository {
   public async postContractorPaymentAtomic(params: {
     companyId: string;
     contractorId: string;
-    workId: string;
+    workId?: string;
+    contractorWorkId?: string;
     contractorName: string;
     amount: number;
     paymentMode: 'CASH' | 'BANK';
@@ -316,14 +317,15 @@ export class DatabaseRepository {
     actor: string;
     idempotencyKey?: string;
     authToken?: string;
-  }): Promise<{ success: boolean; paymentId?: string; newBalance?: number; error?: Error }> {
+  }): Promise<{ success: boolean; paymentId?: string; journalId?: string; newBalance?: number; error?: Error }> {
     if (!this.isRemoteDatabaseAvailable()) {
       return { success: false, error: new Error('Remote Supabase database is not configured.') };
     }
+    const resolvedWorkId = params.workId || params.contractorWorkId || '';
     const res = await supabase.executeRpc<any>('fn_post_contractor_payment_atomic', {
       p_company_id: params.companyId,
       p_contractor_id: params.contractorId,
-      p_work_id: params.workId,
+      p_work_id: resolvedWorkId,
       p_contractor_name: params.contractorName,
       p_amount: params.amount,
       p_payment_mode: params.paymentMode,
@@ -339,7 +341,247 @@ export class DatabaseRepository {
     return {
       success: true,
       paymentId: res.data?.payment_id,
+      journalId: res.data?.journal_id,
       newBalance: res.data?.new_balance,
+    };
+  }
+
+  public async postSalaryDisbursementAtomic(params: {
+    companyId: string;
+    salaryRecordId: string;
+    employeeName: string;
+    salaryMonth: string;
+    amount: number;
+    paymentMode: 'CASH' | 'BANK';
+    accountId: string;
+    voucherNo: string;
+    actor: string;
+    authToken?: string;
+  }): Promise<{ success: boolean; journalId?: string; newBalance?: number; status?: string; error?: Error }> {
+    if (!this.isRemoteDatabaseAvailable()) {
+      return { success: false, error: new Error('Remote Supabase database is not configured.') };
+    }
+    const res = await supabase.executeRpc<any>('fn_post_salary_disbursement_atomic', {
+      p_company_id: params.companyId,
+      p_salary_record_id: params.salaryRecordId,
+      p_employee_name: params.employeeName,
+      p_salary_month: params.salaryMonth,
+      p_amount: params.amount,
+      p_payment_mode: params.paymentMode,
+      p_account_id: params.accountId,
+      p_voucher_no: params.voucherNo,
+      p_actor: params.actor,
+    }, params.authToken);
+
+    if (res.error) {
+      return { success: false, error: res.error };
+    }
+    return {
+      success: true,
+      journalId: res.data?.journal_id,
+      newBalance: res.data?.new_balance,
+      status: res.data?.status,
+    };
+  }
+
+  public async postLabourPaymentAtomic(params: {
+    companyId: string;
+    dailyLabourId: string;
+    workerNameOrGroup: string;
+    amount: number;
+    paymentMode: 'CASH' | 'BANK';
+    accountId: string;
+    voucherNo: string;
+    actor: string;
+    idempotencyKey?: string;
+    authToken?: string;
+  }): Promise<{ success: boolean; paymentId?: string; journalId?: string; newBalance?: number; error?: Error }> {
+    if (!this.isRemoteDatabaseAvailable()) {
+      return { success: false, error: new Error('Remote Supabase database is not configured.') };
+    }
+    const res = await supabase.executeRpc<any>('fn_post_labour_payment_atomic', {
+      p_company_id: params.companyId,
+      p_daily_labour_id: params.dailyLabourId,
+      p_worker_name_or_group: params.workerNameOrGroup,
+      p_amount: params.amount,
+      p_payment_mode: params.paymentMode,
+      p_account_id: params.accountId,
+      p_voucher_no: params.voucherNo,
+      p_actor: params.actor,
+      p_idempotency_key: params.idempotencyKey || null,
+    }, params.authToken);
+
+    if (res.error) {
+      return { success: false, error: res.error };
+    }
+    return {
+      success: true,
+      paymentId: res.data?.payment_id,
+      journalId: res.data?.journal_id,
+      newBalance: res.data?.new_balance,
+    };
+  }
+
+  public async issueEmployeeAdvanceAtomic(params: {
+    companyId: string;
+    employeeId: string;
+    employeeName: string;
+    amount: number;
+    paymentMode: 'CASH' | 'BANK';
+    accountId: string;
+    voucherNo: string;
+    actor: string;
+    notes?: string;
+    idempotencyKey?: string;
+    authToken?: string;
+  }): Promise<{ success: boolean; advanceId?: string; journalId?: string; error?: Error }> {
+    if (!this.isRemoteDatabaseAvailable()) {
+      return { success: false, error: new Error('Remote Supabase database is not configured.') };
+    }
+    const res = await supabase.executeRpc<any>('fn_issue_employee_advance_atomic', {
+      p_company_id: params.companyId,
+      p_employee_id: params.employeeId,
+      p_employee_name: params.employeeName,
+      p_amount: params.amount,
+      p_payment_mode: params.paymentMode,
+      p_account_id: params.accountId,
+      p_voucher_no: params.voucherNo,
+      p_actor: params.actor,
+      p_notes: params.notes || null,
+      p_idempotency_key: params.idempotencyKey || null,
+    }, params.authToken);
+
+    if (res.error) {
+      return { success: false, error: res.error };
+    }
+    return {
+      success: true,
+      advanceId: res.data?.advance_id,
+      journalId: res.data?.journal_id,
+    };
+  }
+
+  public async postSalaryAccrualAtomic(params: {
+    companyId: string;
+    employeeId: string;
+    employeeName: string;
+    designation: string;
+    salaryMonth: string;
+    grossSalary: number;
+    allowances: number;
+    deductions: number;
+    advanceRecovery: number;
+    netSalaryPayable: number;
+    amountPaid: number;
+    paymentMode: 'CASH' | 'BANK';
+    accountId?: string;
+    actor: string;
+    notes?: string;
+    idempotencyKey?: string;
+    authToken?: string;
+  }): Promise<{
+    success: boolean;
+    salaryRecordId?: string;
+    accrualJournalId?: string;
+    disbursementJournalId?: string;
+    remainingBalance?: number;
+    status?: string;
+    error?: Error;
+  }> {
+    if (!this.isRemoteDatabaseAvailable()) {
+      return { success: false, error: new Error('Remote Supabase database is not configured.') };
+    }
+    const res = await supabase.executeRpc<any>('fn_post_salary_accrual_atomic', {
+      p_company_id: params.companyId,
+      p_employee_id: params.employeeId,
+      p_employee_name: params.employeeName,
+      p_designation: params.designation,
+      p_salary_month: params.salaryMonth,
+      p_gross_salary: params.grossSalary,
+      p_allowances: params.allowances,
+      p_deductions: params.deductions,
+      p_advance_recovery: params.advanceRecovery,
+      p_net_salary_payable: params.netSalaryPayable,
+      p_amount_paid: params.amountPaid,
+      p_payment_mode: params.paymentMode,
+      p_account_id: params.accountId || null,
+      p_actor: params.actor,
+      p_notes: params.notes || null,
+      p_idempotency_key: params.idempotencyKey || null,
+    }, params.authToken);
+
+    if (res.error) {
+      return { success: false, error: res.error };
+    }
+    return {
+      success: true,
+      salaryRecordId: res.data?.salary_record_id,
+      accrualJournalId: res.data?.accrual_journal_id,
+      disbursementJournalId: res.data?.disbursement_journal_id,
+      remainingBalance: res.data?.remaining_balance,
+      status: res.data?.status,
+    };
+  }
+
+  public async postDailyLabourAccrualAtomic(params: {
+    companyId: string;
+    workDate: string;
+    workerNameOrGroup: string;
+    workerCount: number;
+    workingDays: number;
+    dailyRate: number;
+    overtimeAmount: number;
+    additionalCharges: number;
+    totalLabourCost: number;
+    advanceAmount: number;
+    amountPaid: number;
+    remainingBalance: number;
+    paymentMode: string;
+    accountId?: string;
+    actor: string;
+    notes?: string;
+    idempotencyKey?: string;
+    authToken?: string;
+  }): Promise<{
+    success: boolean;
+    dailyLabourId?: string;
+    accrualJournalId?: string;
+    paymentId?: string;
+    paymentJournalId?: string;
+    error?: Error;
+  }> {
+    if (!this.isRemoteDatabaseAvailable()) {
+      return { success: false, error: new Error('Remote Supabase database is not configured.') };
+    }
+    const res = await supabase.executeRpc<any>('fn_post_daily_labour_accrual_atomic', {
+      p_company_id: params.companyId,
+      p_work_date: params.workDate,
+      p_worker_name_or_group: params.workerNameOrGroup,
+      p_worker_count: params.workerCount,
+      p_working_days: params.workingDays,
+      p_daily_rate: params.dailyRate,
+      p_overtime_amount: params.overtimeAmount,
+      p_additional_charges: params.additionalCharges,
+      p_total_labour_cost: params.totalLabourCost,
+      p_advance_amount: params.advanceAmount,
+      p_amount_paid: params.amountPaid,
+      p_remaining_balance: params.remainingBalance,
+      p_payment_mode: params.paymentMode,
+      p_account_id: params.accountId || null,
+      p_actor: params.actor,
+      p_notes: params.notes || null,
+      p_idempotency_key: params.idempotencyKey || null,
+    }, params.authToken);
+
+    if (res.error) {
+      return { success: false, error: res.error };
+    }
+    return {
+      success: true,
+      dailyLabourId: res.data?.daily_labour_id,
+      accrualJournalId: res.data?.accrual_journal_id,
+      paymentId: res.data?.payment_id,
+      paymentJournalId: res.data?.payment_journal_id,
     };
   }
 

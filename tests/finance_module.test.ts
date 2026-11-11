@@ -39,10 +39,26 @@ import {
   createContractorWorkJournal,
   createContractorProgressPaymentJournal,
   createCashClosingJournal,
+  createReversingJournal,
   STANDARD_CHART_OF_ACCOUNTS
 } from '../backend/business-rules/accountingEngine.ts';
+import { 
+  allocateLotsFifo, 
+  verifyFifoCogsIntegrity 
+} from '../backend/business-rules/inventoryEngine.ts';
+import { dbRepository } from '../src/services/databaseRepository.ts';
 import { EXPENSE_CATEGORIES } from '../src/types/index.ts';
-import type { Company, CashBankAccount, Expense, AccountTransaction, MonthlySalaryRecord, ContractorWorkEntry } from '../src/types/index.ts';
+import type { 
+  Company, 
+  CashBankAccount, 
+  Expense, 
+  AccountTransaction, 
+  MonthlySalaryRecord, 
+  ContractorWorkEntry, 
+  DailyLabourEntry,
+  InventoryLot,
+  StockMovement
+} from '../src/types/index.ts';
 
 const mockCompany: Company = {
   id: 'comp-yasoth-01',
@@ -914,6 +930,542 @@ describe('Suite 14: Yashoth Enterprises ERP — Small-Business Finance Managemen
 
       // Atomic RPC function for contractor payment
       expect(sql).toContain('fn_post_contractor_payment_atomic');
+      expect(sql).toContain('fn_post_labour_payment_atomic');
+      expect(sql).toContain('fn_post_salary_disbursement_atomic');
+      expect(sql).toContain('fn_issue_employee_advance_atomic');
+      expect(sql).toContain('fn_post_salary_accrual_atomic');
+      expect(sql).toContain('fn_post_daily_labour_accrual_atomic');
+      expect(sql).toContain('CREATE OR REPLACE VIEW accounts AS');
+      expect(sql).toContain('SECURITY DEFINER');
+      expect(sql).toContain('SET search_path = public, pg_temp');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // 14.15 Multiple Salary Installments & Accrual/Disbursement Separation
+  // --------------------------------------------------------------------------
+  describe('14.15 Multiple Salary Installments & Accrual/Disbursement Separation', () => {
+    const salaryRecord: MonthlySalaryRecord = {
+      id: 'sal-rec-101',
+      companyId: mockCompany.id,
+      employeeId: 'emp-001',
+      employeeName: 'M. Murugan',
+      designation: 'Yard Supervisor',
+      salaryMonth: '2026-10',
+      grossSalary: 30000,
+      allowances: 2000,
+      deductions: 500,
+      advanceRecovery: 4500,
+      netSalaryPayable: 27000,
+      amountPaid: 0,
+      remainingBalance: 27000,
+      status: 'PENDING',
+      createdAt: '2026-10-31T18:00:00Z',
+      createdBy: 'Finance Manager',
+    };
+
+    it('books salary accrual expense ONCE: Dr. 5050 (32,000), Cr. 2120 (500), Cr. 1060 (4,500), Cr. 2100 (27,000)', () => {
+      const accrualJe = createSalaryAccrualJournal(salaryRecord, mockCompany, 'Finance Manager');
+
+      expect(() => validateJournalEntry(accrualJe)).not.toThrow();
+      expect(accrualJe.totalDebit).toBe(32000);
+      expect(accrualJe.totalCredit).toBe(32000);
+      expect(accrualJe.lines.some((l) => l.accountCode === '5050' && l.debit === 32000)).toBe(true);
+      expect(accrualJe.lines.some((l) => l.accountCode === '1060' && l.credit === 4500)).toBe(true);
+      expect(accrualJe.lines.some((l) => l.accountCode === '2120' && l.credit === 500)).toBe(true);
+      expect(accrualJe.lines.some((l) => l.accountCode === '2100' && l.credit === 27000)).toBe(true);
+    });
+
+    it('posts Salary Installment #1 (₹15,000 via Bank): Dr. 2100 (15,000), Cr. 1020 (15,000) — NEVER debits 5050 again', () => {
+      const inst1 = createSalaryDisbursementJournal(
+        {
+          salaryRecordId: salaryRecord.id,
+          employeeName: salaryRecord.employeeName,
+          salaryMonth: salaryRecord.salaryMonth,
+          amount: 15000,
+          paymentMode: 'BANK',
+          voucherNo: 'SALPAY-26-0001',
+          paymentDate: '2026-11-05',
+          paymentId: 'pay-inst-1',
+        },
+        '1020',
+        mockCompany,
+        'Finance Manager'
+      );
+
+      expect(() => validateJournalEntry(inst1)).not.toThrow();
+      expect(inst1.totalDebit).toBe(15000);
+      expect(inst1.totalCredit).toBe(15000);
+      expect(inst1.lines.some((l) => l.accountCode === '2100' && l.debit === 15000)).toBe(true);
+      expect(inst1.lines.some((l) => l.accountCode === '1020' && l.credit === 15000)).toBe(true);
+      expect(inst1.lines.some((l) => l.accountCode === '5050')).toBe(false);
+      expect(inst1.lines.some((l) => l.accountCode === '5055')).toBe(false);
+    });
+
+    it('posts Salary Installment #2 (₹12,000 final via Cash): Dr. 2100 (12,000), Cr. 1010 (12,000) — NEVER debits 5050 again', () => {
+      const inst2 = createSalaryDisbursementJournal(
+        {
+          salaryRecordId: salaryRecord.id,
+          employeeName: salaryRecord.employeeName,
+          salaryMonth: salaryRecord.salaryMonth,
+          amount: 12000,
+          paymentMode: 'CASH',
+          voucherNo: 'SALPAY-26-0002',
+          paymentDate: '2026-11-10',
+          paymentId: 'pay-inst-2',
+        },
+        '1010',
+        mockCompany,
+        'Finance Manager'
+      );
+
+      expect(() => validateJournalEntry(inst2)).not.toThrow();
+      expect(inst2.totalDebit).toBe(12000);
+      expect(inst2.totalCredit).toBe(12000);
+      expect(inst2.lines.some((l) => l.accountCode === '2100' && l.debit === 12000)).toBe(true);
+      expect(inst2.lines.some((l) => l.accountCode === '1010' && l.credit === 12000)).toBe(true);
+      expect(inst2.lines.some((l) => l.accountCode === '5050')).toBe(false);
+    });
+
+    it('ensures line IDs and journal entry IDs are completely unique between installments', () => {
+      const inst1 = createSalaryDisbursementJournal(
+        {
+          salaryRecordId: salaryRecord.id,
+          employeeName: salaryRecord.employeeName,
+          salaryMonth: salaryRecord.salaryMonth,
+          amount: 15000,
+          paymentMode: 'BANK',
+          voucherNo: 'SALPAY-26-0001',
+          paymentId: 'pay-inst-1',
+        },
+        '1020',
+        mockCompany,
+        'Finance Manager'
+      );
+
+      const inst2 = createSalaryDisbursementJournal(
+        {
+          salaryRecordId: salaryRecord.id,
+          employeeName: salaryRecord.employeeName,
+          salaryMonth: salaryRecord.salaryMonth,
+          amount: 12000,
+          paymentMode: 'CASH',
+          voucherNo: 'SALPAY-26-0002',
+          paymentId: 'pay-inst-2',
+        },
+        '1010',
+        mockCompany,
+        'Finance Manager'
+      );
+
+      expect(inst1.id).not.toBe(inst2.id);
+      expect(inst1.entryNo).not.toBe(inst2.entryNo);
+
+      const lineIds1 = new Set(inst1.lines.map((l) => l.id));
+      for (const line of inst2.lines) {
+        expect(lineIds1.has(line.id)).toBe(false);
+      }
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // 14.16 Multiple Daily Labour Payments & Unique Journal/Line IDs
+  // --------------------------------------------------------------------------
+  describe('14.16 Multiple Daily Labour Payments & Unique Journal/Line IDs', () => {
+    const labourEntry: DailyLabourEntry = {
+      id: 'dl-entry-200',
+      companyId: mockCompany.id,
+      workDate: '2026-10-20',
+      workerNameOrGroup: 'Redhills Cutting Crew',
+      workerCount: 6,
+      dailyRate: 700,
+      workingDays: 2,
+      overtimeAmount: 1600,
+      additionalCharges: 0,
+      totalLabourCost: 10000,
+      advanceAmount: 2000,
+      amountPaid: 0,
+      remainingBalance: 8000,
+      paymentMode: 'UNPAID',
+      status: 'PENDING',
+      createdAt: '2026-10-20T18:00:00Z',
+      createdBy: 'Yard Supervisor',
+    };
+
+    it('books daily labour accrual expense ONCE: Dr. 5020 (10,000), Cr. 1070 (2,000), Cr. 2100 (8,000)', () => {
+      const accrual = createDailyLabourJournal(labourEntry, '1010', mockCompany, 'Yard Supervisor');
+
+      expect(() => validateJournalEntry(accrual)).not.toThrow();
+      expect(accrual.totalDebit).toBe(10000);
+      expect(accrual.totalCredit).toBe(10000);
+      expect(accrual.lines.some((l) => l.accountCode === '5020' && l.debit === 10000)).toBe(true);
+      expect(accrual.lines.some((l) => l.accountCode === '1070' && l.credit === 2000)).toBe(true);
+      expect(accrual.lines.some((l) => l.accountCode === '2100' && l.credit === 8000)).toBe(true);
+    });
+
+    it('posts Labour Settlement #1 (₹5,000 via Cash): Dr. 2100 (5,000), Cr. 1010 (5,000) — NEVER debits 5020 again', () => {
+      const p1 = createLabourPaymentJournal(
+        {
+          dailyLabourId: labourEntry.id,
+          workerNameOrGroup: labourEntry.workerNameOrGroup,
+          amount: 5000,
+          paymentMode: 'CASH',
+          voucherNo: 'LPAY-26-0001',
+          paymentId: 'pay-dl-1',
+          paymentDate: '2026-10-21',
+        },
+        '1010',
+        mockCompany,
+        'Yard Supervisor'
+      );
+
+      expect(() => validateJournalEntry(p1)).not.toThrow();
+      expect(p1.totalDebit).toBe(5000);
+      expect(p1.totalCredit).toBe(5000);
+      expect(p1.lines.some((l) => l.accountCode === '2100' && l.debit === 5000)).toBe(true);
+      expect(p1.lines.some((l) => l.accountCode === '1010' && l.credit === 5000)).toBe(true);
+      expect(p1.lines.some((l) => l.accountCode === '5020')).toBe(false);
+    });
+
+    it('posts Labour Settlement #2 (₹3,000 final via Bank): Dr. 2100 (3,000), Cr. 1020 (3,000) — NEVER debits 5020 again', () => {
+      const p2 = createLabourPaymentJournal(
+        {
+          dailyLabourId: labourEntry.id,
+          workerNameOrGroup: labourEntry.workerNameOrGroup,
+          amount: 3000,
+          paymentMode: 'BANK',
+          voucherNo: 'LPAY-26-0002',
+          paymentId: 'pay-dl-2',
+          paymentDate: '2026-10-22',
+        },
+        '1020',
+        mockCompany,
+        'Yard Supervisor'
+      );
+
+      expect(() => validateJournalEntry(p2)).not.toThrow();
+      expect(p2.totalDebit).toBe(3000);
+      expect(p2.totalCredit).toBe(3000);
+      expect(p2.lines.some((l) => l.accountCode === '2100' && l.debit === 3000)).toBe(true);
+      expect(p2.lines.some((l) => l.accountCode === '1020' && l.credit === 3000)).toBe(true);
+      expect(p2.lines.some((l) => l.accountCode === '5020')).toBe(false);
+    });
+
+    it('guarantees unique journal IDs and line IDs across distinct payments for the same daily labour entry', () => {
+      const p1 = createLabourPaymentJournal(
+        {
+          dailyLabourId: labourEntry.id,
+          workerNameOrGroup: labourEntry.workerNameOrGroup,
+          amount: 5000,
+          paymentMode: 'CASH',
+          voucherNo: 'LPAY-26-0001',
+          paymentId: 'pay-dl-1',
+        },
+        '1010',
+        mockCompany,
+        'Yard Supervisor'
+      );
+
+      const p2 = createLabourPaymentJournal(
+        {
+          dailyLabourId: labourEntry.id,
+          workerNameOrGroup: labourEntry.workerNameOrGroup,
+          amount: 3000,
+          paymentMode: 'BANK',
+          voucherNo: 'LPAY-26-0002',
+          paymentId: 'pay-dl-2',
+        },
+        '1020',
+        mockCompany,
+        'Yard Supervisor'
+      );
+
+      expect(p1.id).not.toBe(p2.id);
+      expect(p1.entryNo).not.toBe(p2.entryNo);
+
+      const lineIds = new Set(p1.lines.map((l) => l.id));
+      for (const line of p2.lines) {
+        expect(lineIds.has(line.id)).toBe(false);
+      }
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // 14.17 Financial Record Deletion Protection & Authorized Reversals
+  // --------------------------------------------------------------------------
+  describe('14.17 Financial Record Deletion Protection & Authorized Reversals', () => {
+    it('creates perfectly balanced reversal journals with swapped Debits and Credits and sourceType REVERSAL', () => {
+      const originalExpenseJournal = createExpenseJournal(
+        {
+          id: 'exp-rev-01',
+          voucherNo: 'EXP-REV-001',
+          expenseDate: '2026-10-15',
+          category: 'Vehicle Rent',
+          description: 'Monthly lorry rental for yard transport',
+          amount: 18500,
+          accountId: 'acc-bank-cub',
+          paymentMode: 'BANK',
+          paidTo: 'Redhills Transport Fleet',
+          status: 'PAID',
+          createdAt: '2026-10-15T10:00:00Z',
+          createdBy: 'Admin',
+        },
+        '1020',
+        mockCompany
+      );
+
+      const reversalJournal = createReversingJournal(
+        originalExpenseJournal,
+        'Duplicate invoice entered accidentally',
+        'Audit Partner'
+      );
+
+      expect(() => validateJournalEntry(reversalJournal)).not.toThrow();
+      expect(reversalJournal.sourceType).toBe('REVERSAL');
+      expect(reversalJournal.sourceId).toBe('exp-rev-01');
+      expect(reversalJournal.referenceNo).toContain('EXP-REV-001');
+      expect(reversalJournal.narration).toContain(originalExpenseJournal.entryNo);
+      expect(reversalJournal.totalDebit).toBe(originalExpenseJournal.totalCredit);
+      expect(reversalJournal.totalCredit).toBe(originalExpenseJournal.totalDebit);
+
+      // Verify line inversion: original Dr 5025 becomes Cr 5025, original Cr 1020 becomes Dr 1020
+      const origDr = originalExpenseJournal.lines.find((l) => l.debit > 0)!;
+      const revCr = reversalJournal.lines.find((l) => l.accountCode === origDr.accountCode)!;
+      expect(revCr.credit).toBe(origDr.debit);
+      expect(revCr.debit).toBe(0);
+      expect(revCr.lineNarration).toContain('Reversal of');
+
+      const origCr = originalExpenseJournal.lines.find((l) => l.credit > 0)!;
+      const revDr = reversalJournal.lines.find((l) => l.accountCode === origCr.accountCode)!;
+      expect(revDr.debit).toBe(origCr.credit);
+      expect(revDr.credit).toBe(0);
+      expect(revDr.lineNarration).toContain('Reversal of');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // 14.18 Strict FIFO Inventory Allocation & COGS Verification
+  // --------------------------------------------------------------------------
+  describe('14.18 Strict FIFO Inventory Allocation & COGS Verification', () => {
+    const activeLots: InventoryLot[] = [
+      {
+        id: 'lot-002',
+        lotNumber: 'LOT-B-002',
+        companyId: mockCompany.id,
+        materialId: 'mat-hms1',
+        yardId: 'yard-redhills',
+        receivedAt: '2026-10-05T10:00:00Z',
+        initialQuantity: 5000,
+        remainingQuantity: 5000,
+        unitCost: 36.50,
+        isExhausted: false,
+      },
+      {
+        id: 'lot-001',
+        lotNumber: 'LOT-A-001',
+        companyId: mockCompany.id,
+        materialId: 'mat-hms1',
+        yardId: 'yard-redhills',
+        receivedAt: '2026-10-01T09:00:00Z',
+        initialQuantity: 3000,
+        remainingQuantity: 3000,
+        unitCost: 35.00,
+        isExhausted: false,
+      },
+      {
+        id: 'lot-other-comp',
+        lotNumber: 'LOT-X-OTHER',
+        companyId: 'comp-other-99',
+        materialId: 'mat-hms1',
+        yardId: 'yard-redhills',
+        receivedAt: '2026-09-01T00:00:00Z',
+        initialQuantity: 10000,
+        remainingQuantity: 10000,
+        unitCost: 30.00,
+        isExhausted: false,
+      },
+    ];
+
+    it('allocates strictly in FIFO order: consumes older Lot A before Lot B and ignores other company lots', () => {
+      const { result, updatedLots } = allocateLotsFifo(
+        activeLots,
+        'mat-hms1',
+        'yard-redhills',
+        4000, // consumes all 3000 of Lot A + 1000 of Lot B
+        mockCompany.id
+      );
+
+      expect(result.allocations.length).toBe(2);
+      expect(result.allocations[0].lotId).toBe('lot-001');
+      expect(result.allocations[0].allocatedQuantity).toBe(3000);
+      expect(result.allocations[0].unitCost).toBe(35.00);
+
+      expect(result.allocations[1].lotId).toBe('lot-002');
+      expect(result.allocations[1].allocatedQuantity).toBe(1000);
+      expect(result.allocations[1].unitCost).toBe(36.50);
+
+      // Total COGS = (3000 * 35.00) + (1000 * 36.50) = 105,000 + 36,500 = 141,500
+      expect(result.totalCogs).toBe(141500);
+
+      // Verify Lot A is exhausted and Lot B has 4000 left
+      const lotA = updatedLots.find((l) => l.id === 'lot-001')!;
+      expect(lotA.remainingQuantity).toBe(0);
+      expect(lotA.isExhausted).toBe(true);
+
+      const lotB = updatedLots.find((l) => l.id === 'lot-002')!;
+      expect(lotB.remainingQuantity).toBe(4000);
+      expect(lotB.isExhausted).toBe(false);
+
+      // Verify other company lot was untouched
+      const otherLot = updatedLots.find((l) => l.id === 'lot-other-comp')!;
+      expect(otherLot.remainingQuantity).toBe(10000);
+    });
+
+    it('verifies FIFO COGS integrity: passes when movements and lots match', () => {
+      const movements: StockMovement[] = [
+        {
+          id: 'sm-01',
+          companyId: mockCompany.id,
+          movementType: 'SALES_DISPATCH',
+          transactionRef: 'INV-26-001',
+          materialId: 'mat-hms1',
+          yardId: 'yard-redhills',
+          lotId: 'lot-001',
+          quantity: -3000,
+          unitCost: 35.00,
+          totalCost: 105000,
+          createdAt: '2026-10-10T12:00:00Z',
+          createdBy: 'Admin',
+        },
+        {
+          id: 'sm-02',
+          companyId: mockCompany.id,
+          movementType: 'SALES_DISPATCH',
+          transactionRef: 'INV-26-001',
+          materialId: 'mat-hms1',
+          yardId: 'yard-redhills',
+          lotId: 'lot-002',
+          quantity: -1000,
+          unitCost: 36.50,
+          totalCost: 36500,
+          createdAt: '2026-10-10T12:00:00Z',
+          createdBy: 'Admin',
+        },
+      ];
+
+      const check = verifyFifoCogsIntegrity(movements, activeLots);
+      expect(check.isValid).toBe(true);
+      expect(check.verifiedCogs).toBe(141500);
+      expect(check.discrepancies.length).toBe(0);
+    });
+
+    it('verifies FIFO COGS integrity: rejects unlinked movements, missing lots, or cost mismatches', () => {
+      const corruptedMovements: StockMovement[] = [
+        {
+          id: 'sm-corrupt-1',
+          companyId: mockCompany.id,
+          movementType: 'SALES_DISPATCH',
+          transactionRef: 'INV-26-BAD',
+          materialId: 'mat-hms1',
+          yardId: 'yard-redhills',
+          lotId: '', // missing lotId!
+          quantity: -500,
+          unitCost: 35.00,
+          totalCost: 17500,
+          createdAt: '2026-10-10T12:00:00Z',
+          createdBy: 'Admin',
+        },
+        {
+          id: 'sm-corrupt-2',
+          companyId: mockCompany.id,
+          movementType: 'SALES_DISPATCH',
+          transactionRef: 'INV-26-BAD2',
+          materialId: 'mat-hms1',
+          yardId: 'yard-redhills',
+          lotId: 'lot-001',
+          quantity: -1000,
+          unitCost: 99.00, // mismatch with lot unitCost of 35.00!
+          totalCost: 99000,
+          createdAt: '2026-10-10T12:00:00Z',
+          createdBy: 'Admin',
+        },
+      ];
+
+      const check = verifyFifoCogsIntegrity(corruptedMovements, activeLots);
+      expect(check.isValid).toBe(false);
+      expect(check.discrepancies.length).toBeGreaterThanOrEqual(2);
+      expect(check.unverifiedReason).toContain('FIFO COGS audit failed');
+    });
+
+    it('rejects caller boolean flags from certifying P&L: strictly derives isVerified from fifoVerification', () => {
+      // Case A: Unverified audit result -> P&L is NOT verified even if caller passed legacy isCogsVerified: true
+      const unverifiedPnl = calculateAuthoritativeProfitAndLoss({
+        salesRevenue: 500000,
+        cogsFromFifoLots: 380000,
+        isCogsVerified: true, // Caller tries to bypass audit!
+        fifoVerification: {
+          isValid: false,
+          unverifiedReason: 'Orphaned stock movements detected',
+          discrepancies: ['Stock movement has no linked lot'],
+        },
+      });
+
+      expect(unverifiedPnl.isVerified).toBe(false);
+      expect(unverifiedPnl.explanation).toContain('[UNVERIFIED COGS: Orphaned stock movements detected]');
+
+      // Case B: Validated audit result -> P&L is verified
+      const verifiedPnl = calculateAuthoritativeProfitAndLoss({
+        salesRevenue: 500000,
+        cogsFromFifoLots: 141500,
+        fifoVerification: {
+          isValid: true,
+        },
+      });
+
+      expect(verifiedPnl.isVerified).toBe(true);
+      expect(verifiedPnl.explanation).toContain('[VERIFIED FIFO COGS]');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // 14.19 Atomic Database RPC Integration & Safe Error Handling
+  // --------------------------------------------------------------------------
+  describe('14.19 Atomic Database RPC Integration & Safe Error Handling', () => {
+    it('returns honest error when remote database is unconfigured without throwing unhandled exceptions', async () => {
+      // When remote Supabase URL is not configured or in offline mode:
+      const res = await dbRepository.postContractorPaymentAtomic({
+        companyId: mockCompany.id,
+        contractorId: 'cont-01',
+        workId: 'cw-100',
+        contractorName: 'Saravanan Crane Works',
+        amount: 5000,
+        paymentMode: 'BANK',
+        accountId: 'acc-bank-cub',
+        voucherNo: 'CPAY-26-0001',
+        actor: 'Admin',
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.error).toBeDefined();
+      expect(res.error?.message).toContain('Remote Supabase database is not configured');
+    });
+
+    it('safely handles salary disbursement atomic RPC offline state', async () => {
+      const res = await dbRepository.postSalaryDisbursementAtomic({
+        companyId: mockCompany.id,
+        salaryRecordId: 'sal-101',
+        employeeName: 'M. Murugan',
+        salaryMonth: '2026-10',
+        amount: 15000,
+        paymentMode: 'BANK',
+        accountId: 'acc-bank-cub',
+        voucherNo: 'SALPAY-26-0001',
+        actor: 'Admin',
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.error?.message).toContain('Remote Supabase database is not configured');
     });
   });
 });
+

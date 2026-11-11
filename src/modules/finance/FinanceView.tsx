@@ -418,7 +418,7 @@ export const FinanceView: React.FC = () => {
     setIsSalaryModalOpen(true);
   };
 
-  const handleSalarySubmit = (e: React.FormEvent) => {
+  const handleSalarySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const emp = employees.find((e) => e.id === selectedEmpId);
     if (!emp) {
@@ -429,31 +429,35 @@ export const FinanceView: React.FC = () => {
     const balance = roundTo2(Math.max(0, net - salAmountPaid));
     const status = balance <= 0.01 ? 'PAID' : (salAmountPaid > 0 ? 'PARTIALLY_PAID' : 'PENDING');
 
-    recordSalaryPayment({
-      employeeId: emp.id,
-      employeeName: emp.fullName,
-      designation: emp.designation,
-      salaryMonth,
-      grossSalary: Number(salGross),
-      allowances: Number(salAllowances),
-      deductions: Number(salDeductions),
-      advanceRecovery: Number(salAdvRecovery),
-      netSalaryPayable: net,
-      amountPaid: Number(salAmountPaid),
-      remainingBalance: balance,
-      paymentDate: todayStr,
-      paymentMode: salPayMode,
-      accountId: salAccountId,
-      status,
-      notes: salNotes,
-    });
+    try {
+      await recordSalaryPayment({
+        employeeId: emp.id,
+        employeeName: emp.fullName,
+        designation: emp.designation,
+        salaryMonth,
+        grossSalary: Number(salGross),
+        allowances: Number(salAllowances),
+        deductions: Number(salDeductions),
+        advanceRecovery: Number(salAdvRecovery),
+        netSalaryPayable: net,
+        amountPaid: Number(salAmountPaid),
+        remainingBalance: balance,
+        paymentDate: todayStr,
+        paymentMode: salPayMode,
+        accountId: salAccountId,
+        status,
+        notes: salNotes,
+      });
 
-    setIsSalaryModalOpen(false);
-    showFeedback('success', `Salary record for ${emp.fullName} (${salaryMonth}) posted.`);
+      setIsSalaryModalOpen(false);
+      showFeedback('success', `Salary record for ${emp.fullName} (${salaryMonth}) posted.`);
+    } catch (err: any) {
+      showFeedback('error', err.message || 'Failed to post salary record.');
+    }
   };
 
   // Daily Labour submit
-  const handleDailyLabourSubmit = (e: React.FormEvent) => {
+  const handleDailyLabourSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!dlabWorkerName.trim()) {
       showFeedback('error', 'Worker or Group name is required.');
@@ -462,25 +466,29 @@ export const FinanceView: React.FC = () => {
     const totalCost = calculateDailyLabourCost(dlabWorkerCount, dlabWorkingDays, dlabDailyRate, dlabOvertime, dlabCharges);
     const balance = calculateDailyLabourBalance(totalCost, dlabAdvance, dlabAmountPaid);
 
-    recordDailyLabour({
-      workDate: dlabDate,
-      workerNameOrGroup: dlabWorkerName.trim(),
-      workerCount: Number(dlabWorkerCount),
-      workingDays: Number(dlabWorkingDays),
-      dailyRate: Number(dlabDailyRate),
-      overtimeAmount: Number(dlabOvertime),
-      additionalCharges: Number(dlabCharges),
-      totalLabourCost: totalCost,
-      advanceAmount: Number(dlabAdvance),
-      amountPaid: Number(dlabAmountPaid),
-      remainingBalance: balance,
-      paymentMode: dlabPayMode,
-      accountId: dlabAccountId,
-      notes: dlabNotes,
-    });
+    try {
+      await recordDailyLabour({
+        workDate: dlabDate,
+        workerNameOrGroup: dlabWorkerName.trim(),
+        workerCount: Number(dlabWorkerCount),
+        workingDays: Number(dlabWorkingDays),
+        dailyRate: Number(dlabDailyRate),
+        overtimeAmount: Number(dlabOvertime),
+        additionalCharges: Number(dlabCharges),
+        totalLabourCost: totalCost,
+        advanceAmount: Number(dlabAdvance),
+        amountPaid: Number(dlabAmountPaid),
+        remainingBalance: balance,
+        paymentMode: dlabPayMode,
+        accountId: dlabAccountId,
+        notes: dlabNotes,
+      });
 
-    setIsDailyLabourModalOpen(false);
-    showFeedback('success', `Daily labour entry for "${dlabWorkerName}" saved.`);
+      setIsDailyLabourModalOpen(false);
+      showFeedback('success', `Daily labour entry for "${dlabWorkerName}" saved.`);
+    } catch (err: any) {
+      showFeedback('error', err.message || 'Failed to save daily labour entry.');
+    }
   };
 
   // Contractor submit
@@ -501,7 +509,7 @@ export const FinanceView: React.FC = () => {
   };
 
   // Contractor Work submit
-  const handleContractWorkSubmit = (e: React.FormEvent) => {
+  const handleContractWorkSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const contr = contractors.find((c) => c.id === cworkContrId);
     if (!contr) {
@@ -511,26 +519,30 @@ export const FinanceView: React.FC = () => {
     const totalAmount = contr.contractType === 'QUANTITY_BASED' ? roundTo2(cworkRate * cworkQty) : cworkRate;
     const balance = calculateContractorBalance(totalAmount, cworkAdvance, 0, cworkCurrentPay);
 
-    recordContractorWork({
-      contractorId: contr.id,
-      contractorName: contr.contractorName,
-      workDate: cworkDate,
-      workDescription: cworkDesc.trim() || contr.workDescription,
-      workerCount: Number(cworkWorkers),
-      quantityCompleted: Number(cworkQty),
-      agreedRate: Number(cworkRate),
-      totalContractAmount: totalAmount,
-      advancePaid: Number(cworkAdvance),
-      previousPayments: 0,
-      currentPayment: Number(cworkCurrentPay),
-      remainingBalance: balance,
-      paymentMode: cworkPayMode,
-      accountId: cworkAccountId,
-      notes: cworkNotes,
-    });
+    try {
+      await recordContractorWork({
+        contractorId: contr.id,
+        contractorName: contr.contractorName,
+        workDate: cworkDate,
+        workDescription: cworkDesc.trim() || contr.workDescription,
+        workerCount: Number(cworkWorkers),
+        quantityCompleted: Number(cworkQty),
+        agreedRate: Number(cworkRate),
+        totalContractAmount: totalAmount,
+        advancePaid: Number(cworkAdvance),
+        previousPayments: 0,
+        currentPayment: Number(cworkCurrentPay),
+        remainingBalance: balance,
+        paymentMode: cworkPayMode,
+        accountId: cworkAccountId,
+        notes: cworkNotes,
+      });
 
-    setIsContractWorkModalOpen(false);
-    showFeedback('success', `Work contract for "${contr.contractorName}" recorded.`);
+      setIsContractWorkModalOpen(false);
+      showFeedback('success', `Work contract for "${contr.contractorName}" recorded.`);
+    } catch (err: any) {
+      showFeedback('error', err.message || 'Failed to record contractor work.');
+    }
   };
 
   const handleOpenContrPay = (w: ContractorWorkEntry) => {
@@ -539,12 +551,16 @@ export const FinanceView: React.FC = () => {
     setIsContrPayModalOpen(true);
   };
 
-  const handleContrPaySubmit = (e: React.FormEvent) => {
+  const handleContrPaySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (contrPayAmount <= 0) return;
-    payContractorWork(contrPayWorkId, Number(contrPayAmount), contrPayMode, contrPayAccId);
-    setIsContrPayModalOpen(false);
-    showFeedback('success', `Contractor progress payment of ${formatINR(contrPayAmount)} posted.`);
+    try {
+      await payContractorWork(contrPayWorkId, Number(contrPayAmount), contrPayMode, contrPayAccId);
+      setIsContrPayModalOpen(false);
+      showFeedback('success', `Contractor progress payment of ${formatINR(contrPayAmount)} posted.`);
+    } catch (err: any) {
+      showFeedback('error', err.message || 'Failed to post contractor payment.');
+    }
   };
 
   // Account CRUD

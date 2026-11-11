@@ -675,7 +675,8 @@ export interface JournalEntry {
     | 'DEBIT_NOTE' 
     | 'MANUAL'
     | 'MANUAL_JOURNAL' 
-    | 'OPENING_BALANCE';
+    | 'OPENING_BALANCE'
+    | 'REVERSAL';
   sourceId?: string;
   referenceNo?: string;
   narration: string;
@@ -895,7 +896,7 @@ export interface MonthlySalaryRecord {
   paymentDate?: string;
   paymentMode?: 'CASH' | 'BANK';
   accountId?: string;
-  status: 'PENDING' | 'PARTIALLY_PAID' | 'PAID';
+  status: 'PENDING' | 'PARTIALLY_PAID' | 'PAID' | 'REVERSED';
   notes?: string;
   accrualJournalId?: string;
   paymentJournalId?: string;
@@ -913,7 +914,7 @@ export interface EmployeeAdvance {
   amount: number;
   recoveredAmount: number;
   remainingBalance: number;
-  status: 'OPEN' | 'PARTIALLY_RECOVERED' | 'FULLY_RECOVERED';
+  status: 'OPEN' | 'PARTIALLY_RECOVERED' | 'FULLY_RECOVERED' | 'REVERSED';
   paymentMode: 'CASH' | 'BANK';
   accountId: string;
   voucherNo?: string;
@@ -939,6 +940,7 @@ export interface DailyLabourEntry {
   remainingBalance: number; // totalLabourCost - advanceAmount - amountPaid
   paymentMode: 'CASH' | 'BANK' | 'UNPAID';
   accountId?: string;
+  status?: 'PENDING' | 'PARTIALLY_PAID' | 'PAID' | 'REVERSED';
   accrualJournalId?: string;
   idempotencyKey?: string;
   notes?: string;
@@ -956,6 +958,7 @@ export interface LabourPayment {
   paymentMode: 'CASH' | 'BANK';
   accountId: string;
   voucherNo: string;
+  status?: 'POSTED' | 'REVERSED';
   journalId?: string;
   idempotencyKey?: string;
   notes?: string;
@@ -992,6 +995,7 @@ export interface ContractorWorkEntry {
   remainingBalance: number;
   paymentMode: 'CASH' | 'BANK' | 'UNPAID';
   accountId?: string;
+  status?: 'PENDING' | 'PARTIALLY_PAID' | 'PAID' | 'REVERSED';
   accrualJournalId?: string;
   idempotencyKey?: string;
   notes?: string;

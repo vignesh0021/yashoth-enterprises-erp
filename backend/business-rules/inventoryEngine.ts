@@ -45,22 +45,28 @@ export function allocateLotsFifo(
   activeLots: InventoryLot[],
   materialId: string,
   yardId: string,
-  requestedQuantity: number
+  requestedQuantity: number,
+  companyId?: string
 ): { updatedLots: InventoryLot[]; result: LotAllocationResult } {
   if (requestedQuantity <= 0) {
     throw new Error('Requested dispatch quantity must be greater than zero');
   }
 
-  // Filter lots for material and yard, sorted chronologically (FIFO)
+  // Filter lots for material, yard, and company, sorted strictly chronologically (FIFO)
   const eligibleLots = activeLots
     .filter(
       (lot) =>
         lot.materialId === materialId &&
         lot.yardId === yardId &&
+        (!companyId || !(lot as any).companyId || (lot as any).companyId === companyId) &&
         !lot.isExhausted &&
         lot.remainingQuantity > 0
     )
-    .sort((a, b) => new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime());
+    .sort((a, b) => {
+      const timeDiff = new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return (a.lotNumber || a.id).localeCompare(b.lotNumber || b.id);
+    });
 
   const totalAvailable = eligibleLots.reduce((sum, l) => sum + l.remainingQuantity, 0);
   if (roundTo3(totalAvailable) < roundTo3(requestedQuantity)) {
@@ -114,6 +120,69 @@ export function allocateLotsFifo(
       totalCogs,
       remainingRequestedQuantity: remainingToAllocate,
     },
+  };
+}
+
+export interface FifoCogsVerificationResult {
+  isValid: boolean;
+  verifiedCogs: number;
+  totalAllocatedQuantity: number;
+  unverifiedReason?: string;
+  discrepancies: string[];
+}
+
+/**
+ * Validates actual FIFO Cost of Goods Sold (COGS) from inventory lots and outward dispatches.
+ * Prohibits blind certification: returns isValid: false if orphaned allocations, missing costs,
+ * or lot balance mismatches exist.
+ */
+export function verifyFifoCogsIntegrity(
+  movements: StockMovement[],
+  lots: InventoryLot[]
+): FifoCogsVerificationResult {
+  const lotMap = new Map(lots.map((l) => [l.id, l]));
+  const outwardMovements = movements.filter((m) => m.quantity < 0 && m.movementType === 'SALES_DISPATCH');
+
+  let verifiedCogs = 0;
+  let totalAllocatedQuantity = 0;
+  const discrepancies: string[] = [];
+
+  for (const m of outwardMovements) {
+    const qty = Math.abs(m.quantity);
+    totalAllocatedQuantity = roundTo3(totalAllocatedQuantity + qty);
+
+    if (!m.lotId) {
+      discrepancies.push(`Stock movement ${m.id} (${m.transactionRef}) has no linked FIFO lot.`);
+      continue;
+    }
+
+    const lot = lotMap.get(m.lotId);
+    if (!lot) {
+      discrepancies.push(`Stock movement ${m.id} references non-existent lot ${m.lotId}.`);
+      continue;
+    }
+
+    if (m.unitCost <= 0) {
+      discrepancies.push(`Stock movement ${m.id} from Lot ${lot.lotNumber} has invalid unitCost ₹${m.unitCost}.`);
+      continue;
+    }
+
+    if (Math.abs(m.unitCost - lot.unitCost) > 0.01) {
+      discrepancies.push(`Unit cost mismatch in movement ${m.id}: movement cost ₹${m.unitCost} vs lot cost ₹${lot.unitCost}.`);
+      continue;
+    }
+
+    const expectedCost = roundTo2(qty * m.unitCost);
+    verifiedCogs = roundTo2(verifiedCogs + expectedCost);
+  }
+
+  const isValid = discrepancies.length === 0;
+  return {
+    isValid,
+    verifiedCogs: isValid ? verifiedCogs : 0,
+    totalAllocatedQuantity,
+    unverifiedReason: isValid ? undefined : `FIFO COGS audit failed with ${discrepancies.length} discrepancy/discrepancies.`,
+    discrepancies,
   };
 }
 

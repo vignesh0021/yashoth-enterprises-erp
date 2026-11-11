@@ -49,7 +49,8 @@ export interface JournalEntry {
     | 'DEBIT_NOTE' 
     | 'MANUAL'
     | 'MANUAL_JOURNAL' 
-    | 'OPENING_BALANCE';
+    | 'OPENING_BALANCE'
+    | 'REVERSAL';
   sourceId?: string;
   referenceNo?: string;
   narration: string;
@@ -843,7 +844,9 @@ export function createSalaryDisbursementJournal(
     salaryMonth: string;
     amount: number;
     paymentMode: 'CASH' | 'BANK';
+    paymentId?: string;
     voucherNo?: string;
+    paymentDate?: string;
   },
   accountCode: string = '1010',
   company: Company,
@@ -851,9 +854,10 @@ export function createSalaryDisbursementJournal(
 ): JournalEntry {
   const amount = roundTo2(payment.amount);
   const voucherNo = payment.voucherNo || `SALPAY-${payment.salaryRecordId.slice(-6)}`;
+  const payId = payment.paymentId || `${voucherNo.replace(/[^A-Za-z0-9]/g, '')}-${Math.random().toString(36).substring(2, 7)}`;
   const lines: JournalLine[] = [
     {
-      id: `jl-saldisb-dr-${payment.salaryRecordId}`,
+      id: `jl-saldisb-dr-${payId}`,
       accountCode: '2100',
       accountName: 'Employee Wages & Advances Payable',
       debit: amount,
@@ -861,7 +865,7 @@ export function createSalaryDisbursementJournal(
       lineNarration: `Salary disbursement to ${payment.employeeName} (${payment.salaryMonth})`,
     },
     {
-      id: `jl-saldisb-cr-${payment.salaryRecordId}`,
+      id: `jl-saldisb-cr-${payId}`,
       accountCode,
       accountName: accountCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)',
       debit: 0,
@@ -871,10 +875,10 @@ export function createSalaryDisbursementJournal(
   ];
 
   const entry: JournalEntry = {
-    id: `je-saldisb-${Date.now().toString(36)}`,
+    id: `je-saldisb-${payId}`,
     companyId: company.id,
-    entryNo: `JV-SALDISB-${voucherNo.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`,
-    entryDate: new Date().toISOString().split('T')[0],
+    entryNo: `JV-SALDISB-${voucherNo.replace(/[^A-Za-z0-9]/g, '')}`,
+    entryDate: payment.paymentDate || new Date().toISOString().split('T')[0],
     sourceType: 'PAYMENT',
     sourceId: payment.salaryRecordId,
     referenceNo: voucherNo,
@@ -1077,8 +1081,9 @@ export function createLabourPaymentJournal(
     workerNameOrGroup: string;
     amount: number;
     paymentMode: 'CASH' | 'BANK';
-    paymentDate?: string;
+    paymentId?: string;
     voucherNo?: string;
+    paymentDate?: string;
   },
   accountCode: string = '1010',
   company: Company,
@@ -1086,9 +1091,10 @@ export function createLabourPaymentJournal(
 ): JournalEntry {
   const amount = roundTo2(payment.amount);
   const voucherNo = payment.voucherNo || `LPAY-${payment.dailyLabourId.slice(-6)}`;
+  const payId = payment.paymentId || `${voucherNo.replace(/[^A-Za-z0-9]/g, '')}-${Math.random().toString(36).substring(2, 7)}`;
   const lines: JournalLine[] = [
     {
-      id: `jl-lpay-dr-${payment.dailyLabourId}`,
+      id: `jl-lpay-dr-${payId}`,
       accountCode: '2100',
       accountName: 'Employee Wages & Advances Payable',
       debit: amount,
@@ -1096,7 +1102,7 @@ export function createLabourPaymentJournal(
       lineNarration: `Payment for approved daily labour: ${payment.workerNameOrGroup}`,
     },
     {
-      id: `jl-lpay-cr-${payment.dailyLabourId}`,
+      id: `jl-lpay-cr-${payId}`,
       accountCode,
       accountName: accountCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)',
       debit: 0,
@@ -1106,10 +1112,10 @@ export function createLabourPaymentJournal(
   ];
 
   const entry: JournalEntry = {
-    id: `je-lpay-${Date.now().toString(36)}`,
+    id: `je-lpay-${payId}`,
     companyId: company.id,
-    entryNo: `JV-LPAY-${voucherNo.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`,
-    entryDate: new Date().toISOString().split('T')[0],
+    entryNo: `JV-LPAY-${voucherNo.replace(/[^A-Za-z0-9]/g, '')}`,
+    entryDate: payment.paymentDate || new Date().toISOString().split('T')[0],
     sourceType: 'PAYMENT',
     sourceId: payment.dailyLabourId,
     referenceNo: voucherNo,
@@ -1291,15 +1297,17 @@ export function createContractorProgressPaymentJournal(
     paymentDate: string;
     paymentMode: 'CASH' | 'BANK';
     voucherNo: string;
+    paymentId?: string;
   },
   accountCode: string = '1010',
   company: Company,
   actor: string
 ): JournalEntry {
   const amount = roundTo2(payment.amount);
+  const payId = payment.paymentId || `${payment.voucherNo.replace(/[^A-Za-z0-9]/g, '')}-${Math.random().toString(36).substring(2, 7)}`;
   const lines: JournalLine[] = [
     {
-      id: `jl-cpay-dr-${payment.contractorWorkId}`,
+      id: `jl-cpay-dr-${payId}`,
       accountCode: '2110',
       accountName: 'Contractor & Labour Payable',
       debit: amount,
@@ -1307,7 +1315,7 @@ export function createContractorProgressPaymentJournal(
       lineNarration: `Progress payment for contractor work: ${payment.contractorName} (${payment.voucherNo})`,
     },
     {
-      id: `jl-cpay-cr-${payment.contractorWorkId}`,
+      id: `jl-cpay-cr-${payId}`,
       accountCode,
       accountName: accountCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)',
       debit: 0,
@@ -1317,9 +1325,9 @@ export function createContractorProgressPaymentJournal(
   ];
 
   const entry: JournalEntry = {
-    id: `je-cpay-${Date.now().toString(36)}`,
+    id: `je-cpay-${payId}`,
     companyId: company.id,
-    entryNo: `JV-CPAY-${payment.voucherNo.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`,
+    entryNo: `JV-CPAY-${payment.voucherNo.replace(/[^A-Za-z0-9]/g, '')}`,
     entryDate: payment.paymentDate,
     sourceType: 'PAYMENT',
     sourceId: payment.contractorWorkId,
@@ -1996,4 +2004,43 @@ export function generatePartyStatement(
     totalCredit: roundTo2(totalCredit),
     closingBalance: closing,
   };
+}
+
+/**
+ * Creates an exact reversing double-entry journal entry where all debits become credits
+ * and all credits become debits, ensuring the general ledger is balanced and auditable.
+ */
+export function createReversingJournal(
+  original: JournalEntry,
+  reason: string,
+  actor: string
+): JournalEntry {
+  const reversedLines: JournalLine[] = original.lines.map((line, idx) => ({
+    id: `jl-rev-${idx}-${line.id.replace(/^jl-/, '')}`,
+    accountCode: line.accountCode,
+    accountName: line.accountName,
+    debit: line.credit, // Invert
+    credit: line.debit, // Invert
+    lineNarration: `Reversal of [${line.lineNarration || line.accountName}]: ${reason}`,
+  }));
+
+  const reversalEntry: JournalEntry = {
+    id: `je-rev-${original.id.replace(/^je-/, '')}`,
+    companyId: original.companyId,
+    entryNo: `REV-${original.entryNo}`,
+    entryDate: new Date().toISOString().split('T')[0],
+    sourceType: 'REVERSAL',
+    sourceId: original.sourceId || original.id,
+    referenceNo: `REV-${original.referenceNo || original.entryNo}`,
+    narration: `Reversal of ${original.entryNo}: ${reason}`,
+    lines: reversedLines,
+    totalDebit: original.totalCredit,
+    totalCredit: original.totalDebit,
+    isPosted: true,
+    createdBy: actor,
+    createdAt: new Date().toISOString(),
+  };
+
+  validateJournalEntry(reversalEntry);
+  return reversalEntry;
 }

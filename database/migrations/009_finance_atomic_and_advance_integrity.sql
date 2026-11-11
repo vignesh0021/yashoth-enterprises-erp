@@ -182,7 +182,26 @@ DECLARE
     v_account_code VARCHAR(50);
     v_account_name VARCHAR(255);
 BEGIN
-    -- Idempotency check
+    -- 1. Authorization check: Enforce authenticated caller is active member of company
+    IF NOT auth_is_company_member(p_company_id) THEN
+        RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
+    END IF;
+
+    -- 2. Verify contractor belongs to the specified company
+    PERFORM 1 FROM contractors WHERE id = p_contractor_id AND company_id = p_company_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Contractor % does not belong to company %', p_contractor_id, p_company_id;
+    END IF;
+
+    -- 3. If account_id provided, verify cash/bank account belongs to the same company
+    IF p_account_id IS NOT NULL THEN
+        PERFORM 1 FROM cash_bank_accounts WHERE id = p_account_id AND company_id = p_company_id;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Cash/bank account % does not belong to company %', p_account_id, p_company_id;
+        END IF;
+    END IF;
+
+    -- 4. Idempotency check
     IF p_idempotency_key IS NOT NULL THEN
         SELECT id INTO v_payment_id FROM contractor_payments 
         WHERE company_id = p_company_id AND idempotency_key = p_idempotency_key;
@@ -191,12 +210,17 @@ BEGIN
         END IF;
     END IF;
 
-    -- Fetch and lock contractor work row
+    -- 5. Fetch and lock contractor work row
     SELECT * INTO v_work FROM contractor_work_entries 
     WHERE id = p_work_id AND company_id = p_company_id FOR UPDATE;
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Contractor work entry % not found in company %', p_work_id, p_company_id;
+    END IF;
+
+    -- Verify work entry belongs to the specified contractor
+    IF v_work.contractor_id <> p_contractor_id THEN
+        RAISE EXCEPTION 'Work entry % belongs to contractor %, not %', p_work_id, v_work.contractor_id, p_contractor_id;
     END IF;
 
     IF p_amount <= 0 THEN
@@ -300,6 +324,29 @@ DECLARE
     v_account_code VARCHAR(50);
     v_account_name VARCHAR(255);
 BEGIN
+    -- 1. Authorization check: Enforce authenticated caller is active member of company
+    IF NOT auth_is_company_member(p_company_id) THEN
+        RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
+    END IF;
+
+    -- 2. Idempotency check
+    IF p_idempotency_key IS NOT NULL THEN
+        SELECT id INTO v_payment_id FROM labour_payments 
+        WHERE company_id = p_company_id AND idempotency_key = p_idempotency_key;
+        IF FOUND THEN
+            RETURN jsonb_build_object('success', true, 'payment_id', v_payment_id, 'idempotent', true);
+        END IF;
+    END IF;
+
+    -- 3. If account_id provided, verify cash/bank account belongs to the same company
+    IF p_account_id IS NOT NULL THEN
+        PERFORM 1 FROM cash_bank_accounts WHERE id = p_account_id AND company_id = p_company_id;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Cash/bank account % does not belong to company %', p_account_id, p_company_id;
+        END IF;
+    END IF;
+
+    -- 4. Fetch and lock daily labour row
     SELECT * INTO v_labour FROM daily_labour_entries 
     WHERE id = p_daily_labour_id AND company_id = p_company_id FOR UPDATE;
 
@@ -385,7 +432,8 @@ CREATE OR REPLACE FUNCTION fn_post_salary_disbursement_atomic(
     p_payment_mode VARCHAR(20),
     p_account_id UUID,
     p_voucher_no VARCHAR(50),
-    p_actor VARCHAR(100)
+    p_actor VARCHAR(100),
+    p_idempotency_key VARCHAR(100) DEFAULT NULL
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -401,11 +449,31 @@ DECLARE
     v_account_code VARCHAR(50);
     v_account_name VARCHAR(255);
 BEGIN
+    -- 1. Authorization check: Enforce authenticated caller is active member of company
+    IF NOT auth_is_company_member(p_company_id) THEN
+        RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
+    END IF;
+
+    -- 2. Fetch and lock salary record row
     SELECT * INTO v_record FROM salary_records 
     WHERE id = p_salary_record_id AND company_id = p_company_id FOR UPDATE;
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Salary record % not found in company %', p_salary_record_id, p_company_id;
+    END IF;
+
+    -- 3. Verify employee belongs to the specified company
+    PERFORM 1 FROM employees WHERE id = v_record.employee_id AND company_id = p_company_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Employee % does not belong to company %', v_record.employee_id, p_company_id;
+    END IF;
+
+    -- 4. If account_id provided, verify cash/bank account belongs to the same company
+    IF p_account_id IS NOT NULL THEN
+        PERFORM 1 FROM cash_bank_accounts WHERE id = p_account_id AND company_id = p_company_id;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Cash/bank account % does not belong to company %', p_account_id, p_company_id;
+        END IF;
     END IF;
 
     IF p_amount <= 0 THEN
@@ -498,6 +566,20 @@ DECLARE
     v_account_code VARCHAR(50);
     v_account_name VARCHAR(255);
 BEGIN
+    -- 1. Authorization check: Enforce authenticated caller is active member of company
+    IF NOT auth_is_company_member(p_company_id) THEN
+        RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
+    END IF;
+
+    -- 2. If account_id provided, verify cash/bank account belongs to the same company
+    IF p_account_id IS NOT NULL THEN
+        PERFORM 1 FROM cash_bank_accounts WHERE id = p_account_id AND company_id = p_company_id;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Cash/bank account % does not belong to company %', p_account_id, p_company_id;
+        END IF;
+    END IF;
+
+    -- 3. Idempotency check
     IF p_idempotency_key IS NOT NULL THEN
         SELECT id INTO v_advance_id FROM employee_advances
         WHERE company_id = p_company_id AND idempotency_key = p_idempotency_key;
@@ -510,7 +592,7 @@ BEGIN
         RAISE EXCEPTION 'Advance amount must be greater than zero';
     END IF;
 
-    -- Lock employee record
+    -- 4. Lock employee record
     SELECT * INTO v_emp FROM employees
     WHERE id = p_employee_id AND company_id = p_company_id FOR UPDATE;
 
@@ -608,12 +690,44 @@ DECLARE
     v_accrual_journal_id UUID;
     v_disb_journal_id UUID;
     v_remaining_balance NUMERIC(12, 2);
+    v_adv_balance NUMERIC(12, 2);
     v_status VARCHAR(20);
     v_total_expense NUMERIC(12, 2);
     v_voucher_no VARCHAR(50);
     v_account_code VARCHAR(50);
     v_account_name VARCHAR(255);
 BEGIN
+    -- 1. Authorization check: Enforce authenticated caller is active member of company
+    IF NOT auth_is_company_member(p_company_id) THEN
+        RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
+    END IF;
+
+    -- 2. Verify employee belongs to company
+    PERFORM 1 FROM employees WHERE id = p_employee_id AND company_id = p_company_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Employee % does not belong to company %', p_employee_id, p_company_id;
+    END IF;
+
+    -- 3. If account_id provided and payment is made, verify cash/bank account belongs to company
+    IF p_account_id IS NOT NULL AND COALESCE(p_amount_paid, 0) > 0 THEN
+        PERFORM 1 FROM cash_bank_accounts WHERE id = p_account_id AND company_id = p_company_id;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Cash/bank account % does not belong to company %', p_account_id, p_company_id;
+        END IF;
+    END IF;
+
+    -- 4. Advance recovery check: Validate advance recovery cannot exceed actual employee advance balance
+    IF COALESCE(p_advance_recovery, 0) > 0 THEN
+        SELECT COALESCE(SUM(remaining_balance), 0) INTO v_adv_balance
+        FROM employee_advances
+        WHERE employee_id = p_employee_id AND company_id = p_company_id AND status IN ('OPEN', 'PARTIALLY_RECOVERED');
+
+        IF p_advance_recovery > v_adv_balance THEN
+            RAISE EXCEPTION 'Advance recovery (₹%) exceeds available advance balance (₹%) for employee %',
+                p_advance_recovery, v_adv_balance, p_employee_name;
+        END IF;
+    END IF;
+
     IF p_gross_salary < 0 THEN
         RAISE EXCEPTION 'Gross salary cannot be negative';
     END IF;
@@ -796,6 +910,35 @@ DECLARE
     v_account_code VARCHAR(50);
     v_account_name VARCHAR(255);
 BEGIN
+    -- 1. Authorization check: Enforce authenticated caller is active member of company
+    IF NOT auth_is_company_member(p_company_id) THEN
+        RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
+    END IF;
+
+    -- 2. If account_id provided and payment is made, verify cash/bank account belongs to company
+    IF p_account_id IS NOT NULL AND COALESCE(p_amount_paid, 0) > 0 THEN
+        PERFORM 1 FROM cash_bank_accounts WHERE id = p_account_id AND company_id = p_company_id;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Cash/bank account % does not belong to company %', p_account_id, p_company_id;
+        END IF;
+    END IF;
+
+    -- 3. Balance verification: remaining_balance must equal total - advance - paid
+    IF ROUND(p_remaining_balance, 2) <> ROUND(p_total_labour_cost - COALESCE(p_advance_amount, 0) - COALESCE(p_amount_paid, 0), 2) THEN
+        RAISE EXCEPTION 'Daily labour remaining balance % does not match calculated balance (total % - advance % - paid %)',
+            p_remaining_balance, p_total_labour_cost, COALESCE(p_advance_amount, 0), COALESCE(p_amount_paid, 0);
+    END IF;
+
+    -- 4. Idempotency check
+    IF p_idempotency_key IS NOT NULL THEN
+        SELECT id INTO v_payment_id FROM labour_payments
+        WHERE company_id = p_company_id AND idempotency_key = p_idempotency_key;
+        IF FOUND THEN
+            SELECT daily_labour_id INTO v_labour_id FROM labour_payments WHERE id = v_payment_id;
+            RETURN jsonb_build_object('success', true, 'daily_labour_id', v_labour_id, 'payment_id', v_payment_id, 'idempotent', true);
+        END IF;
+    END IF;
+
     IF p_total_labour_cost <= 0 THEN
         RAISE EXCEPTION 'Total labour cost must be greater than zero';
     END IF;
@@ -911,7 +1054,221 @@ END;
 $$;
 
 -- ----------------------------------------------------------------------------
--- 12. Explicit RPC Function Permissions
+-- 12. Schema Enrichment: contractor_work_entries status & idempotency columns
+-- ----------------------------------------------------------------------------
+ALTER TABLE contractor_work_entries ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PARTIALLY_PAID', 'PAID', 'REVERSED'));
+ALTER TABLE contractor_work_entries ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(100);
+ALTER TABLE contractor_work_entries ADD COLUMN IF NOT EXISTS accrual_journal_id UUID;
+CREATE INDEX IF NOT EXISTS idx_contractor_work_idempotency ON contractor_work_entries(company_id, idempotency_key);
+
+-- ----------------------------------------------------------------------------
+-- 13. Atomic RPC Function: Post Contractor Work Accrual & Immediate Payment
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION fn_post_contractor_work_atomic(
+    p_company_id UUID,
+    p_contractor_id UUID,
+    p_contractor_name VARCHAR(150),
+    p_work_date DATE,
+    p_work_description TEXT,
+    p_worker_count INT,
+    p_quantity_completed NUMERIC(12, 3),
+    p_agreed_rate NUMERIC(12, 2),
+    p_total_contract_amount NUMERIC(12, 2),
+    p_advance_paid NUMERIC(12, 2),
+    p_previous_payments NUMERIC(12, 2),
+    p_current_payment NUMERIC(12, 2),
+    p_remaining_balance NUMERIC(12, 2),
+    p_payment_mode VARCHAR(20),
+    p_account_id UUID,
+    p_actor VARCHAR(100),
+    p_notes TEXT DEFAULT NULL,
+    p_idempotency_key VARCHAR(100) DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_work_id UUID;
+    v_accrual_journal_id UUID;
+    v_pay_journal_id UUID;
+    v_payment_id UUID;
+    v_voucher_no VARCHAR(50);
+    v_account_code VARCHAR(50);
+    v_account_name VARCHAR(255);
+    v_status VARCHAR(30);
+    v_payable_amount NUMERIC(12, 2);
+BEGIN
+    -- 1. Authorization check: Enforce authenticated caller is active member of company
+    IF NOT auth_is_company_member(p_company_id) THEN
+        RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
+    END IF;
+
+    -- 2. Verify contractor belongs to the specified company
+    PERFORM 1 FROM contractors WHERE id = p_contractor_id AND company_id = p_company_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Contractor % does not belong to company %', p_contractor_id, p_company_id;
+    END IF;
+
+    -- 3. If account_id provided and payment is made, verify cash/bank account belongs to company
+    IF p_account_id IS NOT NULL AND COALESCE(p_current_payment, 0) > 0 THEN
+        PERFORM 1 FROM cash_bank_accounts WHERE id = p_account_id AND company_id = p_company_id;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'Cash/bank account % does not belong to company %', p_account_id, p_company_id;
+        END IF;
+    END IF;
+
+    -- 4. Idempotency check
+    IF p_idempotency_key IS NOT NULL THEN
+        SELECT id INTO v_work_id FROM contractor_work_entries
+        WHERE company_id = p_company_id AND idempotency_key = p_idempotency_key;
+        IF FOUND THEN
+            SELECT id INTO v_payment_id FROM contractor_payments
+            WHERE company_id = p_company_id AND contractor_work_id = v_work_id;
+            RETURN jsonb_build_object('success', true, 'work_id', v_work_id, 'payment_id', v_payment_id, 'idempotent', true);
+        END IF;
+    END IF;
+
+    -- 5. Amount validation
+    IF p_total_contract_amount <= 0 THEN
+        RAISE EXCEPTION 'Total contract amount must be greater than zero';
+    END IF;
+
+    IF ROUND(p_remaining_balance, 2) <> ROUND(p_total_contract_amount - COALESCE(p_advance_paid, 0) - COALESCE(p_previous_payments, 0) - COALESCE(p_current_payment, 0), 2) THEN
+        RAISE EXCEPTION 'Remaining balance % does not match calculated balance (total % - advance % - prev % - current %)',
+            p_remaining_balance, p_total_contract_amount, COALESCE(p_advance_paid, 0), COALESCE(p_previous_payments, 0), COALESCE(p_current_payment, 0);
+    END IF;
+
+    v_status := CASE
+        WHEN p_remaining_balance <= 0.01 AND (COALESCE(p_advance_paid, 0) + COALESCE(p_previous_payments, 0) + COALESCE(p_current_payment, 0)) > 0 THEN 'PAID'
+        WHEN (COALESCE(p_advance_paid, 0) + COALESCE(p_previous_payments, 0) + COALESCE(p_current_payment, 0)) > 0 THEN 'PARTIALLY_PAID'
+        ELSE 'PENDING'
+    END;
+
+    -- 6. Insert contractor work entry
+    INSERT INTO contractor_work_entries (
+        company_id, contractor_id, contractor_name, work_date, work_description,
+        worker_count, quantity_completed, agreed_rate, total_contract_amount,
+        advance_paid, previous_payments, current_payment, remaining_balance,
+        payment_mode, account_id, status, idempotency_key, notes, created_by
+    ) VALUES (
+        p_company_id, p_contractor_id, p_contractor_name, p_work_date, p_work_description,
+        p_worker_count, p_quantity_completed, p_agreed_rate, p_total_contract_amount,
+        COALESCE(p_advance_paid, 0), COALESCE(p_previous_payments, 0), COALESCE(p_current_payment, 0),
+        p_remaining_balance, p_payment_mode, p_account_id, v_status, p_idempotency_key, p_notes, p_actor
+    ) RETURNING id INTO v_work_id;
+
+    -- 7. Post Accrual Journal Entry: Dr 5030 Subcontracting, Cr 1070 Advances (if any), Cr 2010 Payables
+    INSERT INTO journal_entries (
+        company_id, entry_no, entry_date, source_type, source_id,
+        reference_no, narration, total_debit, total_credit, is_posted
+    ) VALUES (
+        p_company_id, 'JV-CWRK-' || SUBSTRING(v_work_id::TEXT FROM 1 FOR 8),
+        p_work_date, 'EXPENSE', v_work_id::TEXT,
+        'CWRK-' || p_work_date::TEXT, 'Contractor work: ' || p_contractor_name || ' (' || SUBSTRING(p_work_description FROM 1 FOR 40) || ')',
+        p_total_contract_amount, p_total_contract_amount, true
+    ) RETURNING id INTO v_accrual_journal_id;
+
+    -- Update work entry with accrual journal ID
+    UPDATE contractor_work_entries SET accrual_journal_id = v_accrual_journal_id WHERE id = v_work_id;
+
+    -- Dr 5030 Subcontracting & Job Work Direct Expense
+    INSERT INTO journal_lines (
+        journal_id, account_code, account_name, debit, credit, line_narration
+    ) VALUES (
+        v_accrual_journal_id, '5030', 'Subcontracting & Job Work Direct Expense', p_total_contract_amount, 0.00,
+        'Contract work: ' || p_contractor_name || ' (' || SUBSTRING(p_work_description FROM 1 FOR 40) || ')'
+    );
+
+    -- Cr 1070 Advance adjusted (if any)
+    IF COALESCE(p_advance_paid, 0) > 0 THEN
+        INSERT INTO journal_lines (
+            journal_id, account_code, account_name, debit, credit, line_narration
+        ) VALUES (
+            v_accrual_journal_id, '1070', 'Contractor & Labour Advances', 0.00, p_advance_paid,
+            'Advance adjusted for: ' || p_contractor_name
+        );
+    END IF;
+
+    -- Cr 2010 Payables (total - advance)
+    v_payable_amount := p_total_contract_amount - COALESCE(p_advance_paid, 0);
+    IF v_payable_amount > 0 THEN
+        INSERT INTO journal_lines (
+            journal_id, account_code, account_name, debit, credit, line_narration
+        ) VALUES (
+            v_accrual_journal_id, '2010', 'Contractor & Subcontractor Payables', 0.00, v_payable_amount,
+            'Payable to contractor: ' || p_contractor_name
+        );
+    END IF;
+
+    -- 8. If immediate payment was made, post payment record, account tx, and payment journal
+    IF COALESCE(p_current_payment, 0) > 0 THEN
+        v_voucher_no := 'CPAY-' || p_work_date::TEXT || '-' || SUBSTRING(v_work_id::TEXT FROM 1 FOR 6);
+        v_account_code := CASE WHEN UPPER(p_payment_mode) = 'BANK' THEN '1020' ELSE '1010' END;
+        v_account_name := CASE WHEN UPPER(p_payment_mode) = 'BANK' THEN 'Bank Accounts (Current/OD)' ELSE 'Cash on Hand' END;
+
+        INSERT INTO contractor_payments (
+            company_id, contractor_id, contractor_work_id, contractor_name,
+            payment_date, amount, payment_mode, account_id, voucher_no, idempotency_key, created_by
+        ) VALUES (
+            p_company_id, p_contractor_id, v_work_id, p_contractor_name,
+            p_work_date, p_current_payment, p_payment_mode, p_account_id,
+            v_voucher_no, p_idempotency_key, p_actor
+        ) RETURNING id INTO v_payment_id;
+
+        IF p_account_id IS NOT NULL THEN
+            INSERT INTO account_transactions (
+                account_id, transaction_date, transaction_type, direction,
+                amount, reference_no, description, created_at
+            ) VALUES (
+                p_account_id, p_work_date, 'OPERATING_EXPENSE', 'CREDIT',
+                p_current_payment, v_voucher_no,
+                'Contractor Work Payment: ' || p_contractor_name || ' (' || SUBSTRING(p_work_description FROM 1 FOR 30) || ')',
+                NOW()
+            );
+        END IF;
+
+        INSERT INTO journal_entries (
+            company_id, entry_no, entry_date, source_type, source_id,
+            reference_no, narration, total_debit, total_credit, is_posted
+        ) VALUES (
+            p_company_id, 'JV-CPAY-' || v_voucher_no, p_work_date, 'PAYMENT', v_work_id::TEXT,
+            v_voucher_no, 'Immediate contractor payment for ' || p_contractor_name,
+            p_current_payment, p_current_payment, true
+        ) RETURNING id INTO v_pay_journal_id;
+
+        -- Dr 2010 Liability reduction
+        INSERT INTO journal_lines (
+            journal_id, account_code, account_name, debit, credit, line_narration
+        ) VALUES (
+            v_pay_journal_id, '2010', 'Contractor & Subcontractor Payables', p_current_payment, 0.00,
+            'Contractor liability reduction: ' || p_contractor_name
+        );
+
+        -- Cr Cash / Bank
+        INSERT INTO journal_lines (
+            journal_id, account_code, account_name, debit, credit, line_narration
+        ) VALUES (
+            v_pay_journal_id, v_account_code, v_account_name, 0.00, p_current_payment,
+            'Paid via ' || p_payment_mode
+        );
+    END IF;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'work_id', v_work_id,
+        'accrual_journal_id', v_accrual_journal_id,
+        'payment_id', v_payment_id,
+        'payment_journal_id', v_pay_journal_id,
+        'remaining_balance', p_remaining_balance,
+        'status', v_status
+    );
+END;
+$$;
+
+-- ----------------------------------------------------------------------------
+-- 14. Explicit RPC Function Permissions
 -- ----------------------------------------------------------------------------
 GRANT EXECUTE ON FUNCTION fn_post_contractor_payment_atomic TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION fn_post_labour_payment_atomic TO authenticated, service_role;
@@ -919,3 +1276,5 @@ GRANT EXECUTE ON FUNCTION fn_post_salary_disbursement_atomic TO authenticated, s
 GRANT EXECUTE ON FUNCTION fn_issue_employee_advance_atomic TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION fn_post_salary_accrual_atomic TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION fn_post_daily_labour_accrual_atomic TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION fn_post_contractor_work_atomic TO authenticated, service_role;
+

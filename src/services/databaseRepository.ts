@@ -585,6 +585,74 @@ export class DatabaseRepository {
     };
   }
 
+  public async postContractorWorkAtomic(params: {
+    companyId: string;
+    contractorId: string;
+    contractorName: string;
+    workDate: string;
+    workDescription: string;
+    workerCount: number;
+    quantityCompleted: number;
+    agreedRate: number;
+    totalContractAmount: number;
+    advancePaid: number;
+    previousPayments: number;
+    currentPayment: number;
+    remainingBalance: number;
+    paymentMode: string;
+    accountId?: string;
+    actor: string;
+    notes?: string;
+    idempotencyKey?: string;
+    authToken?: string;
+  }): Promise<{
+    success: boolean;
+    workId?: string;
+    accrualJournalId?: string;
+    paymentId?: string;
+    paymentJournalId?: string;
+    remainingBalance?: number;
+    status?: string;
+    error?: Error;
+  }> {
+    if (!this.isRemoteDatabaseAvailable()) {
+      return { success: false, error: new Error('Remote Supabase database is not configured.') };
+    }
+    const res = await supabase.executeRpc<any>('fn_post_contractor_work_atomic', {
+      p_company_id: params.companyId,
+      p_contractor_id: params.contractorId,
+      p_contractor_name: params.contractorName,
+      p_work_date: params.workDate,
+      p_work_description: params.workDescription,
+      p_worker_count: params.workerCount,
+      p_quantity_completed: params.quantityCompleted,
+      p_agreed_rate: params.agreedRate,
+      p_total_contract_amount: params.totalContractAmount,
+      p_advance_paid: params.advancePaid,
+      p_previous_payments: params.previousPayments,
+      p_current_payment: params.currentPayment,
+      p_remaining_balance: params.remainingBalance,
+      p_payment_mode: params.paymentMode,
+      p_account_id: params.accountId || null,
+      p_actor: params.actor,
+      p_notes: params.notes || null,
+      p_idempotency_key: params.idempotencyKey || null,
+    }, params.authToken);
+
+    if (res.error) {
+      return { success: false, error: res.error };
+    }
+    return {
+      success: true,
+      workId: res.data?.work_id,
+      accrualJournalId: res.data?.accrual_journal_id,
+      paymentId: res.data?.payment_id,
+      paymentJournalId: res.data?.payment_journal_id,
+      remainingBalance: res.data?.remaining_balance,
+      status: res.data?.status,
+    };
+  }
+
   // --------------------------------------------------------------------------
   // Guided Daily Cash Closing Register
   // --------------------------------------------------------------------------

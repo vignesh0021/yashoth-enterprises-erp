@@ -2054,20 +2054,67 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const id = 'cwork-' + Math.random().toString(36).substring(2, 11);
     const now = new Date().toISOString();
+    const idempotencyKey = (params as any).idempotencyKey || `idemp-cw-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+    const voucherNo = `CPAY-26-${String(contractorPayments.length + 1).padStart(4, '0')}`;
+
+    let remoteWorkId = id;
+    let remoteAccrualJournalId: string | undefined;
+    let remotePaymentId: string | undefined;
+
+    // Await database atomic RPC BEFORE modifying any local React state
+    if (dbRepository.isRemoteDatabaseAvailable()) {
+      const rpcRes = await dbRepository.postContractorWorkAtomic({
+        companyId: activeCompanyId,
+        contractorId: params.contractorId,
+        contractorName: params.contractorName,
+        workDate: params.workDate,
+        workDescription: params.workDescription,
+        workerCount: params.workerCount,
+        quantityCompleted: params.quantityCompleted,
+        agreedRate: params.agreedRate,
+        totalContractAmount: params.totalContractAmount,
+        advancePaid: params.advancePaid || 0,
+        previousPayments: params.previousPayments || 0,
+        currentPayment: params.currentPayment || 0,
+        remainingBalance: params.remainingBalance,
+        paymentMode: params.paymentMode,
+        accountId: params.accountId,
+        actor: currentUser.fullName,
+        notes: params.notes,
+        idempotencyKey,
+      });
+
+      if (!rpcRes.success) {
+        throw new Error(rpcRes.error?.message || 'Failed to post contractor work atomically to database.');
+      }
+      if (rpcRes.workId) remoteWorkId = rpcRes.workId;
+      remoteAccrualJournalId = rpcRes.accrualJournalId;
+      remotePaymentId = rpcRes.paymentId;
+    }
+
+    const totalPaid = (params.advancePaid || 0) + (params.previousPayments || 0) + (params.currentPayment || 0);
+    const finalStatus = params.remainingBalance <= 0.01 && totalPaid > 0
+      ? 'PAID'
+      : (totalPaid > 0 ? 'PARTIALLY_PAID' : 'PENDING');
+
     const newWork: ContractorWorkEntry = {
       ...params,
-      id,
+      id: remoteWorkId,
       companyId: activeCompanyId,
-      status: params.remainingBalance <= 0.01 && isPaid ? 'PAID' : (isPaid ? 'PARTIALLY_PAID' : 'PENDING'),
+      status: finalStatus,
+      accrualJournalId: remoteAccrualJournalId,
+      idempotencyKey,
       createdAt: now,
       createdBy: currentUser.fullName,
     };
 
     const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
     const je = createContractorWorkJournal(newWork, accCode, activeCompany, currentUser.fullName);
+    if (remoteAccrualJournalId) {
+      je.id = remoteAccrualJournalId;
+    }
 
     if (isPaid && params.accountId) {
-      const voucherNo = `CPAY-26-${String(contractorPayments.length + 1).padStart(4, '0')}`;
       const accTx: AccountTransaction = {
         id: 'atx-cw-' + Math.random().toString(36).substring(2, 11),
         accountId: params.accountId,
@@ -2083,10 +2130,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setAccountTransactions((prev) => [accTx, ...prev]);
 
       const cpay: ContractorPayment = {
-        id: 'cpay-' + Math.random().toString(36).substring(2, 11),
+        id: remotePaymentId || ('cpay-' + Math.random().toString(36).substring(2, 11)),
         companyId: activeCompanyId,
         contractorId: params.contractorId,
-        contractorWorkId: id,
+        contractorWorkId: remoteWorkId,
         contractorName: params.contractorName,
         paymentDate: params.workDate,
         amount: params.currentPayment,
@@ -2102,14 +2149,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setContractorWorkEntries((prev) => [newWork, ...prev]);
     setJournalEntries((prev) => [je, ...prev]);
 
-    if (dbRepository.isRemoteDatabaseAvailable()) {
-      const saveRes = await dbRepository.saveContractorWork(newWork);
-      if (!saveRes) {
-        throw new Error('Failed to save contractor work to database.');
-      }
-    }
-
-    logAudit('RECORD_CONTRACTOR_WORK', 'CONTRACTOR_WORK', id, null, newWork);
+    logAudit('RECORD_CONTRACTOR_WORK', 'CONTRACTOR_WORK', remoteWorkId, null, newWork);
     return newWork;
   };
 
@@ -2503,7 +2543,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const getAuthoritativeProfitAndLossReport = (fromDate?: string, toDate?: string) => {
-    const fifoVerification = verifyFifoCogsIntegrity(stockMovements, inventoryLots);
+    const fifoVerification = verifyFifoCogsIntegrity(stockMovements, inventoryLots, {
+      companyId: activeCompanyId,
+      startDate: fromDate,
+      endDate: toDate,
+    });
     const mInvoices = invoices.filter((i) => !i.isCancelled && (!fromDate || i.invoiceDate >= fromDate) && (!toDate || i.invoiceDate <= toDate));
     const salesRevenue = mInvoices.reduce((sum, i) => sum + i.subtotalTaxable, 0);
 

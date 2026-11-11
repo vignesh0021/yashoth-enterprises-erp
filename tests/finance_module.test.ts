@@ -23,6 +23,7 @@ import {
   validateContractorPaymentInput,
   validateExpenseInput,
   calculateAuthoritativeProfitAndLoss,
+  verifyFinancialReconciliation,
 } from '../backend/business-rules/financeEngine.ts';
 import { 
   validateJournalEntry,
@@ -57,7 +58,8 @@ import type {
   ContractorWorkEntry, 
   DailyLabourEntry,
   InventoryLot,
-  StockMovement
+  StockMovement,
+  JournalEntry
 } from '../src/types/index.ts';
 
 const mockCompany: Company = {
@@ -1353,7 +1355,13 @@ describe('Suite 14: Yashoth Enterprises ERP — Small-Business Finance Managemen
         },
       ];
 
-      const check = verifyFifoCogsIntegrity(movements, activeLots);
+      const matchedLots: InventoryLot[] = [
+        { ...activeLots[0], remainingQuantity: 4000 },
+        { ...activeLots[1], remainingQuantity: 0, isExhausted: true },
+        activeLots[2],
+      ];
+
+      const check = verifyFifoCogsIntegrity(movements, matchedLots);
       expect(check.isValid).toBe(true);
       expect(check.verifiedCogs).toBe(141500);
       expect(check.discrepancies.length).toBe(0);
@@ -1384,8 +1392,8 @@ describe('Suite 14: Yashoth Enterprises ERP — Small-Business Finance Managemen
           yardId: 'yard-redhills',
           lotId: 'lot-001',
           quantity: -1000,
-          unitCost: 99.00, // mismatch with lot unitCost of 35.00!
-          totalCost: 99000,
+          unitCost: 35.00,
+          totalCost: 99000, // mismatch with quantity * unitCost (1000 * 35 != 99000)!
           createdAt: '2026-10-10T12:00:00Z',
           createdBy: 'Admin',
         },
@@ -1466,6 +1474,271 @@ describe('Suite 14: Yashoth Enterprises ERP — Small-Business Finance Managemen
       expect(res.success).toBe(false);
       expect(res.error?.message).toContain('Remote Supabase database is not configured');
     });
+
+    it('safely handles contractor work atomic RPC offline state', async () => {
+      const res = await dbRepository.postContractorWorkAtomic({
+        companyId: mockCompany.id,
+        contractorId: 'cont-01',
+        contractorName: 'Saravanan Crane Works',
+        workDate: '2026-10-15',
+        workDescription: 'Crane Dismantling Service',
+        workerCount: 3,
+        quantityCompleted: 1,
+        agreedRate: 18000,
+        totalContractAmount: 18000,
+        advancePaid: 3000,
+        previousPayments: 0,
+        currentPayment: 5000,
+        remainingBalance: 10000,
+        paymentMode: 'BANK',
+        accountId: 'acc-bank-cub',
+        actor: 'Admin',
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.error?.message).toContain('Remote Supabase database is not configured');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // 14.20 Third-Pass Security, Authorization & Financial Reconciliation Audit
+  // --------------------------------------------------------------------------
+  describe('14.20 Third-Pass Security, Authorization & Financial Reconciliation Audit', () => {
+    it('enforces caller company authorization, safe search_path, and cross-company tenant isolation across all Migration 009 RPCs', () => {
+      const migrationPath = path.resolve(process.cwd(), 'database/migrations/009_finance_atomic_and_advance_integrity.sql');
+      const sql = fs.readFileSync(migrationPath, 'utf8');
+
+      const expectedRpcFunctions = [
+        'fn_post_contractor_payment_atomic',
+        'fn_post_labour_payment_atomic',
+        'fn_post_salary_disbursement_atomic',
+        'fn_issue_employee_advance_atomic',
+        'fn_post_salary_accrual_atomic',
+        'fn_post_daily_labour_accrual_atomic',
+        'fn_post_contractor_work_atomic',
+      ];
+
+      for (const fn of expectedRpcFunctions) {
+        expect(sql).toContain(`CREATE OR REPLACE FUNCTION ${fn}`);
+        expect(sql).toContain(`GRANT EXECUTE ON FUNCTION ${fn} TO authenticated, service_role`);
+      }
+
+      // Check SECURITY DEFINER and fixed search_path
+      const securityDefinerCount = (sql.match(/SECURITY DEFINER/g) || []).length;
+      expect(securityDefinerCount).toBeGreaterThanOrEqual(7);
+
+      const searchPathCount = (sql.match(/SET search_path = public, pg_temp/g) || []).length;
+      expect(searchPathCount).toBeGreaterThanOrEqual(7);
+
+      // Check that auth_is_company_member check is embedded in each RPC
+      const authMemberCheckCount = (sql.match(/auth_is_company_member\(p_company_id\)/g) || []).length;
+      expect(authMemberCheckCount).toBeGreaterThanOrEqual(7);
+
+      // Check cross-company account validation is present
+      expect(sql).toContain('FROM cash_bank_accounts WHERE id = p_account_id AND company_id = p_company_id');
+      expect(sql).toContain('Cash/bank account % does not belong to company %');
+    });
+
+    it('FIFO COGS Audit: rejects missing lot companyId, movement companyId, and cross-company references', () => {
+      // 1. Missing companyId on lot
+      const missingLotCompany: InventoryLot[] = [
+        {
+          id: 'lot-no-comp',
+          lotNumber: 'LOT-NO-COMP',
+          companyId: '', // missing!
+          materialId: 'mat-hms1',
+          yardId: 'yard-redhills',
+          receivedAt: '2026-10-01T09:00:00Z',
+          initialQuantity: 1000,
+          remainingQuantity: 0,
+          unitCost: 35.00,
+          isExhausted: true,
+        },
+      ];
+      const movement1: StockMovement[] = [
+        {
+          id: 'sm-no-comp-1',
+          companyId: mockCompany.id,
+          movementType: 'SALES_DISPATCH',
+          transactionRef: 'INV-26-001',
+          materialId: 'mat-hms1',
+          yardId: 'yard-redhills',
+          lotId: 'lot-no-comp',
+          quantity: -1000,
+          unitCost: 35.00,
+          totalCost: 35000,
+          createdAt: '2026-10-10T12:00:00Z',
+          createdBy: 'Admin',
+        },
+      ];
+      const res1 = verifyFifoCogsIntegrity(movement1, missingLotCompany);
+      expect(res1.isValid).toBe(false);
+      expect(res1.discrepancies.some((d) => d.includes('missing companyId'))).toBe(true);
+
+      // 2. Cross-company lot reference (Movement company A, Lot company B)
+      const otherCompanyLot: InventoryLot[] = [
+        {
+          id: 'lot-comp-b',
+          lotNumber: 'LOT-COMP-B',
+          companyId: 'company-b-999',
+          materialId: 'mat-hms1',
+          yardId: 'yard-redhills',
+          receivedAt: '2026-10-01T09:00:00Z',
+          initialQuantity: 1000,
+          remainingQuantity: 0,
+          unitCost: 35.00,
+          isExhausted: true,
+        },
+      ];
+      const movement2: StockMovement[] = [
+        {
+          id: 'sm-comp-a',
+          companyId: 'company-a-111',
+          movementType: 'SALES_DISPATCH',
+          transactionRef: 'INV-26-002',
+          materialId: 'mat-hms1',
+          yardId: 'yard-redhills',
+          lotId: 'lot-comp-b',
+          quantity: -1000,
+          unitCost: 35.00,
+          totalCost: 35000,
+          createdAt: '2026-10-10T12:00:00Z',
+          createdBy: 'Admin',
+        },
+      ];
+      const res2 = verifyFifoCogsIntegrity(movement2, otherCompanyLot);
+      expect(res2.isValid).toBe(false);
+      expect(res2.discrepancies.some((d) => d.includes('Cross-company lot reference'))).toBe(true);
+    });
+
+    it('FIFO COGS Audit: validates movement totalCost against quantity * historical unit cost and detects lot allocation overflows', () => {
+      const lot: InventoryLot = {
+        id: 'lot-hist-01',
+        lotNumber: 'LOT-HIST-01',
+        companyId: mockCompany.id,
+        materialId: 'mat-hms1',
+        yardId: 'yard-redhills',
+        receivedAt: '2026-09-01T09:00:00Z',
+        initialQuantity: 2000,
+        remainingQuantity: 500, // 1500 consumed
+        unitCost: 50.00, // lot current cost revalued to 50.00
+        isExhausted: false,
+      };
+
+      // Movement was historically acquired and dispatched at unitCost 40.00
+      const validHistoricalMovement: StockMovement = {
+        id: 'sm-hist-01',
+        companyId: mockCompany.id,
+        movementType: 'SALES_DISPATCH',
+        transactionRef: 'INV-26-HIST',
+        materialId: 'mat-hms1',
+        yardId: 'yard-redhills',
+        lotId: 'lot-hist-01',
+        quantity: -1500,
+        unitCost: 40.00,
+        totalCost: 60000, // 1500 * 40.00 = 60,000 (valid math!)
+        createdAt: '2026-09-15T12:00:00Z',
+        createdBy: 'Admin',
+      };
+
+      const resValid = verifyFifoCogsIntegrity([validHistoricalMovement], [lot]);
+      expect(resValid.isValid).toBe(true);
+      expect(resValid.verifiedCogs).toBe(60000);
+
+      // Corrupted movement with wrong totalCost (e.g. 99,999 instead of 60,000)
+      const corruptedCostMovement: StockMovement = {
+        ...validHistoricalMovement,
+        id: 'sm-hist-bad-cost',
+        totalCost: 99999,
+      };
+      const resBadCost = verifyFifoCogsIntegrity([corruptedCostMovement], [lot]);
+      expect(resBadCost.isValid).toBe(false);
+      expect(resBadCost.discrepancies.some((d) => d.includes('totalCost mismatch'))).toBe(true);
+
+      // Overflow allocation (movement requests 3000 from a lot that only had 2000 initial)
+      const overflowMovement: StockMovement = {
+        ...validHistoricalMovement,
+        id: 'sm-hist-overflow',
+        quantity: -3000,
+        totalCost: 120000,
+      };
+      const resOverflow = verifyFifoCogsIntegrity([overflowMovement], [lot]);
+      expect(resOverflow.isValid).toBe(false);
+      expect(resOverflow.discrepancies.some((d) => d.includes('allocation overflow'))).toBe(true);
+    });
+
+    it('Financial Reconciliation: validates double-entry equality, payment histories, advance balances, and labour calculations', () => {
+      // 1. Balanced reconciliation
+      const balancedJournal: JournalEntry = {
+        id: 'jv-recon-01',
+        companyId: mockCompany.id,
+        entryNo: 'JV-2026-REC1',
+        entryDate: '2026-10-15',
+        sourceType: 'EXPENSE',
+        sourceId: 'exp-01',
+        narration: 'Office expense',
+        totalDebit: 5000,
+        totalCredit: 5000,
+        isPosted: true,
+        lines: [
+          { id: 'l1', accountCode: '5010', accountName: 'Office Expenses', debit: 5000, credit: 0 },
+          { id: 'l2', accountCode: '1010', accountName: 'Cash on Hand', debit: 0, credit: 5000 },
+        ],
+        createdAt: '2026-10-15T10:00:00Z',
+        createdBy: 'Admin',
+      };
+
+      const recon = verifyFinancialReconciliation({
+        journalEntries: [balancedJournal],
+      });
+      expect(recon.isBalanced).toBe(true);
+      expect(recon.totalDebits).toBe(5000);
+      expect(recon.totalCredits).toBe(5000);
+      expect(recon.discrepancies.length).toBe(0);
+
+      // 2. Unbalanced journal entry detection
+      const unbalancedJournal: JournalEntry = {
+        ...balancedJournal,
+        id: 'jv-recon-unbal',
+        totalDebit: 5000,
+        totalCredit: 4500, // out of balance!
+      };
+      const reconUnbal = verifyFinancialReconciliation({
+        journalEntries: [unbalancedJournal],
+      });
+      expect(reconUnbal.isBalanced).toBe(false);
+      expect(reconUnbal.discrepancies.some((d) => d.includes('out of balance'))).toBe(true);
+
+      // 3. Salary advance recovery limit enforcement
+      expect(() => {
+        validateSalaryRecordInput(
+          {
+            employeeId: 'emp-01',
+            employeeName: 'A. Raman',
+            salaryMonth: '2026-10',
+            grossSalary: 25000,
+            advanceRecovery: 5000, // recovery of 5000
+          },
+          [],
+          { availableAdvanceBalance: 2000 } // only 2000 available!
+        );
+      }).toThrow('Advance recovery (₹5000) cannot exceed employee available advance balance (₹2000)');
+
+      // 4. Daily labour remaining balance verification
+      expect(() => {
+        validateDailyLabourInput({
+          workerNameOrGroup: 'Cutting Team',
+          workerCount: 4,
+          workingDays: 1,
+          dailyRate: 600, // totalCost = 2400
+          advanceAmount: 400,
+          amountPaid: 1000,
+          accountId: 'acc-cash',
+          remainingBalance: 500, // Wrong! 2400 - 400 - 1000 = 1000, not 500
+        });
+      }).toThrow('Daily labour remaining balance (₹500) does not match calculated balance (₹1000');
+    });
   });
 });
+
 

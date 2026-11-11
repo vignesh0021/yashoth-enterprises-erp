@@ -131,26 +131,71 @@ export interface FifoCogsVerificationResult {
   discrepancies: string[];
 }
 
+export interface FifoCogsFilter {
+  companyId?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
 /**
  * Validates actual FIFO Cost of Goods Sold (COGS) from inventory lots and outward dispatches.
- * Prohibits blind certification: returns isValid: false if orphaned allocations, missing costs,
- * or lot balance mismatches exist.
+ * Prohibits blind certification: requires companyId on all lots and movements, rejects cross-company references,
+ * validates movement totalCost against quantity × historical unit cost (without comparing against mutable current lot costs),
+ * validates cumulative lot allocations against initial and remaining quantities, and enforces consistent date/company filtering.
  */
 export function verifyFifoCogsIntegrity(
   movements: StockMovement[],
-  lots: InventoryLot[]
+  lots: InventoryLot[],
+  filter?: FifoCogsFilter
 ): FifoCogsVerificationResult {
-  const lotMap = new Map(lots.map((l) => [l.id, l]));
-  const outwardMovements = movements.filter((m) => m.quantity < 0 && m.movementType === 'SALES_DISPATCH');
+  const discrepancies: string[] = [];
+
+  // Filter lots by company if filter.companyId specified
+  const targetLots = filter?.companyId
+    ? lots.filter((l) => l.companyId === filter.companyId)
+    : lots;
+
+  const lotMap = new Map(targetLots.map((l) => [l.id, l]));
+
+  // 1. Check companyId presence on lots
+  for (const l of targetLots) {
+    if (!l.companyId) {
+      discrepancies.push(`Inventory lot ${l.id} (${l.lotNumber}) is missing companyId.`);
+    }
+  }
+
+  // Filter outward movements
+  let targetMovements = movements.filter((m) => m.quantity < 0 && m.movementType === 'SALES_DISPATCH');
+  if (filter?.companyId) {
+    targetMovements = targetMovements.filter((m) => m.companyId === filter.companyId);
+  }
+  if (filter?.startDate) {
+    targetMovements = targetMovements.filter((m) => {
+      const d = m.createdAt ? m.createdAt.slice(0, 10) : '';
+      return !d || d >= filter.startDate!;
+    });
+  }
+  if (filter?.endDate) {
+    targetMovements = targetMovements.filter((m) => {
+      const d = m.createdAt ? m.createdAt.slice(0, 10) : '';
+      return !d || d <= filter.endDate!;
+    });
+  }
 
   let verifiedCogs = 0;
   let totalAllocatedQuantity = 0;
-  const discrepancies: string[] = [];
+  const cumulativeLotAllocations = new Map<string, number>();
 
-  for (const m of outwardMovements) {
+  for (const m of targetMovements) {
     const qty = Math.abs(m.quantity);
     totalAllocatedQuantity = roundTo3(totalAllocatedQuantity + qty);
 
+    // 2. Validate companyId on movement
+    if (!m.companyId) {
+      discrepancies.push(`Stock movement ${m.id} (${m.transactionRef}) is missing companyId.`);
+    }
+
+    // 3. Validate lot link
     if (!m.lotId) {
       discrepancies.push(`Stock movement ${m.id} (${m.transactionRef}) has no linked FIFO lot.`);
       continue;
@@ -162,18 +207,55 @@ export function verifyFifoCogsIntegrity(
       continue;
     }
 
+    // 4. Reject cross-company lot references
+    if (m.companyId && lot.companyId && m.companyId !== lot.companyId) {
+      discrepancies.push(
+        `Cross-company lot reference in movement ${m.id}: movement belongs to company ${m.companyId} but lot belongs to company ${lot.companyId}.`
+      );
+    }
+
+    // 5. Validate unitCost
     if (m.unitCost <= 0) {
       discrepancies.push(`Stock movement ${m.id} from Lot ${lot.lotNumber} has invalid unitCost ₹${m.unitCost}.`);
       continue;
     }
 
-    if (Math.abs(m.unitCost - lot.unitCost) > 0.01) {
-      discrepancies.push(`Unit cost mismatch in movement ${m.id}: movement cost ₹${m.unitCost} vs lot cost ₹${lot.unitCost}.`);
+    // 6. Validate movement totalCost against quantity * historical unitCost (NOT against mutable lot.unitCost)
+    const expectedCost = roundTo2(qty * m.unitCost);
+    if (Math.abs(Math.abs(m.totalCost) - expectedCost) > 0.01) {
+      discrepancies.push(
+        `Stock movement ${m.id} totalCost mismatch: recorded ₹${m.totalCost} vs expected ₹${expectedCost} (${qty} × ₹${m.unitCost}).`
+      );
       continue;
     }
 
-    const expectedCost = roundTo2(qty * m.unitCost);
+    // Track cumulative allocation for lot
+    const prevAllocated = cumulativeLotAllocations.get(m.lotId) || 0;
+    cumulativeLotAllocations.set(m.lotId, roundTo3(prevAllocated + qty));
+
     verifiedCogs = roundTo2(verifiedCogs + expectedCost);
+  }
+
+  // 7. Validate cumulative lot allocations against initial and remaining quantities
+  for (const [lotId, allocated] of cumulativeLotAllocations.entries()) {
+    const lot = lotMap.get(lotId);
+    if (!lot) continue;
+
+    if (allocated > roundTo3(lot.initialQuantity + 0.005)) {
+      discrepancies.push(
+        `Cumulative lot allocation overflow for Lot ${lot.lotNumber}: allocated ${allocated} exceeds initial quantity ${lot.initialQuantity}.`
+      );
+    }
+
+    // If no date filters were applied, cumulative allocations should match initial - remaining
+    if (!filter?.startDate && !filter?.endDate) {
+      const expectedConsumed = roundTo3(lot.initialQuantity - lot.remainingQuantity);
+      if (Math.abs(allocated - expectedConsumed) > 0.01) {
+        discrepancies.push(
+          `Cumulative allocation mismatch for Lot ${lot.lotNumber}: allocated ${allocated} vs expected consumed ${expectedConsumed} (initial ${lot.initialQuantity} - remaining ${lot.remainingQuantity}).`
+        );
+      }
+    }
   }
 
   const isValid = discrepancies.length === 0;

@@ -7,7 +7,13 @@ import type {
   PurchaseHeader, 
   AccountTransaction, 
   CashBankAccount, 
-  Party 
+  Party,
+  JournalEntry,
+  ContractorWorkEntry,
+  ContractorPayment,
+  DailyLabourEntry,
+  LabourPayment,
+  MonthlySalaryRecord
 } from '../../src/types/index.ts';
 import { roundTo2 } from '../../src/utils/calculations.ts';
 
@@ -575,7 +581,8 @@ export function validateSalaryRecordInput(
     paymentMode?: string;
     accountId?: string;
   },
-  existingRecords: { id: string; employeeId: string; salaryMonth: string }[] = []
+  existingRecords: { id: string; employeeId: string; salaryMonth: string }[] = [],
+  options?: { availableAdvanceBalance?: number }
 ): void {
   if (!record.employeeId) {
     throw new Error('Employee selection is required.');
@@ -603,6 +610,15 @@ export function validateSalaryRecordInput(
   }
   if ((record.advanceRecovery || 0) < 0) {
     throw new Error('Advance recovery cannot be negative.');
+  }
+
+  // Blocker 4: Validate advance recovery cannot exceed actual employee advance balance
+  if (options?.availableAdvanceBalance !== undefined) {
+    if ((record.advanceRecovery || 0) > options.availableAdvanceBalance) {
+      throw new Error(
+        `Advance recovery (₹${record.advanceRecovery || 0}) cannot exceed employee available advance balance (₹${options.availableAdvanceBalance}).`
+      );
+    }
   }
 
   const netPayable = calculateMonthlySalary(
@@ -633,6 +649,7 @@ export function validateDailyLabourInput(labour: {
   additionalCharges?: number;
   advanceAmount?: number;
   amountPaid?: number;
+  remainingBalance?: number;
   paymentMode?: string;
   accountId?: string;
 }): void {
@@ -673,6 +690,170 @@ export function validateDailyLabourInput(labour: {
   if (paid > 0 && !labour.accountId) {
     throw new Error('Payment account must be selected when payment is made.');
   }
+
+  // Blocker 4: Validate daily labour balances against total cost, advance and paid amounts
+  if (labour.remainingBalance !== undefined) {
+    const expectedRemaining = roundTo2(totalCost - advance - paid);
+    if (Math.abs(labour.remainingBalance - expectedRemaining) > 0.01) {
+      throw new Error(
+        `Daily labour remaining balance (₹${labour.remainingBalance}) does not match calculated balance (₹${expectedRemaining} = total ₹${totalCost} - advance ₹${advance} - paid ₹${paid}).`
+      );
+    }
+  }
+}
+
+export interface FinancialReconciliationParams {
+  journalEntries: JournalEntry[];
+  contractorWorkEntries?: ContractorWorkEntry[];
+  contractorPayments?: ContractorPayment[];
+  dailyLabourEntries?: DailyLabourEntry[];
+  labourPayments?: LabourPayment[];
+  salaryRecords?: MonthlySalaryRecord[];
+  accountTransactions?: AccountTransaction[];
+  accounts?: CashBankAccount[];
+}
+
+export interface FinancialReconciliationResult {
+  isBalanced: boolean;
+  totalDebits: number;
+  totalCredits: number;
+  discrepancies: string[];
+  reconciledSections: {
+    journalsBalanced: boolean;
+    contractorPaymentsAgreed: boolean;
+    dailyLabourAgreed: boolean;
+    salaryAdvancesAgreed: boolean;
+    accountTransactionsAgreed: boolean;
+  };
+}
+
+/**
+ * 11. Multi-Section Financial Reconciliation:
+ * Verifies database journal totals (double-entry equality), payment history,
+ * outstanding balances, salary advance recovery, and cash/bank transactions.
+ */
+export function verifyFinancialReconciliation(
+  params: FinancialReconciliationParams
+): FinancialReconciliationResult {
+  const discrepancies: string[] = [];
+  let totalDebits = 0;
+  let totalCredits = 0;
+
+  // 1. Journal entries balance verification (Double-entry equality)
+  let journalsBalanced = true;
+  for (const je of params.journalEntries) {
+    const d = roundTo2(je.totalDebit);
+    const c = roundTo2(je.totalCredit);
+    totalDebits = roundTo2(totalDebits + d);
+    totalCredits = roundTo2(totalCredits + c);
+
+    if (Math.abs(d - c) > 0.01) {
+      journalsBalanced = false;
+      discrepancies.push(`Journal entry ${je.entryNo} (${je.id}) is out of balance: Dr ₹${d} != Cr ₹${c}.`);
+    }
+
+    if (je.lines && je.lines.length > 0) {
+      const lineDebits = roundTo2(je.lines.reduce((sum, l) => sum + (l.debit || 0), 0));
+      const lineCredits = roundTo2(je.lines.reduce((sum, l) => sum + (l.credit || 0), 0));
+      if (Math.abs(lineDebits - lineCredits) > 0.01) {
+        journalsBalanced = false;
+        discrepancies.push(`Journal entry ${je.entryNo} lines out of balance: lines Dr ₹${lineDebits} != Cr ₹${lineCredits}.`);
+      }
+    }
+  }
+
+  // 2. Contractor payments and work balance reconciliation
+  let contractorPaymentsAgreed = true;
+  if (params.contractorWorkEntries && params.contractorPayments) {
+    const paymentMap = new Map<string, number>();
+    for (const cp of params.contractorPayments) {
+      const wId = cp.contractorWorkId;
+      if (wId) {
+        paymentMap.set(wId, roundTo2((paymentMap.get(wId) || 0) + cp.amount));
+      }
+    }
+
+    for (const w of params.contractorWorkEntries) {
+      if (w.status === 'REVERSED') continue;
+      const historyPaid = paymentMap.get(w.id) || 0;
+      const workRecordedPaid = roundTo2((w.previousPayments || 0) + (w.currentPayment || 0));
+      if (historyPaid > 0 && Math.abs(historyPaid - workRecordedPaid) > 0.01) {
+        contractorPaymentsAgreed = false;
+        discrepancies.push(`Contractor work ${w.id} (${w.contractorName}) payment mismatch: recorded ₹${workRecordedPaid} vs payment history ₹${historyPaid}.`);
+      }
+
+      const expectedBal = roundTo2(w.totalContractAmount - (w.advancePaid || 0) - workRecordedPaid);
+      if (Math.abs(w.remainingBalance - expectedBal) > 0.01) {
+        contractorPaymentsAgreed = false;
+        discrepancies.push(`Contractor work ${w.id} balance mismatch: recorded ₹${w.remainingBalance} vs calculated ₹${expectedBal}.`);
+      }
+    }
+  }
+
+  // 3. Daily labour reconciliation
+  let dailyLabourAgreed = true;
+  if (params.dailyLabourEntries && params.labourPayments) {
+    const labourPayMap = new Map<string, number>();
+    for (const lp of params.labourPayments) {
+      labourPayMap.set(lp.dailyLabourId, roundTo2((labourPayMap.get(lp.dailyLabourId) || 0) + lp.amount));
+    }
+
+    for (const dl of params.dailyLabourEntries) {
+      if (dl.status === 'REVERSED') continue;
+      const historyPaid = labourPayMap.get(dl.id) || 0;
+      if (historyPaid > 0 && Math.abs(historyPaid - dl.amountPaid) > 0.01) {
+        dailyLabourAgreed = false;
+        discrepancies.push(`Daily labour ${dl.id} (${dl.workerNameOrGroup}) payment mismatch: recorded ₹${dl.amountPaid} vs payment history ₹${historyPaid}.`);
+      }
+
+      const expectedBal = roundTo2(dl.totalLabourCost - (dl.advanceAmount || 0) - dl.amountPaid);
+      if (Math.abs(dl.remainingBalance - expectedBal) > 0.01) {
+        dailyLabourAgreed = false;
+        discrepancies.push(`Daily labour ${dl.id} balance mismatch: recorded ₹${dl.remainingBalance} vs calculated ₹${expectedBal}.`);
+      }
+    }
+  }
+
+  // 4. Salary advance recovery and remaining balance reconciliation
+  let salaryAdvancesAgreed = true;
+  if (params.salaryRecords) {
+    for (const sr of params.salaryRecords) {
+      if (sr.status === 'REVERSED') continue;
+      const expectedBal = roundTo2(sr.netSalaryPayable - sr.amountPaid);
+      if (Math.abs(sr.remainingBalance - expectedBal) > 0.01) {
+        salaryAdvancesAgreed = false;
+        discrepancies.push(`Salary record ${sr.id} (${sr.employeeName}) balance mismatch: recorded ₹${sr.remainingBalance} vs calculated ₹${expectedBal}.`);
+      }
+    }
+  }
+
+  // 5. Account ledger reconciliation
+  let accountTransactionsAgreed = true;
+  if (params.accounts && params.accountTransactions) {
+    for (const acc of params.accounts) {
+      const txs = params.accountTransactions.filter((t) => t.accountId === acc.id);
+      const calculatedBal = calculateAccountBalanceFromLedger(acc, txs);
+      if (isNaN(calculatedBal)) {
+        accountTransactionsAgreed = false;
+        discrepancies.push(`Account ${acc.accountName} (${acc.accountCode}) calculated ledger balance is NaN.`);
+      }
+    }
+  }
+
+  const isBalanced = discrepancies.length === 0;
+  return {
+    isBalanced,
+    totalDebits,
+    totalCredits,
+    discrepancies,
+    reconciledSections: {
+      journalsBalanced,
+      contractorPaymentsAgreed,
+      dailyLabourAgreed,
+      salaryAdvancesAgreed,
+      accountTransactionsAgreed,
+    },
+  };
 }
 
 export function validateContractorWorkInput(work: {

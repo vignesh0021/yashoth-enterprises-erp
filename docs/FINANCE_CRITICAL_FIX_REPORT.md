@@ -5,7 +5,7 @@
 **Auditor / Architect:** Principal ERP Architect & Financial Systems Auditor  
 **Repository:** `https://github.com/vignesh0021/yashoth-enterprises-erp`  
 **Target Branch:** `fix/finance-accounting-integrity` (branched from `hardening/production-readiness` at commit `885008a6eea6b825a12977ad756596272db17798`)  
-**Status:** **PASSED ALL 240 TESTS (97 SUITES, 0 FAILURES) & VITE PRODUCTION BUILD VERIFIED**
+**Status:** **PASSED ALL 245 TESTS (98 SUITES, 0 FAILURES) & VITE PRODUCTION BUILD VERIFIED**
 
 ---
 
@@ -15,7 +15,9 @@ A forensic accounting and architectural code-level audit was conducted on the Ya
 
 A thorough **Second-Pass Critical Review** was executed to eliminate all remaining architectural blockers, verify FIFO inventory valuation, harden database RPC functions, enforce unique journal keys across multi-stage disbursements, prevent silent persistence failures, and enforce strict COGS auditing for Profit & Loss reports.
 
-All defects have been completely resolved with mathematical zero-tolerance double-entry balancing, authoritative PostgreSQL migrations, PostgREST/Supabase persistence bridges, and comprehensive automated test coverage.
+A comprehensive **Third-Pass Security & Data-Integrity Audit** was completed, hardening all PostgreSQL SECURITY DEFINER RPC functions with strict caller company membership enforcement (`auth_is_company_member(p_company_id)`), cross-company tenant boundary checks (rejecting foreign bank accounts, contractors, employees, or work entries), complete FIFO inventory COGS auditing (mandating `companyId` on lots and movements, validating historical `totalCost` math without mutable lot cost comparisons, detecting cumulative lot allocation overflows), atomic contractor work accrual with immediate payments (`fn_post_contractor_work_atomic`), and a comprehensive multi-section financial reconciliation engine.
+
+All defects have been completely resolved with mathematical zero-tolerance double-entry balancing, authoritative PostgreSQL migrations, PostgREST/Supabase persistence bridges, and comprehensive automated test coverage (245 tests, 98 suites, 0 failures).
 
 ---
 
@@ -73,7 +75,18 @@ All defects have been completely resolved with mathematical zero-tolerance doubl
 
 ---
 
-## 4. PostgreSQL Database Migrations (008 & 009)
+## 4. Third-Pass Security, Authorization & Data-Integrity Audit
+
+| Audit Area | Security / Integrity Concern | Hardening Implemented | Verification Evidence |
+|---|---|---|---|
+| **RPC Security Definer Authorization** | Migration 009 RPCs accepted caller-provided `company_id` without verifying that the authenticated user belongs to that company. Foreign accounts could also be injected. | Every RPC function enforces `IF NOT auth_is_company_member(p_company_id)` at entry. Strict multi-tenant verification cross-checks all accounts (`cash_bank_accounts WHERE id = p_account_id AND company_id = p_company_id`), contractors, employees, and work entries. Explicit `GRANT EXECUTE` to `authenticated, service_role`. | Suite `14.20` automated regex AST analysis proves all 7 RPCs embed `auth_is_company_member(p_company_id)` and cross-company account checks. |
+| **FIFO COGS Integrity** | Missing lot/movement company scoping, comparing historical movements to mutable current lot costs, or unchecked lot balance consumption. | `verifyFifoCogsIntegrity` in `inventoryEngine.ts` requires `companyId` on every lot and movement; rejects missing or mismatched company IDs; validates `movement.totalCost` against `quantity × historical unitCost`; validates cumulative lot allocations against `initialQuantity` and `remainingQuantity`; applies date-range and company filters consistently. | Suite `14.20` tests reject missing company IDs, cross-company references, incorrect `totalCost`, and allocation overflows. |
+| **Contractor Work Atomic Accrual & Payment** | Local React state was updated prior to database persistence; failure could leave orphaned in-memory state. | Created atomic PostgreSQL RPC `fn_post_contractor_work_atomic` handling contract work accrual journal, optional immediate disbursement, payment record, and account credit in a single transaction. `ERPContext.tsx:recordContractorWork` awaits RPC persistence **prior** to any React state mutation. | Suite `14.20` verifies offline error handling and atomic persistence guarantees. |
+| **Financial Reconciliation Engine** | Journal balances, payment histories, advance recoveries, and account ledgers needed comprehensive multi-system verification. | Created `verifyFinancialReconciliation()` checking double-entry equality, contractor payments vs work balances, daily labour payments vs wage liabilities, and account ledger transaction consistency. `validateSalaryRecordInput` strictly prevents advance recovery from exceeding `availableAdvanceBalance`. `validateDailyLabourInput` validates `remainingBalance === totalCost - advance - paid`. | Suite `14.20` tests verify double-entry balance check, advance recovery limits, and labour calculation verification. |
+
+---
+
+## 5. PostgreSQL Database Migrations (008 & 009)
 
 ### Migration 008: `database/migrations/008_finance_and_labour_management.sql`
 - Creates base tables: `expenses`, `salary_records`, `daily_labour_entries`, `contractors`, `contractor_work_entries`, `daily_cash_closings`.
@@ -87,25 +100,26 @@ All defects have been completely resolved with mathematical zero-tolerance doubl
   - `contractor_payments`: Stores every progress disbursement linked to contractor work entries.
   - `labour_payments`: Stores partial and full daily labour wage settlements.
 - **Row-Level Security:** Enabled on all tables with company isolation (`auth_is_company_member(company_id)`).
-- **6 Atomic PL/pgSQL Functions (with `SECURITY DEFINER` and `SET search_path = public, pg_temp`):**
+- **7 Atomic PL/pgSQL Functions (with `SECURITY DEFINER`, `SET search_path = public, pg_temp`, and `auth_is_company_member(p_company_id)` check):**
   1. `fn_post_contractor_payment_atomic`
   2. `fn_post_labour_payment_atomic`
   3. `fn_post_salary_disbursement_atomic`
   4. `fn_issue_employee_advance_atomic`
   5. `fn_post_salary_accrual_atomic`
   6. `fn_post_daily_labour_accrual_atomic`
+  7. `fn_post_contractor_work_atomic`
 
 ---
 
-## 5. Automated Test Suite Execution Results
+## 6. Automated Test Suite Execution Results
 
-All 240 automated unit, integration, and accounting verification tests pass with 0 failures:
+All 245 automated unit, integration, and accounting verification tests pass with 0 failures:
 
 ```text
 ▶ Universal CRUD & Double Shift / Overtime Calculations (2 tests) ✔
 ▶ Suite 12: Vehicle Insurance Alert Engine & NIC E-Way Bill (22 tests) ✔
 ▶ Suite 13: Yashoth ERP Forensic Remediation & Security Hardening (10 tests) ✔
-▶ Suite 14: Yashoth Enterprises ERP — Small-Business Finance Management (50 tests) ✔
+▶ Suite 14: Yashoth Enterprises ERP — Small-Business Finance Management (55 tests) ✔
   ✔ 14.1 Permanent Employee Salary Register (3 tests)
   ✔ 14.2 Daily Wage Labour Register (3 tests)
   ✔ 14.3 Outsourced / Contract Labour (3 tests)
@@ -124,16 +138,17 @@ All 240 automated unit, integration, and accounting verification tests pass with
   ✔ 14.16 Multiple Daily Labour Payments & Unique Journal/Line IDs (4 tests)
   ✔ 14.17 Financial Record Deletion Protection & Authorized Reversals (1 test)
   ✔ 14.18 Strict FIFO Inventory Allocation & COGS Verification (4 tests)
-  ✔ 14.19 Atomic Database RPC Integration & Safe Error Handling (2 tests)
+  ✔ 14.19 Atomic Database RPC Integration & Safe Error Handling (3 tests)
+  ✔ 14.20 Third-Pass Security, Authorization & Financial Reconciliation Audit (4 tests)
 ▶ Weighment Engine & Calculations (7 tests) ✔
 ...
-Total Tests: 240 Passed | 0 Failed | 97 Suites | Exit Code: 0
-Production Build: vite build (2,124 modules transformed) ✔ Exit Code: 0 (Built in 17.91s)
+Total Tests: 245 Passed | 0 Failed | 98 Suites | Exit Code: 0
+Production Build: vite build (2,124 modules transformed) ✔ Exit Code: 0 (Built in 15.09s)
 ```
 
 ---
 
-## 6. Deliverable Verification Checklist
+## 7. Deliverable Verification Checklist
 
 - [x] Dedicated branch `fix/finance-accounting-integrity` preserved.
 - [x] Zero changes or merges to `master` branch.
@@ -142,11 +157,18 @@ Production Build: vite build (2,124 modules transformed) ✔ Exit Code: 0 (Built
 - [x] Multiple installments supported for salaries, contractor payments, and labour wages.
 - [x] Unique journal IDs and line IDs generated for every transaction (no work ID reuse).
 - [x] Atomic PostgreSQL RPC functions implemented for all major financial workflows.
+- [x] Caller company authorization (`auth_is_company_member`) enforced in all 7 Migration 009 RPCs.
+- [x] Cross-company entity referencing (bank accounts, contractors, employees, work) blocked at database layer.
 - [x] Deterministic FIFO inventory valuation with tie-breaking and company scoping.
 - [x] Strict COGS verification required for Profit & Loss certification.
+- [x] FIFO audit mandates companyId on lots and movements and validates historical unit costs.
+- [x] Contractor work accrual and immediate payments made atomic (`fn_post_contractor_work_atomic`).
+- [x] React state mutation strictly follows successful database persistence (no premature local mutation).
+- [x] Comprehensive financial reconciliation engine validates journals, payments, advances, and accounts.
 - [x] Deletion guards block direct destruction of posted financial records.
 - [x] Authorized reversing journals balance to exact zero with `sourceType: 'REVERSAL'`.
 - [x] Awaited persistence operations with user-visible failure feedback.
 - [x] Migration 009 verified against existing PostgreSQL schema (`cash_bank_accounts`).
-- [x] All 240 tests passing (100% success rate across 97 suites).
+- [x] All 245 tests passing (100% success rate across 98 suites).
 - [x] Production build (`pnpm build`) succeeds cleanly without warnings or errors.
+

@@ -32,9 +32,12 @@ import type {
   WorkNote,
   UploadedDocument,
   MonthlySalaryRecord,
+  EmployeeAdvance,
   DailyLabourEntry,
+  LabourPayment,
   Contractor,
   ContractorWorkEntry,
+  ContractorPayment,
   DailyCashClosingRecord
 } from '../types/index.ts';
 
@@ -1520,6 +1523,61 @@ export const INITIAL_DAILY_CASH_CLOSINGS: DailyCashClosingRecord[] = [
     notes: 'Verified by Admin and Yard Supervisor S. Rajan.',
     closedBy: 'admin',
     closedAt: '2026-10-15T20:30:00Z'
+  }
+];
+
+export const INITIAL_EMPLOYEE_ADVANCES: EmployeeAdvance[] = [
+  {
+    id: 'eadv-init-01',
+    companyId: 'comp-yasoth-01',
+    employeeId: 'emp-01',
+    employeeName: 'M. Vignesh',
+    advanceDate: '2026-10-02',
+    amount: 5000,
+    recoveredAmount: 2000,
+    remainingBalance: 3000,
+    status: 'PARTIALLY_RECOVERED',
+    paymentMode: 'BANK',
+    accountId: 'acc-bank-cub',
+    voucherNo: 'ADV-26-0001',
+    notes: 'Festival advance sanctioned',
+    createdAt: '2026-10-02T10:00:00Z',
+    createdBy: 'admin'
+  }
+];
+
+export const INITIAL_CONTRACTOR_PAYMENTS: ContractorPayment[] = [
+  {
+    id: 'cpay-init-01',
+    companyId: 'comp-yasoth-01',
+    contractorId: 'contr-init-01',
+    contractorWorkId: 'cwork-init-01',
+    contractorName: 'Karthik Demolition & Gas Cutting Team',
+    paymentDate: '2026-10-14',
+    amount: 10000,
+    paymentMode: 'BANK',
+    accountId: 'acc-bank-cub',
+    voucherNo: 'CPAY-26-0001',
+    notes: 'Initial progress payment upon 25 tons dismantled',
+    createdAt: '2026-10-14T17:30:00Z',
+    createdBy: 'admin'
+  }
+];
+
+export const INITIAL_LABOUR_PAYMENTS: LabourPayment[] = [
+  {
+    id: 'lpay-init-01',
+    companyId: 'comp-yasoth-01',
+    dailyLabourId: 'dlab-init-01',
+    workerNameOrGroup: 'Mani Scrap Sorting Gang (4 Persons)',
+    paymentDate: '2026-10-15',
+    amount: 2500,
+    paymentMode: 'CASH',
+    accountId: 'acc-cash-yard',
+    voucherNo: 'LPAY-26-0001',
+    notes: 'Evening cash settlement for day shift scrap sorting',
+    createdAt: '2026-10-15T18:30:00Z',
+    createdBy: 'admin'
   }
 ];
 

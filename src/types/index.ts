@@ -741,9 +741,12 @@ export interface BackupDatabasePayload {
   workNotes?: WorkNote[];
   uploadedDocuments?: UploadedDocument[];
   salaryRecords?: MonthlySalaryRecord[];
+  employeeAdvances?: EmployeeAdvance[];
   dailyLabourEntries?: DailyLabourEntry[];
+  labourPayments?: LabourPayment[];
   contractors?: Contractor[];
   contractorWorkEntries?: ContractorWorkEntry[];
+  contractorPayments?: ContractorPayment[];
   dailyCashClosings?: DailyCashClosingRecord[];
 }
 
@@ -894,6 +897,28 @@ export interface MonthlySalaryRecord {
   accountId?: string;
   status: 'PENDING' | 'PARTIALLY_PAID' | 'PAID';
   notes?: string;
+  accrualJournalId?: string;
+  paymentJournalId?: string;
+  idempotencyKey?: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface EmployeeAdvance {
+  id: string;
+  companyId?: string;
+  employeeId: string;
+  employeeName: string;
+  advanceDate: string;
+  amount: number;
+  recoveredAmount: number;
+  remainingBalance: number;
+  status: 'OPEN' | 'PARTIALLY_RECOVERED' | 'FULLY_RECOVERED';
+  paymentMode: 'CASH' | 'BANK';
+  accountId: string;
+  voucherNo?: string;
+  journalId?: string;
+  notes?: string;
   createdAt: string;
   createdBy: string;
 }
@@ -914,6 +939,25 @@ export interface DailyLabourEntry {
   remainingBalance: number; // totalLabourCost - advanceAmount - amountPaid
   paymentMode: 'CASH' | 'BANK' | 'UNPAID';
   accountId?: string;
+  accrualJournalId?: string;
+  idempotencyKey?: string;
+  notes?: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface LabourPayment {
+  id: string;
+  companyId?: string;
+  dailyLabourId: string;
+  workerNameOrGroup: string;
+  paymentDate: string;
+  amount: number;
+  paymentMode: 'CASH' | 'BANK';
+  accountId: string;
+  voucherNo: string;
+  journalId?: string;
+  idempotencyKey?: string;
   notes?: string;
   createdAt: string;
   createdBy: string;
@@ -948,6 +992,26 @@ export interface ContractorWorkEntry {
   remainingBalance: number;
   paymentMode: 'CASH' | 'BANK' | 'UNPAID';
   accountId?: string;
+  accrualJournalId?: string;
+  idempotencyKey?: string;
+  notes?: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface ContractorPayment {
+  id: string;
+  companyId?: string;
+  contractorId: string;
+  contractorWorkId: string;
+  contractorName: string;
+  paymentDate: string;
+  amount: number;
+  paymentMode: 'CASH' | 'BANK';
+  accountId: string;
+  voucherNo: string;
+  journalId?: string;
+  idempotencyKey?: string;
   notes?: string;
   createdAt: string;
   createdBy: string;
@@ -964,6 +1028,8 @@ export interface DailyCashClosingRecord {
   physicallyCountedCash: number;
   cashDifference: number; // physicallyCountedCash - expectedCashInHand (+ = excess, - = shortage)
   discrepancyReason?: string;
+  journalId?: string;
+  idempotencyKey?: string;
   notes?: string;
   closedBy: string;
   closedAt: string;

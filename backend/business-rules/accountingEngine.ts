@@ -76,6 +76,8 @@ export const STANDARD_CHART_OF_ACCOUNTS: ChartOfAccount[] = [
   { code: '1010', name: 'Cash on Hand', category: 'ASSET', normalBalance: 'DEBIT', isSystem: true },
   { code: '1020', name: 'Bank Accounts (Current/OD)', category: 'ASSET', normalBalance: 'DEBIT', isSystem: true },
   { code: '1050', name: 'Scrap Metal Inventory', category: 'ASSET', normalBalance: 'DEBIT', isSystem: true },
+  { code: '1060', name: 'Employee Advances & Prepayments', category: 'ASSET', normalBalance: 'DEBIT', isSystem: true },
+  { code: '1070', name: 'Contractor & Labour Advances', category: 'ASSET', normalBalance: 'DEBIT', isSystem: true },
   { code: '1100', name: 'Sundry Debtors (Customers A/R)', category: 'ASSET', normalBalance: 'DEBIT', isSystem: true },
   { code: '1150', name: 'Input Tax Credit — CGST', category: 'ASSET', normalBalance: 'DEBIT', isSystem: true },
   { code: '1160', name: 'Input Tax Credit — SGST', category: 'ASSET', normalBalance: 'DEBIT', isSystem: true },
@@ -90,6 +92,7 @@ export const STANDARD_CHART_OF_ACCOUNTS: ChartOfAccount[] = [
   { code: '2070', name: 'Output Tax Liability — IGST', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
   { code: '2100', name: 'Employee Wages & Advances Payable', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
   { code: '2110', name: 'Contractor & Labour Payable', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
+  { code: '2120', name: 'Payroll Deductions Payable', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
 
   // Equity (3000 - 3999)
   { code: '3010', name: 'Proprietor / Partners Capital', category: 'EQUITY', normalBalance: 'CREDIT', isSystem: true },
@@ -674,10 +677,227 @@ export function createPayUnpaidExpenseJournal(
 }
 
 /**
- * Double-entry posting for Monthly Staff Salary:
+ * Double-entry posting for Employee Advance Issue:
+ * Dr. 1060 Employee Advances & Prepayments
+ *   Cr. 1010/1020 Cash or Bank Account
+ */
+export function createEmployeeAdvanceJournal(
+  advance: {
+    id: string;
+    employeeName: string;
+    advanceDate: string;
+    amount: number;
+    paymentMode: 'CASH' | 'BANK';
+    voucherNo?: string;
+  },
+  accountCode: string = '1010',
+  company: Company,
+  actor: string
+): JournalEntry {
+  const amount = roundTo2(advance.amount);
+  const voucherNo = advance.voucherNo || `ADV-${advance.id.slice(-6)}`;
+  const lines: JournalLine[] = [
+    {
+      id: `jl-eadv-dr-${advance.id}`,
+      accountCode: '1060',
+      accountName: 'Employee Advances & Prepayments',
+      debit: amount,
+      credit: 0,
+      lineNarration: `Advance issued to employee ${advance.employeeName}`,
+    },
+    {
+      id: `jl-eadv-cr-${advance.id}`,
+      accountCode,
+      accountName: accountCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)',
+      debit: 0,
+      credit: amount,
+      lineNarration: `Advance disbursement via ${accountCode === '1010' ? 'Cash' : 'Bank'}`,
+    },
+  ];
+
+  const entry: JournalEntry = {
+    id: `je-eadv-${advance.id}`,
+    companyId: company.id,
+    entryNo: `JV-ADV-${advance.id.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`,
+    entryDate: advance.advanceDate,
+    sourceType: 'PAYMENT',
+    sourceId: advance.id,
+    referenceNo: voucherNo,
+    narration: `Employee advance payment for ${advance.employeeName}`,
+    lines,
+    totalDebit: amount,
+    totalCredit: amount,
+    isPosted: true,
+    createdBy: actor,
+    createdAt: new Date().toISOString(),
+  };
+
+  validateJournalEntry(entry);
+  return entry;
+}
+
+/**
+ * Double-entry posting for Monthly Staff Salary Accrual (Expense Recognition):
+ * Dr. 5050 Salaries & Staff Wages [Gross Salary + Approved Allowances]
+ *   Cr. 1060 Employee Advances & Prepayments [Advance Recovery] (if any)
+ *   Cr. 2120 Payroll Deductions Payable [Statutory Deductions] (if any)
+ *   Cr. 2100 Employee Wages & Advances Payable [Net Salary Payable]
+ */
+export function createSalaryAccrualJournal(
+  record: {
+    id: string;
+    employeeName: string;
+    salaryMonth: string;
+    grossSalary: number;
+    allowances?: number;
+    deductions?: number;
+    advanceRecovery?: number;
+    netSalaryPayable: number;
+  },
+  company: Company,
+  actor: string
+): JournalEntry {
+  const totalExpense = roundTo2((record.grossSalary || 0) + (record.allowances || 0));
+  const advanceRecovery = roundTo2(record.advanceRecovery || 0);
+  const deductions = roundTo2(record.deductions || 0);
+  const netPayable = roundTo2(record.netSalaryPayable);
+  const lines: JournalLine[] = [];
+
+  // Dr. Salary expense
+  lines.push({
+    id: `jl-salacc-dr-${record.id}`,
+    accountCode: '5050',
+    accountName: 'Salaries & Staff Wages',
+    debit: totalExpense,
+    credit: 0,
+    lineNarration: `Monthly Salary & Allowances: ${record.employeeName} (${record.salaryMonth})`,
+  });
+
+  // Cr. Advance recovery
+  if (advanceRecovery > 0) {
+    lines.push({
+      id: `jl-salacc-cr-adv-${record.id}`,
+      accountCode: '1060',
+      accountName: 'Employee Advances & Prepayments',
+      debit: 0,
+      credit: advanceRecovery,
+      lineNarration: `Advance recovery from ${record.employeeName} (${record.salaryMonth})`,
+    });
+  }
+
+  // Cr. Deductions
+  if (deductions > 0) {
+    lines.push({
+      id: `jl-salacc-cr-ded-${record.id}`,
+      accountCode: '2120',
+      accountName: 'Payroll Deductions Payable',
+      debit: 0,
+      credit: deductions,
+      lineNarration: `Salary deductions for ${record.employeeName} (${record.salaryMonth})`,
+    });
+  }
+
+  // Cr. Net salary payable
+  if (netPayable > 0) {
+    lines.push({
+      id: `jl-salacc-cr-pay-${record.id}`,
+      accountCode: '2100',
+      accountName: 'Employee Wages & Advances Payable',
+      debit: 0,
+      credit: netPayable,
+      lineNarration: `Net salary payable to ${record.employeeName} (${record.salaryMonth})`,
+    });
+  }
+
+  const entry: JournalEntry = {
+    id: `je-salacc-${record.id}`,
+    companyId: company.id,
+    entryNo: `JV-SALACC-${record.id.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`,
+    entryDate: new Date().toISOString().split('T')[0],
+    sourceType: 'MANUAL_JOURNAL',
+    sourceId: record.id,
+    referenceNo: `SAL-${record.salaryMonth}`,
+    narration: `Salary accrual for ${record.employeeName} (${record.salaryMonth})`,
+    lines,
+    totalDebit: totalExpense,
+    totalCredit: roundTo2(advanceRecovery + deductions + netPayable),
+    isPosted: true,
+    createdBy: actor,
+    createdAt: new Date().toISOString(),
+  };
+
+  validateJournalEntry(entry);
+  return entry;
+}
+
+/**
+ * Double-entry posting for Salary Disbursement (Full or Partial Payment):
+ * Dr. 2100 Employee Wages & Advances Payable [Amount Paid]
+ *   Cr. 1010/1020 Cash or Bank Account [Amount Paid]
+ * Important: NEVER debits 5050 again!
+ */
+export function createSalaryDisbursementJournal(
+  payment: {
+    salaryRecordId: string;
+    employeeName: string;
+    salaryMonth: string;
+    amount: number;
+    paymentMode: 'CASH' | 'BANK';
+    voucherNo?: string;
+  },
+  accountCode: string = '1010',
+  company: Company,
+  actor: string
+): JournalEntry {
+  const amount = roundTo2(payment.amount);
+  const voucherNo = payment.voucherNo || `SALPAY-${payment.salaryRecordId.slice(-6)}`;
+  const lines: JournalLine[] = [
+    {
+      id: `jl-saldisb-dr-${payment.salaryRecordId}`,
+      accountCode: '2100',
+      accountName: 'Employee Wages & Advances Payable',
+      debit: amount,
+      credit: 0,
+      lineNarration: `Salary disbursement to ${payment.employeeName} (${payment.salaryMonth})`,
+    },
+    {
+      id: `jl-saldisb-cr-${payment.salaryRecordId}`,
+      accountCode,
+      accountName: accountCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)',
+      debit: 0,
+      credit: amount,
+      lineNarration: `Paid via ${accountCode === '1010' ? 'Cash' : 'Bank'}`,
+    },
+  ];
+
+  const entry: JournalEntry = {
+    id: `je-saldisb-${Date.now().toString(36)}`,
+    companyId: company.id,
+    entryNo: `JV-SALDISB-${voucherNo.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`,
+    entryDate: new Date().toISOString().split('T')[0],
+    sourceType: 'PAYMENT',
+    sourceId: payment.salaryRecordId,
+    referenceNo: voucherNo,
+    narration: `Salary payment to ${payment.employeeName} (${payment.salaryMonth})`,
+    lines,
+    totalDebit: amount,
+    totalCredit: amount,
+    isPosted: true,
+    createdBy: actor,
+    createdAt: new Date().toISOString(),
+  };
+
+  validateJournalEntry(entry);
+  return entry;
+}
+
+/**
+ * Double-entry posting for Monthly Staff Salary (Combined Accrual + Immediate Payment):
  * Dr. 5050 Salaries & Staff Wages [Gross + Allowances]
- *   Cr. 1010/1020 Cash or Bank Account [Net Amount Paid]
- *   Cr. 2100 Advance / Deductions Recovered [Deductions + Advance]
+ *   Cr. 1060 Employee Advances [Advance Recovery] (if any)
+ *   Cr. 2120 Payroll Deductions Payable [Deductions] (if any)
+ *   Cr. 1010/1020 Cash or Bank Account [Net Amount Paid] (if any)
+ *   Cr. 2100 Employee Wages Payable [Remaining Balance Unpaid] (if any)
  */
 export function createSalaryPaymentJournal(
   record: {
@@ -698,6 +918,10 @@ export function createSalaryPaymentJournal(
 ): JournalEntry {
   const amountPaid = roundTo2(record.amountPaid);
   const totalExpense = roundTo2((record.grossSalary || 0) + (record.allowances || 0));
+  const advanceRecovery = roundTo2(record.advanceRecovery || 0);
+  const deductions = roundTo2(record.deductions || 0);
+  const netPayable = roundTo2(Math.max(0, totalExpense - advanceRecovery - deductions));
+  const remainingPayable = roundTo2(Math.max(0, netPayable - amountPaid));
   const lines: JournalLine[] = [];
 
   // Dr. Salary expense
@@ -711,17 +935,44 @@ export function createSalaryPaymentJournal(
   });
 
   // Cr. Cash / Bank paid
-  lines.push({
-    id: `jl-sal-cr-cb-${record.id}`,
-    accountCode,
-    accountName: accountCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)',
-    debit: 0,
-    credit: amountPaid,
-    lineNarration: `Salary paid to ${record.employeeName}`,
-  });
+  if (amountPaid > 0) {
+    lines.push({
+      id: `jl-sal-cr-cb-${record.id}`,
+      accountCode,
+      accountName: accountCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)',
+      debit: 0,
+      credit: amountPaid,
+      lineNarration: `Salary paid to ${record.employeeName}`,
+    });
+  }
 
-  // Cr. Advance / Deductions recovered or unpaid balance if any
-  const remainingCredit = roundTo2(totalExpense - amountPaid);
+  // Cr. Advance recovery
+  if (advanceRecovery > 0) {
+    lines.push({
+      id: `jl-sal-cr-adv-${record.id}`,
+      accountCode: '1060',
+      accountName: 'Employee Advances & Prepayments',
+      debit: 0,
+      credit: advanceRecovery,
+      lineNarration: `Advance recovery for ${record.employeeName} (${record.salaryMonth})`,
+    });
+  }
+
+  // Cr. Deductions
+  if (deductions > 0) {
+    lines.push({
+      id: `jl-sal-cr-ded-${record.id}`,
+      accountCode: '2120',
+      accountName: 'Payroll Deductions Payable',
+      debit: 0,
+      credit: deductions,
+      lineNarration: `Deductions recovery for ${record.employeeName} (${record.salaryMonth})`,
+    });
+  }
+
+  // Cr. Remaining unpaid salary balance or default payable
+  const creditedSoFar = roundTo2(amountPaid + advanceRecovery + deductions);
+  const remainingCredit = roundTo2(Math.max(0, totalExpense - creditedSoFar));
   if (remainingCredit > 0.001) {
     lines.push({
       id: `jl-sal-cr-rec-${record.id}`,
@@ -729,7 +980,7 @@ export function createSalaryPaymentJournal(
       accountName: 'Employee Wages & Advances Payable',
       debit: 0,
       credit: remainingCredit,
-      lineNarration: `Advance & statutory deductions recovery (${record.salaryMonth})`,
+      lineNarration: `Unpaid salary payable for ${record.employeeName} (${record.salaryMonth})`,
     });
   }
 
@@ -744,7 +995,7 @@ export function createSalaryPaymentJournal(
     narration: `Salary payment for ${record.employeeName} (${record.salaryMonth})`,
     lines,
     totalDebit: totalExpense,
-    totalCredit: roundTo2(amountPaid + (remainingCredit > 0.001 ? remainingCredit : 0)),
+    totalCredit: roundTo2(creditedSoFar + (remainingCredit > 0.001 ? remainingCredit : 0)),
     isPosted: true,
     createdBy: actor,
     createdAt: new Date().toISOString(),
@@ -755,10 +1006,132 @@ export function createSalaryPaymentJournal(
 }
 
 /**
- * Double-entry posting for Daily Wage Labour:
+ * Double-entry posting for Daily Labour Advance:
+ * Dr. 1070 Contractor & Labour Advances
+ *   Cr. 1010/1020 Cash or Bank Account
+ */
+export function createLabourAdvanceJournal(
+  advance: {
+    id: string;
+    workerNameOrGroup: string;
+    advanceDate: string;
+    amount: number;
+    paymentMode: 'CASH' | 'BANK';
+    voucherNo?: string;
+  },
+  accountCode: string = '1010',
+  company: Company,
+  actor: string
+): JournalEntry {
+  const amount = roundTo2(advance.amount);
+  const voucherNo = advance.voucherNo || `LADV-${advance.id.slice(-6)}`;
+  const lines: JournalLine[] = [
+    {
+      id: `jl-ladv-dr-${advance.id}`,
+      accountCode: '1070',
+      accountName: 'Contractor & Labour Advances',
+      debit: amount,
+      credit: 0,
+      lineNarration: `Advance issued to labour ${advance.workerNameOrGroup}`,
+    },
+    {
+      id: `jl-ladv-cr-${advance.id}`,
+      accountCode,
+      accountName: accountCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)',
+      debit: 0,
+      credit: amount,
+      lineNarration: `Labour advance disbursement via ${accountCode === '1010' ? 'Cash' : 'Bank'}`,
+    },
+  ];
+
+  const entry: JournalEntry = {
+    id: `je-ladv-${advance.id}`,
+    companyId: company.id,
+    entryNo: `JV-LADV-${advance.id.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`,
+    entryDate: advance.advanceDate,
+    sourceType: 'PAYMENT',
+    sourceId: advance.id,
+    referenceNo: voucherNo,
+    narration: `Labour advance for ${advance.workerNameOrGroup}`,
+    lines,
+    totalDebit: amount,
+    totalCredit: amount,
+    isPosted: true,
+    createdBy: actor,
+    createdAt: new Date().toISOString(),
+  };
+
+  validateJournalEntry(entry);
+  return entry;
+}
+
+/**
+ * Double-entry posting for subsequent Labour Payment against approved labour payable:
+ * Dr. 2100 Employee Wages & Advances Payable [Amount Paid]
+ *   Cr. 1010/1020 Cash or Bank Account [Amount Paid]
+ * Important: NEVER debits 5020 again!
+ */
+export function createLabourPaymentJournal(
+  payment: {
+    dailyLabourId: string;
+    workerNameOrGroup: string;
+    amount: number;
+    paymentMode: 'CASH' | 'BANK';
+    paymentDate?: string;
+    voucherNo?: string;
+  },
+  accountCode: string = '1010',
+  company: Company,
+  actor: string
+): JournalEntry {
+  const amount = roundTo2(payment.amount);
+  const voucherNo = payment.voucherNo || `LPAY-${payment.dailyLabourId.slice(-6)}`;
+  const lines: JournalLine[] = [
+    {
+      id: `jl-lpay-dr-${payment.dailyLabourId}`,
+      accountCode: '2100',
+      accountName: 'Employee Wages & Advances Payable',
+      debit: amount,
+      credit: 0,
+      lineNarration: `Payment for approved daily labour: ${payment.workerNameOrGroup}`,
+    },
+    {
+      id: `jl-lpay-cr-${payment.dailyLabourId}`,
+      accountCode,
+      accountName: accountCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)',
+      debit: 0,
+      credit: amount,
+      lineNarration: `Labour payment via ${accountCode === '1010' ? 'Cash' : 'Bank'}`,
+    },
+  ];
+
+  const entry: JournalEntry = {
+    id: `je-lpay-${Date.now().toString(36)}`,
+    companyId: company.id,
+    entryNo: `JV-LPAY-${voucherNo.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`,
+    entryDate: new Date().toISOString().split('T')[0],
+    sourceType: 'PAYMENT',
+    sourceId: payment.dailyLabourId,
+    referenceNo: voucherNo,
+    narration: `Daily labour payment for ${payment.workerNameOrGroup}`,
+    lines,
+    totalDebit: amount,
+    totalCredit: amount,
+    isPosted: true,
+    createdBy: actor,
+    createdAt: new Date().toISOString(),
+  };
+
+  validateJournalEntry(entry);
+  return entry;
+}
+
+/**
+ * Double-entry posting for Daily Wage Labour (Combined Accrual & Immediate Payment):
  * Dr. 5020 Demolition Direct Labor & Cutting [Total Labour Cost]
- *   Cr. 1010/1020 Cash or Bank [Amount Paid]
- *   Cr. 2100 Employee Wages Payable [Remaining Balance / Advance]
+ *   Cr. 1070 Contractor & Labour Advances [Advance Adjusted] (if any)
+ *   Cr. 1010/1020 Cash or Bank [Amount Paid] (if any)
+ *   Cr. 2100 Employee Wages Payable [Remaining Balance] (if any)
  */
 export function createDailyLabourJournal(
   labour: {
@@ -766,6 +1139,7 @@ export function createDailyLabourJournal(
     workerNameOrGroup: string;
     workDate: string;
     totalLabourCost: number;
+    advanceAmount?: number;
     amountPaid: number;
     remainingBalance: number;
     paymentMode: 'CASH' | 'BANK' | 'UNPAID';
@@ -775,8 +1149,9 @@ export function createDailyLabourJournal(
   actor: string
 ): JournalEntry {
   const totalCost = roundTo2(labour.totalLabourCost);
+  const advance = roundTo2(labour.advanceAmount || 0);
   const paid = roundTo2(labour.amountPaid);
-  const unpaid = roundTo2(totalCost - paid);
+  const unpaid = roundTo2(Math.max(0, totalCost - advance - paid));
   const lines: JournalLine[] = [];
 
   lines.push({
@@ -787,6 +1162,17 @@ export function createDailyLabourJournal(
     credit: 0,
     lineNarration: `Daily Labour: ${labour.workerNameOrGroup} on ${labour.workDate}`,
   });
+
+  if (advance > 0) {
+    lines.push({
+      id: `jl-lab-cr-adv-${labour.id}`,
+      accountCode: '1070',
+      accountName: 'Contractor & Labour Advances',
+      debit: 0,
+      credit: advance,
+      lineNarration: `Advance adjustment for ${labour.workerNameOrGroup}`,
+    });
+  }
 
   if (paid > 0) {
     lines.push({
@@ -821,7 +1207,7 @@ export function createDailyLabourJournal(
     narration: `Daily labour entry for ${labour.workerNameOrGroup} (${labour.workDate})`,
     lines,
     totalDebit: totalCost,
-    totalCredit: roundTo2(paid + (unpaid > 0.001 ? unpaid : 0)),
+    totalCredit: roundTo2(advance + paid + (unpaid > 0.001 ? unpaid : 0)),
     isPosted: true,
     createdBy: actor,
     createdAt: new Date().toISOString(),
@@ -832,10 +1218,131 @@ export function createDailyLabourJournal(
 }
 
 /**
- * Double-entry posting for Outsourced Contractor Work:
+ * Double-entry posting for Contractor Advance Issue:
+ * Dr. 1070 Contractor & Labour Advances [Amount]
+ *   Cr. 1010/1020 Cash or Bank Account [Amount]
+ */
+export function createContractorAdvanceJournal(
+  advance: {
+    id: string;
+    contractorName: string;
+    advanceDate: string;
+    amount: number;
+    paymentMode: 'CASH' | 'BANK';
+    voucherNo?: string;
+  },
+  accountCode: string = '1010',
+  company: Company,
+  actor: string
+): JournalEntry {
+  const amount = roundTo2(advance.amount);
+  const voucherNo = advance.voucherNo || `CADV-${advance.id.slice(-6)}`;
+  const lines: JournalLine[] = [
+    {
+      id: `jl-cadv-dr-${advance.id}`,
+      accountCode: '1070',
+      accountName: 'Contractor & Labour Advances',
+      debit: amount,
+      credit: 0,
+      lineNarration: `Advance issued to contractor ${advance.contractorName}`,
+    },
+    {
+      id: `jl-cadv-cr-${advance.id}`,
+      accountCode,
+      accountName: accountCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)',
+      debit: 0,
+      credit: amount,
+      lineNarration: `Contractor advance disbursement via ${accountCode === '1010' ? 'Cash' : 'Bank'}`,
+    },
+  ];
+
+  const entry: JournalEntry = {
+    id: `je-cadv-${advance.id}`,
+    companyId: company.id,
+    entryNo: `JV-CADV-${advance.id.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`,
+    entryDate: advance.advanceDate,
+    sourceType: 'PAYMENT',
+    sourceId: advance.id,
+    referenceNo: voucherNo,
+    narration: `Contractor advance for ${advance.contractorName}`,
+    lines,
+    totalDebit: amount,
+    totalCredit: amount,
+    isPosted: true,
+    createdBy: actor,
+    createdAt: new Date().toISOString(),
+  };
+
+  validateJournalEntry(entry);
+  return entry;
+}
+
+/**
+ * Double-entry posting for Contractor Progress Payment (1st, 2nd, final):
+ * Dr. 2110 Contractor & Labour Payable [Payment Amount]
+ *   Cr. 1010/1020 Cash or Bank Account [Payment Amount]
+ * Important: NEVER debits 5025 again! Recognizes expense strictly once at work approval.
+ */
+export function createContractorProgressPaymentJournal(
+  payment: {
+    contractorWorkId: string;
+    contractorName: string;
+    amount: number;
+    paymentDate: string;
+    paymentMode: 'CASH' | 'BANK';
+    voucherNo: string;
+  },
+  accountCode: string = '1010',
+  company: Company,
+  actor: string
+): JournalEntry {
+  const amount = roundTo2(payment.amount);
+  const lines: JournalLine[] = [
+    {
+      id: `jl-cpay-dr-${payment.contractorWorkId}`,
+      accountCode: '2110',
+      accountName: 'Contractor & Labour Payable',
+      debit: amount,
+      credit: 0,
+      lineNarration: `Progress payment for contractor work: ${payment.contractorName} (${payment.voucherNo})`,
+    },
+    {
+      id: `jl-cpay-cr-${payment.contractorWorkId}`,
+      accountCode,
+      accountName: accountCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)',
+      debit: 0,
+      credit: amount,
+      lineNarration: `Progress payment via ${accountCode === '1010' ? 'Cash' : 'Bank'}`,
+    },
+  ];
+
+  const entry: JournalEntry = {
+    id: `je-cpay-${Date.now().toString(36)}`,
+    companyId: company.id,
+    entryNo: `JV-CPAY-${payment.voucherNo.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`,
+    entryDate: payment.paymentDate,
+    sourceType: 'PAYMENT',
+    sourceId: payment.contractorWorkId,
+    referenceNo: payment.voucherNo,
+    narration: `Contractor progress payment to ${payment.contractorName}`,
+    lines,
+    totalDebit: amount,
+    totalCredit: amount,
+    isPosted: true,
+    createdBy: actor,
+    createdAt: new Date().toISOString(),
+  };
+
+  validateJournalEntry(entry);
+  return entry;
+}
+
+/**
+ * Double-entry posting for Outsourced Contractor Work (Combined Accrual & Immediate Payment):
  * Dr. 5025 Outsourced Contractor Charges [Total Contract Amount]
- *   Cr. 1010/1020 Cash or Bank [Amount Paid]
- *   Cr. 2110 Contractor & Labour Payable [Remaining Balance]
+ *   Cr. 1070 Contractor & Labour Advances [Advance Adjusted] (if any)
+ *   Cr. 1010/1020 Cash or Bank [Current Payment] (if any)
+ *   Cr. 2110 Contractor & Labour Payable [Remaining Balance] (if any)
  */
 export function createContractorWorkJournal(
   work: {
@@ -843,6 +1350,7 @@ export function createContractorWorkJournal(
     contractorName: string;
     workDate: string;
     totalContractAmount: number;
+    advancePaid?: number;
     currentPayment: number;
     remainingBalance: number;
   },
@@ -851,8 +1359,9 @@ export function createContractorWorkJournal(
   actor: string
 ): JournalEntry {
   const totalAmount = roundTo2(work.totalContractAmount);
+  const advance = roundTo2(work.advancePaid || 0);
   const paid = roundTo2(work.currentPayment);
-  const unpaid = roundTo2(totalAmount - paid);
+  const unpaid = roundTo2(Math.max(0, totalAmount - advance - paid));
   const lines: JournalLine[] = [];
 
   lines.push({
@@ -863,6 +1372,17 @@ export function createContractorWorkJournal(
     credit: 0,
     lineNarration: `Contractor: ${work.contractorName} on ${work.workDate}`,
   });
+
+  if (advance > 0) {
+    lines.push({
+      id: `jl-cont-cr-adv-${work.id}`,
+      accountCode: '1070',
+      accountName: 'Contractor & Labour Advances',
+      debit: 0,
+      credit: advance,
+      lineNarration: `Advance adjustment for contractor ${work.contractorName}`,
+    });
+  }
 
   if (paid > 0) {
     lines.push({
@@ -897,7 +1417,7 @@ export function createContractorWorkJournal(
     narration: `Contractor work for ${work.contractorName} (${work.workDate})`,
     lines,
     totalDebit: totalAmount,
-    totalCredit: roundTo2(paid + (unpaid > 0.001 ? unpaid : 0)),
+    totalCredit: roundTo2(advance + paid + (unpaid > 0.001 ? unpaid : 0)),
     isPosted: true,
     createdBy: actor,
     createdAt: new Date().toISOString(),

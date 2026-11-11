@@ -41,9 +41,12 @@ import type {
   WorkNote,
   UploadedDocument,
   MonthlySalaryRecord,
+  EmployeeAdvance,
   DailyLabourEntry,
+  LabourPayment,
   Contractor,
   ContractorWorkEntry,
+  ContractorPayment,
   DailyCashClosingRecord
 } from '../types/index.ts';
 
@@ -69,8 +72,15 @@ import {
   createExpenseJournal,
   createPayUnpaidExpenseJournal,
   createSalaryPaymentJournal,
+  createSalaryAccrualJournal,
+  createSalaryDisbursementJournal,
+  createEmployeeAdvanceJournal,
   createDailyLabourJournal,
+  createLabourAdvanceJournal,
+  createLabourPaymentJournal,
   createContractorWorkJournal,
+  createContractorAdvanceJournal,
+  createContractorProgressPaymentJournal,
   createCashClosingJournal,
   generateGeneralLedger,
   generateTrialBalance,
@@ -83,6 +93,25 @@ import {
   type BalanceSheetReport,
   type PartyStatementReport
 } from '../../backend/business-rules/accountingEngine.ts';
+import {
+  postPaymentVoucher,
+  executeContraTransfer,
+  calculateMonthlySalary,
+  calculateDailyLabourCost,
+  calculateDailyLabourBalance,
+  calculateContractorBalance,
+  computeDailyCashClosing,
+  calculateAccountBalanceFromLedger,
+  validateCashBankTransaction,
+  validateContraTransfer,
+  validateSalaryRecordInput,
+  validateDailyLabourInput,
+  validateContractorWorkInput,
+  validateContractorPaymentInput,
+  validateExpenseInput,
+  calculateProfitAndLoss,
+  calculateAuthoritativeProfitAndLoss,
+} from '../../backend/business-rules/financeEngine.ts';
 import {
   createCommercialDocument,
   convertDocument,
@@ -105,6 +134,7 @@ import {
   downloadAllCompanyWorkbooksInBrowser
 } from '../../backend/business-rules/excelEngine.ts';
 import { googleDriveService } from '../services/googleDriveService.ts';
+import { dbRepository } from '../services/databaseRepository.ts';
 
 import { 
   INITIAL_COMPANY_SETTINGS, 
@@ -132,25 +162,18 @@ import {
   INITIAL_UPLOADED_DOCS,
   INITIAL_EXPENSES,
   INITIAL_SALARY_RECORDS,
+  INITIAL_EMPLOYEE_ADVANCES,
   INITIAL_DAILY_LABOUR,
+  INITIAL_LABOUR_PAYMENTS,
   INITIAL_CONTRACTORS,
   INITIAL_CONTRACTOR_WORK,
+  INITIAL_CONTRACTOR_PAYMENTS,
   INITIAL_DAILY_CASH_CLOSINGS
 } from '../services/mockData.ts';
 
 import { postPurchaseTransaction } from '../../backend/business-rules/purchaseEngine.ts';
 import { teamSyncService } from '../services/teamSyncService.ts';
 import { dispatchSalesTransaction } from '../../backend/business-rules/salesEngine.ts';
-import { 
-  postPaymentVoucher, 
-  executeContraTransfer,
-  calculateMonthlySalary,
-  calculateDailyLabourCost,
-  calculateDailyLabourBalance,
-  calculateContractorBalance,
-  computeDailyCashClosing,
-  calculateProfitAndLoss
-} from '../../backend/business-rules/financeEngine.ts';
 import { migrateParties, migrateOpeningStock } from '../../backend/business-rules/dataMigration.ts';
 import { createStockMovement } from '../../backend/business-rules/inventoryEngine.ts';
 import { calcNetWeight, calcPayableWeight, roundTo2, roundTo3 } from '../utils/calculations.ts';
@@ -258,16 +281,21 @@ interface ERPContextType {
 
   // Small-Business Finance: Salary, Labour, Contractor, Daily Closing
   salaryRecords: MonthlySalaryRecord[];
+  employeeAdvances: EmployeeAdvance[];
   dailyLabourEntries: DailyLabourEntry[];
+  labourPayments: LabourPayment[];
   contractors: Contractor[];
   contractorWorkEntries: ContractorWorkEntry[];
+  contractorPayments: ContractorPayment[];
   dailyCashClosings: DailyCashClosingRecord[];
+  issueEmployeeAdvance: (params: { employeeId: string; employeeName: string; amount: number; paymentMode: 'CASH' | 'BANK'; accountId: string; notes?: string }) => EmployeeAdvance;
   recordSalaryPayment: (params: Omit<MonthlySalaryRecord, 'id' | 'createdAt' | 'createdBy'>) => MonthlySalaryRecord;
   updateSalaryRecord: (id: string, updates: Partial<MonthlySalaryRecord>) => void;
   deleteSalaryRecord: (id: string) => { success: boolean; message?: string };
   recordDailyLabour: (params: Omit<DailyLabourEntry, 'id' | 'createdAt' | 'createdBy'>) => DailyLabourEntry;
   updateDailyLabour: (id: string, updates: Partial<DailyLabourEntry>) => void;
   deleteDailyLabour: (id: string) => { success: boolean; message?: string };
+  recordLabourPayment: (params: { dailyLabourId: string; workerNameOrGroup: string; amount: number; paymentMode: 'CASH' | 'BANK'; accountId: string; notes?: string }) => LabourPayment;
   addContractor: (params: Omit<Contractor, 'id' | 'createdAt'>) => Contractor;
   updateContractor: (id: string, updates: Partial<Contractor>) => void;
   deleteContractor: (id: string) => { success: boolean; message?: string };
@@ -276,6 +304,7 @@ interface ERPContextType {
   deleteContractorWork: (id: string) => { success: boolean; message?: string };
   payContractorWork: (workEntryId: string, amount: number, paymentMode: 'CASH' | 'BANK', accountId?: string) => void;
   recordDailyCashClosing: (closingData: Omit<DailyCashClosingRecord, 'id' | 'closedAt' | 'closedBy'>) => DailyCashClosingRecord;
+  getAccountBalance: (accountId: string) => number;
   addAccount: (accData: Omit<CashBankAccount, 'id'>) => CashBankAccount;
   updateAccount: (id: string, updates: Partial<CashBankAccount>) => void;
   deleteAccount: (id: string) => { success: boolean; message?: string };
@@ -462,9 +491,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return loaded && loaded.length > 0 ? loaded : INITIAL_UPLOADED_DOCS;
   });
   const [salaryRecords, setSalaryRecords] = useState<MonthlySalaryRecord[]>(() => load('salaryRecords', INITIAL_SALARY_RECORDS));
+  const [employeeAdvances, setEmployeeAdvances] = useState<EmployeeAdvance[]>(() => load('employeeAdvances', INITIAL_EMPLOYEE_ADVANCES));
   const [dailyLabourEntries, setDailyLabourEntries] = useState<DailyLabourEntry[]>(() => load('dailyLabourEntries', INITIAL_DAILY_LABOUR));
+  const [labourPayments, setLabourPayments] = useState<LabourPayment[]>(() => load('labourPayments', INITIAL_LABOUR_PAYMENTS));
   const [contractors, setContractors] = useState<Contractor[]>(() => load('contractors', INITIAL_CONTRACTORS));
   const [contractorWorkEntries, setContractorWorkEntries] = useState<ContractorWorkEntry[]>(() => load('contractorWorkEntries', INITIAL_CONTRACTOR_WORK));
+  const [contractorPayments, setContractorPayments] = useState<ContractorPayment[]>(() => load('contractorPayments', INITIAL_CONTRACTOR_PAYMENTS));
   const [dailyCashClosings, setDailyCashClosings] = useState<DailyCashClosingRecord[]>(() => load('dailyCashClosings', INITIAL_DAILY_CASH_CLOSINGS));
 
   // Persist state updates to localStorage
@@ -502,9 +534,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(STORAGE_PREFIX + 'workNotes', JSON.stringify(workNotes));
       localStorage.setItem(STORAGE_PREFIX + 'uploadedDocuments', JSON.stringify(uploadedDocuments));
       localStorage.setItem(STORAGE_PREFIX + 'salaryRecords', JSON.stringify(salaryRecords));
+      localStorage.setItem(STORAGE_PREFIX + 'employeeAdvances', JSON.stringify(employeeAdvances));
       localStorage.setItem(STORAGE_PREFIX + 'dailyLabourEntries', JSON.stringify(dailyLabourEntries));
+      localStorage.setItem(STORAGE_PREFIX + 'labourPayments', JSON.stringify(labourPayments));
       localStorage.setItem(STORAGE_PREFIX + 'contractors', JSON.stringify(contractors));
       localStorage.setItem(STORAGE_PREFIX + 'contractorWorkEntries', JSON.stringify(contractorWorkEntries));
+      localStorage.setItem(STORAGE_PREFIX + 'contractorPayments', JSON.stringify(contractorPayments));
       localStorage.setItem(STORAGE_PREFIX + 'dailyCashClosings', JSON.stringify(dailyCashClosings));
     } catch (e) {
       console.warn('Error saving to localStorage', e);
@@ -515,7 +550,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     weighments, collectionJobs, purchases, inventoryLots, stockMovements,
     sales, invoices, payments, stockCounts, auditLogs, commercialDocuments, journalEntries,
     backupHistory, restoreLogs, backupSchedule, dailyTasks, workNotes, uploadedDocuments,
-    salaryRecords, dailyLabourEntries, contractors, contractorWorkEntries, dailyCashClosings
+    salaryRecords, employeeAdvances, dailyLabourEntries, labourPayments, contractors, contractorWorkEntries, contractorPayments, dailyCashClosings
   ]);
 
   const logAudit = (action: string, entityType: string, entityId: string, oldState?: any, newState?: any) => {
@@ -1047,6 +1082,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return result.updatedPayment;
   };
 
+  const getAccountBalance = (accountId: string): number => {
+    const acc = accounts.find((a) => a.id === accountId);
+    if (!acc) return 0;
+    return calculateAccountBalanceFromLedger(acc, accountTransactions);
+  };
+
   const recordContraTransfer = (
     sourceAccountId: string,
     destAccountId: string,
@@ -1057,6 +1098,14 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const dest = accounts.find((a) => a.id === destAccountId);
     if (!source || !dest) throw new Error('Accounts not found for contra transfer');
 
+    const sourceBal = getAccountBalance(sourceAccountId);
+    validateContraTransfer({
+      fromAccount: source,
+      toAccount: dest,
+      amount,
+      fromAccountBalance: sourceBal,
+    });
+
     const { outflowTx, inflowTx } = executeContraTransfer(
       source,
       dest,
@@ -1066,17 +1115,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       currentUser.fullName
     );
 
-    setAccountTransactions((prev) => [inflowTx, outflowTx, ...prev]);
+    const srcCode = source.accountType === 'CASH' ? '1010' : '1020';
+    const dstCode = dest.accountType === 'CASH' ? '1010' : '1020';
+    const je = createContraJournal(amount, srcCode, dstCode, new Date().toISOString().split('T')[0], referenceNo, activeCompany);
 
-    // Automatically post balanced double-entry journal
-    try {
-      const srcCode = source.accountType === 'CASH' ? '1010' : '1020';
-      const dstCode = dest.accountType === 'CASH' ? '1010' : '1020';
-      const je = createContraJournal(amount, srcCode, dstCode, new Date().toISOString().split('T')[0], referenceNo, activeCompany);
-      setJournalEntries((prev) => [je, ...prev]);
-    } catch (e) {
-      console.warn('Could not post journal for contra:', e);
-    }
+    setAccountTransactions((prev) => [inflowTx, outflowTx, ...prev]);
+    setJournalEntries((prev) => [je, ...prev]);
 
     logAudit('CONTRA_TRANSFER', 'ACCOUNT_TRANSACTION', `${sourceAccountId}->${destAccountId}`, null, {
       amount,
@@ -1085,14 +1129,36 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const recordExpense = (expenseData: Omit<Expense, 'id' | 'voucherNo' | 'createdAt'>) => {
+    validateExpenseInput({
+      voucherNo: 'EXP-TEMP',
+      category: expenseData.category,
+      amount: expenseData.amount,
+      paidTo: expenseData.paidTo,
+      paymentMode: expenseData.paymentMode,
+      accountId: expenseData.accountId,
+    });
+
+    const isUnpaid = expenseData.status === 'UNPAID' || expenseData.paymentMode === 'UNPAID';
+    const acc = expenseData.accountId ? accounts.find((a) => a.id === expenseData.accountId) : undefined;
+
+    if (!isUnpaid && acc) {
+      const curBal = getAccountBalance(acc.id);
+      validateCashBankTransaction({
+        account: acc,
+        amount: expenseData.amount,
+        direction: 'CREDIT',
+        currentBalance: curBal,
+      });
+    }
+
     const seq = expenses.length + 1;
     const voucherNo = `EXP-26-${String(seq).padStart(4, '0')}`;
     const now = new Date().toISOString();
-    const isUnpaid = expenseData.status === 'UNPAID' || expenseData.paymentMode === 'UNPAID';
 
     const newExpense: Expense = {
       ...expenseData,
       id: 'exp-' + Math.random().toString(36).substring(2, 11),
+      companyId: activeCompanyId,
       voucherNo,
       status: isUnpaid ? 'UNPAID' : 'PAID',
       paymentMode: expenseData.paymentMode || (isUnpaid ? 'UNPAID' : 'CASH'),
@@ -1101,16 +1167,16 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: now,
     };
 
-    setExpenses((prev) => [newExpense, ...prev]);
+    const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
+    const je = createExpenseJournal(newExpense, accCode, activeCompany);
 
-    // Only create account cash/bank deduction if it is paid!
     if (!isUnpaid && expenseData.accountId) {
       const accountTx: AccountTransaction = {
         id: 'atx-' + Math.random().toString(36).substring(2, 11),
         accountId: expenseData.accountId,
         transactionDate: expenseData.expenseDate,
         transactionType: 'OPERATING_EXPENSE',
-        direction: 'CREDIT', // Money leaves account
+        direction: 'CREDIT',
         amount: expenseData.amount,
         referenceNo: voucherNo,
         description: `Expense: ${expenseData.category} - ${expenseData.paidTo}`,
@@ -1120,14 +1186,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setAccountTransactions((prev) => [accountTx, ...prev]);
     }
 
-    // Automatically post balanced double-entry journal
-    try {
-      const acc = accounts.find((a) => a.id === expenseData.accountId);
-      const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
-      const je = createExpenseJournal(newExpense, accCode, activeCompany);
-      setJournalEntries((prev) => [je, ...prev]);
-    } catch (e) {
-      console.warn('Could not post journal for expense:', e);
+    setExpenses((prev) => [newExpense, ...prev]);
+    setJournalEntries((prev) => [je, ...prev]);
+
+    if (dbRepository.isRemoteDatabaseAvailable()) {
+      dbRepository.saveExpense(newExpense).catch((e) => console.warn('Sync expense to DB failed', e));
     }
 
     logAudit('RECORD_EXPENSE', 'EXPENSE', newExpense.id, null, newExpense);
@@ -1136,10 +1199,23 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const payUnpaidExpense = (expenseId: string, accountId: string, paymentMode: 'CASH' | 'BANK') => {
     const existing = expenses.find((e) => e.id === expenseId);
-    if (!existing) return;
-    if (existing.status !== 'UNPAID') return;
+    if (!existing) throw new Error('Expense not found');
+    if (existing.status !== 'UNPAID') throw new Error('Expense is already paid or reversed');
 
     const acc = accounts.find((a) => a.id === accountId);
+    if (!acc) throw new Error('Payment account not found');
+
+    const curBal = getAccountBalance(accountId);
+    validateCashBankTransaction({
+      account: acc,
+      amount: existing.amount,
+      direction: 'CREDIT',
+      currentBalance: curBal,
+    });
+
+    const accCode = acc.accountType === 'BANK' ? '1020' : '1010';
+    const je = createPayUnpaidExpenseJournal(existing, accCode, activeCompany, currentUser.fullName);
+
     const updated: Expense = {
       ...existing,
       status: 'PAID',
@@ -1162,13 +1238,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setExpenses((prev) => prev.map((e) => (e.id === expenseId ? updated : e)));
     setAccountTransactions((prev) => [accountTx, ...prev]);
+    setJournalEntries((prev) => [je, ...prev]);
 
-    try {
-      const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
-      const je = createPayUnpaidExpenseJournal(existing, accCode, activeCompany, currentUser.fullName);
-      setJournalEntries((prev) => [je, ...prev]);
-    } catch (e) {
-      console.warn('Could not post journal for payUnpaidExpense:', e);
+    if (dbRepository.isRemoteDatabaseAvailable()) {
+      dbRepository.updateExpense(expenseId, { status: 'PAID', paymentMode, accountId }).catch((e) => console.warn('Sync payUnpaidExpense failed', e));
     }
 
     logAudit('PAY_UNPAID_EXPENSE', 'EXPENSE', expenseId, existing, updated);
@@ -1212,36 +1285,127 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // --- Permanent Staff Salary Management ---
+  const issueEmployeeAdvance = (params: {
+    employeeId: string;
+    employeeName: string;
+    amount: number;
+    paymentMode: 'CASH' | 'BANK';
+    accountId: string;
+    notes?: string;
+  }): EmployeeAdvance => {
+    if (params.amount <= 0) {
+      throw new Error('Advance amount must be greater than zero.');
+    }
+    const acc = accounts.find((a) => a.id === params.accountId);
+    if (!acc) throw new Error('Payment account not found.');
+
+    const curBal = getAccountBalance(params.accountId);
+    validateCashBankTransaction({
+      account: acc,
+      amount: params.amount,
+      direction: 'CREDIT',
+      currentBalance: curBal,
+    });
+
+    const now = new Date().toISOString();
+    const today = now.split('T')[0];
+    const id = 'eadv-' + Math.random().toString(36).substring(2, 11);
+    const voucherNo = `ADV-26-${String(employeeAdvances.length + 1).padStart(4, '0')}`;
+
+    const newAdvance: EmployeeAdvance = {
+      id,
+      companyId: activeCompanyId,
+      employeeId: params.employeeId,
+      employeeName: params.employeeName,
+      advanceDate: today,
+      amount: params.amount,
+      recoveredAmount: 0,
+      remainingBalance: params.amount,
+      status: 'OPEN',
+      paymentMode: params.paymentMode,
+      accountId: params.accountId,
+      voucherNo,
+      notes: params.notes,
+      createdAt: now,
+      createdBy: currentUser.fullName,
+    };
+
+    const accCode = acc.accountType === 'BANK' ? '1020' : '1010';
+    const je = createEmployeeAdvanceJournal(
+      {
+        id,
+        employeeName: params.employeeName,
+        advanceDate: today,
+        amount: params.amount,
+        paymentMode: params.paymentMode,
+        voucherNo,
+      },
+      accCode,
+      activeCompany,
+      currentUser.fullName
+    );
+
+    const accountTx: AccountTransaction = {
+      id: 'atx-eadv-' + Math.random().toString(36).substring(2, 11),
+      accountId: params.accountId,
+      transactionDate: today,
+      transactionType: 'OPERATING_EXPENSE',
+      direction: 'CREDIT',
+      amount: params.amount,
+      referenceNo: voucherNo,
+      description: `Employee advance issued: ${params.employeeName}`,
+      createdBy: currentUser.fullName,
+      createdAt: now,
+    };
+
+    setEmployeeAdvances((prev) => [newAdvance, ...prev]);
+    setEmployees((prev) =>
+      prev.map((emp) =>
+        emp.id === params.employeeId
+          ? { ...emp, currentAdvanceBalance: roundTo2((emp.currentAdvanceBalance || 0) + params.amount) }
+          : emp
+      )
+    );
+    setAccountTransactions((prev) => [accountTx, ...prev]);
+    setJournalEntries((prev) => [je, ...prev]);
+
+    if (dbRepository.isRemoteDatabaseAvailable()) {
+      dbRepository.saveEmployeeAdvance(newAdvance).catch((e) => console.warn('Sync advance to DB failed', e));
+    }
+
+    logAudit('ISSUE_EMPLOYEE_ADVANCE', 'EMPLOYEE_ADVANCE', id, null, newAdvance);
+    return newAdvance;
+  };
+
   const recordSalaryPayment = (params: Omit<MonthlySalaryRecord, 'id' | 'createdAt' | 'createdBy'>): MonthlySalaryRecord => {
+    validateSalaryRecordInput(params, salaryRecords);
+
+    const isPaid = (params.amountPaid || 0) > 0;
+    const acc = params.accountId ? accounts.find((a) => a.id === params.accountId) : undefined;
+    if (isPaid && acc) {
+      const curBal = getAccountBalance(acc.id);
+      validateCashBankTransaction({
+        account: acc,
+        amount: params.amountPaid,
+        direction: 'CREDIT',
+        currentBalance: curBal,
+      });
+    }
+
     const id = 'sal-' + Math.random().toString(36).substring(2, 11);
     const now = new Date().toISOString();
     const newRecord: MonthlySalaryRecord = {
       ...params,
       id,
+      companyId: activeCompanyId,
       createdAt: now,
       createdBy: currentUser.fullName,
     };
 
-    setSalaryRecords((prev) => [newRecord, ...prev]);
+    const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
+    const je = createSalaryPaymentJournal(newRecord, accCode, activeCompany, currentUser.fullName);
 
-    // If advance recovered, deduct from employee advance balance
-    if (params.advanceRecovery > 0) {
-      setEmployees((prev) =>
-        prev.map((emp) => {
-          if (emp.id === params.employeeId) {
-            return {
-              ...emp,
-              currentAdvanceBalance: Math.max(0, emp.currentAdvanceBalance - params.advanceRecovery),
-            };
-          }
-          return emp;
-        })
-      );
-    }
-
-    // If money was paid from an account, create account transaction
-    if (params.amountPaid > 0 && params.accountId) {
-      const acc = accounts.find((a) => a.id === params.accountId);
+    if (isPaid && params.accountId) {
       const accTx: AccountTransaction = {
         id: 'atx-sal-' + Math.random().toString(36).substring(2, 11),
         accountId: params.accountId,
@@ -1255,14 +1419,42 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         createdAt: now,
       };
       setAccountTransactions((prev) => [accTx, ...prev]);
+    }
 
-      try {
-        const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
-        const je = createSalaryPaymentJournal(newRecord, accCode, activeCompany, currentUser.fullName);
-        setJournalEntries((prev) => [je, ...prev]);
-      } catch (e) {
-        console.warn('Could not post journal for salary:', e);
-      }
+    if (params.advanceRecovery > 0) {
+      setEmployees((prev) =>
+        prev.map((emp) => {
+          if (emp.id === params.employeeId) {
+            return {
+              ...emp,
+              currentAdvanceBalance: Math.max(0, roundTo2((emp.currentAdvanceBalance || 0) - params.advanceRecovery)),
+            };
+          }
+          return emp;
+        })
+      );
+      setEmployeeAdvances((prev) =>
+        prev.map((adv) => {
+          if (adv.employeeId === params.employeeId && adv.remainingBalance > 0) {
+            const recovery = Math.min(adv.remainingBalance, params.advanceRecovery);
+            const rem = roundTo2(adv.remainingBalance - recovery);
+            return {
+              ...adv,
+              recoveredAmount: roundTo2(adv.recoveredAmount + recovery),
+              remainingBalance: rem,
+              status: rem <= 0.01 ? 'FULLY_RECOVERED' : 'PARTIALLY_RECOVERED',
+            };
+          }
+          return adv;
+        })
+      );
+    }
+
+    setSalaryRecords((prev) => [newRecord, ...prev]);
+    setJournalEntries((prev) => [je, ...prev]);
+
+    if (dbRepository.isRemoteDatabaseAvailable()) {
+      dbRepository.saveSalaryRecord(newRecord).catch((e) => console.warn('Sync salary to DB failed', e));
     }
 
     logAudit('RECORD_SALARY', 'SALARY_RECORD', id, null, newRecord);
@@ -1284,19 +1476,35 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // --- Daily Wage Labour Management ---
   const recordDailyLabour = (params: Omit<DailyLabourEntry, 'id' | 'createdAt' | 'createdBy'>): DailyLabourEntry => {
+    validateDailyLabourInput(params);
+
+    const isPaid = (params.amountPaid || 0) > 0;
+    const acc = params.accountId ? accounts.find((a) => a.id === params.accountId) : undefined;
+    if (isPaid && acc) {
+      const curBal = getAccountBalance(acc.id);
+      validateCashBankTransaction({
+        account: acc,
+        amount: params.amountPaid,
+        direction: 'CREDIT',
+        currentBalance: curBal,
+      });
+    }
+
     const id = 'dlab-' + Math.random().toString(36).substring(2, 11);
     const now = new Date().toISOString();
     const newEntry: DailyLabourEntry = {
       ...params,
       id,
+      companyId: activeCompanyId,
       createdAt: now,
       createdBy: currentUser.fullName,
     };
 
-    setDailyLabourEntries((prev) => [newEntry, ...prev]);
+    const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
+    const je = createDailyLabourJournal(newEntry, accCode, activeCompany, currentUser.fullName);
 
-    if (params.amountPaid > 0 && params.accountId) {
-      const acc = accounts.find((a) => a.id === params.accountId);
+    if (isPaid && params.accountId) {
+      const voucherNo = `LPAY-26-${String(labourPayments.length + 1).padStart(4, '0')}`;
       const accTx: AccountTransaction = {
         id: 'atx-lab-' + Math.random().toString(36).substring(2, 11),
         accountId: params.accountId,
@@ -1304,20 +1512,34 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         transactionType: 'OPERATING_EXPENSE',
         direction: 'CREDIT',
         amount: params.amountPaid,
-        referenceNo: `LAB-${params.workDate}`,
+        referenceNo: voucherNo,
         description: `Daily Labour: ${params.workerNameOrGroup} (${params.workDate})`,
         createdBy: currentUser.fullName,
         createdAt: now,
       };
       setAccountTransactions((prev) => [accTx, ...prev]);
 
-      try {
-        const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
-        const je = createDailyLabourJournal(newEntry, accCode, activeCompany, currentUser.fullName);
-        setJournalEntries((prev) => [je, ...prev]);
-      } catch (e) {
-        console.warn('Could not post journal for daily labour:', e);
-      }
+      const lpay: LabourPayment = {
+        id: 'lpay-' + Math.random().toString(36).substring(2, 11),
+        companyId: activeCompanyId,
+        dailyLabourId: id,
+        workerNameOrGroup: params.workerNameOrGroup,
+        paymentDate: params.workDate,
+        amount: params.amountPaid,
+        paymentMode: (params.paymentMode as any) || 'CASH',
+        accountId: params.accountId,
+        voucherNo,
+        createdAt: now,
+        createdBy: currentUser.fullName,
+      };
+      setLabourPayments((prev) => [lpay, ...prev]);
+    }
+
+    setDailyLabourEntries((prev) => [newEntry, ...prev]);
+    setJournalEntries((prev) => [je, ...prev]);
+
+    if (dbRepository.isRemoteDatabaseAvailable()) {
+      dbRepository.saveDailyLabour(newEntry).catch((e) => console.warn('Sync labour to DB failed', e));
     }
 
     logAudit('RECORD_DAILY_LABOUR', 'DAILY_LABOUR', id, null, newEntry);
@@ -1337,15 +1559,114 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: true, message: `Daily labour entry for ${existing.workerNameOrGroup} deleted.` };
   };
 
+  const recordLabourPayment = (params: {
+    dailyLabourId: string;
+    workerNameOrGroup: string;
+    amount: number;
+    paymentMode: 'CASH' | 'BANK';
+    accountId: string;
+    notes?: string;
+  }): LabourPayment => {
+    const existing = dailyLabourEntries.find((l) => l.id === params.dailyLabourId);
+    if (!existing) throw new Error('Daily labour entry not found.');
+    if (params.amount <= 0) throw new Error('Payment amount must be greater than zero.');
+    if (roundTo2(params.amount) > roundTo2(existing.remainingBalance)) {
+      throw new Error(`Payment amount (₹${params.amount}) exceeds remaining balance (₹${existing.remainingBalance}).`);
+    }
+
+    const acc = accounts.find((a) => a.id === params.accountId);
+    if (!acc) throw new Error('Payment account not found.');
+
+    const curBal = getAccountBalance(params.accountId);
+    validateCashBankTransaction({
+      account: acc,
+      amount: params.amount,
+      direction: 'CREDIT',
+      currentBalance: curBal,
+    });
+
+    const now = new Date().toISOString();
+    const today = now.split('T')[0];
+    const voucherNo = `LPAY-26-${String(labourPayments.length + 1).padStart(4, '0')}`;
+    const accCode = acc.accountType === 'BANK' ? '1020' : '1010';
+
+    // Double-entry: Dr. 2100 Employee Wages Payable, Cr. 1010/1020 Cash/Bank
+    const je = createLabourPaymentJournal(
+      {
+        dailyLabourId: params.dailyLabourId,
+        workerNameOrGroup: params.workerNameOrGroup,
+        amount: params.amount,
+        paymentMode: params.paymentMode,
+        voucherNo,
+      },
+      accCode,
+      activeCompany,
+      currentUser.fullName
+    );
+
+    const updatedLabour: DailyLabourEntry = {
+      ...existing,
+      amountPaid: roundTo2(existing.amountPaid + params.amount),
+      remainingBalance: roundTo2(Math.max(0, existing.remainingBalance - params.amount)),
+    };
+
+    const lpay: LabourPayment = {
+      id: 'lpay-' + Math.random().toString(36).substring(2, 11),
+      companyId: activeCompanyId,
+      dailyLabourId: params.dailyLabourId,
+      workerNameOrGroup: params.workerNameOrGroup,
+      paymentDate: today,
+      amount: params.amount,
+      paymentMode: params.paymentMode,
+      accountId: params.accountId,
+      voucherNo,
+      notes: params.notes,
+      createdAt: now,
+      createdBy: currentUser.fullName,
+    };
+
+    const accTx: AccountTransaction = {
+      id: 'atx-lpay-' + Math.random().toString(36).substring(2, 11),
+      accountId: params.accountId,
+      transactionDate: today,
+      transactionType: 'OPERATING_EXPENSE',
+      direction: 'CREDIT',
+      amount: params.amount,
+      referenceNo: voucherNo,
+      description: `Daily labour settlement: ${params.workerNameOrGroup}`,
+      createdBy: currentUser.fullName,
+      createdAt: now,
+    };
+
+    setDailyLabourEntries((prev) => prev.map((l) => (l.id === params.dailyLabourId ? updatedLabour : l)));
+    setLabourPayments((prev) => [lpay, ...prev]);
+    setAccountTransactions((prev) => [accTx, ...prev]);
+    setJournalEntries((prev) => [je, ...prev]);
+
+    if (dbRepository.isRemoteDatabaseAvailable()) {
+      dbRepository.saveLabourPayment(lpay).catch((e) => console.warn('Sync labour payment to DB failed', e));
+      dbRepository.updateDailyLabour(params.dailyLabourId, { amountPaid: updatedLabour.amountPaid, remainingBalance: updatedLabour.remainingBalance }).catch((e) => console.warn('Update labour balance in DB failed', e));
+    }
+
+    logAudit('RECORD_LABOUR_PAYMENT', 'LABOUR_PAYMENT', lpay.id, null, lpay);
+    return lpay;
+  };
+
   // --- Contractor Register Management ---
   const addContractor = (params: Omit<Contractor, 'id' | 'createdAt'>): Contractor => {
     const id = 'contr-' + Math.random().toString(36).substring(2, 11);
     const newContr: Contractor = {
       ...params,
       id,
+      companyId: activeCompanyId,
       createdAt: new Date().toISOString(),
     };
     setContractors((prev) => [newContr, ...prev]);
+
+    if (dbRepository.isRemoteDatabaseAvailable()) {
+      dbRepository.saveContractor(newContr).catch((e) => console.warn('Sync contractor to DB failed', e));
+    }
+
     logAudit('ADD_CONTRACTOR', 'CONTRACTOR', id, null, newContr);
     return newContr;
   };
@@ -1364,19 +1685,35 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const recordContractorWork = (params: Omit<ContractorWorkEntry, 'id' | 'createdAt' | 'createdBy'>): ContractorWorkEntry => {
+    validateContractorWorkInput(params);
+
+    const isPaid = (params.currentPayment || 0) > 0;
+    const acc = params.accountId ? accounts.find((a) => a.id === params.accountId) : undefined;
+    if (isPaid && acc) {
+      const curBal = getAccountBalance(acc.id);
+      validateCashBankTransaction({
+        account: acc,
+        amount: params.currentPayment,
+        direction: 'CREDIT',
+        currentBalance: curBal,
+      });
+    }
+
     const id = 'cwork-' + Math.random().toString(36).substring(2, 11);
     const now = new Date().toISOString();
     const newWork: ContractorWorkEntry = {
       ...params,
       id,
+      companyId: activeCompanyId,
       createdAt: now,
       createdBy: currentUser.fullName,
     };
 
-    setContractorWorkEntries((prev) => [newWork, ...prev]);
+    const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
+    const je = createContractorWorkJournal(newWork, accCode, activeCompany, currentUser.fullName);
 
-    if (params.currentPayment > 0 && params.accountId) {
-      const acc = accounts.find((a) => a.id === params.accountId);
+    if (isPaid && params.accountId) {
+      const voucherNo = `CPAY-26-${String(contractorPayments.length + 1).padStart(4, '0')}`;
       const accTx: AccountTransaction = {
         id: 'atx-cw-' + Math.random().toString(36).substring(2, 11),
         accountId: params.accountId,
@@ -1384,20 +1721,35 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         transactionType: 'OPERATING_EXPENSE',
         direction: 'CREDIT',
         amount: params.currentPayment,
-        referenceNo: `CONTR-${params.workDate}`,
+        referenceNo: voucherNo,
         description: `Contractor Work Payment: ${params.contractorName} (${params.workDescription})`,
         createdBy: currentUser.fullName,
         createdAt: now,
       };
       setAccountTransactions((prev) => [accTx, ...prev]);
 
-      try {
-        const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
-        const je = createContractorWorkJournal(newWork, accCode, activeCompany, currentUser.fullName);
-        setJournalEntries((prev) => [je, ...prev]);
-      } catch (e) {
-        console.warn('Could not post journal for contractor work:', e);
-      }
+      const cpay: ContractorPayment = {
+        id: 'cpay-' + Math.random().toString(36).substring(2, 11),
+        companyId: activeCompanyId,
+        contractorId: params.contractorId,
+        contractorWorkId: id,
+        contractorName: params.contractorName,
+        paymentDate: params.workDate,
+        amount: params.currentPayment,
+        paymentMode: (params.paymentMode as any) || 'BANK',
+        accountId: params.accountId,
+        voucherNo,
+        createdAt: now,
+        createdBy: currentUser.fullName,
+      };
+      setContractorPayments((prev) => [cpay, ...prev]);
+    }
+
+    setContractorWorkEntries((prev) => [newWork, ...prev]);
+    setJournalEntries((prev) => [je, ...prev]);
+
+    if (dbRepository.isRemoteDatabaseAvailable()) {
+      dbRepository.saveContractorWork(newWork).catch((e) => console.warn('Sync contractor work to DB failed', e));
     }
 
     logAudit('RECORD_CONTRACTOR_WORK', 'CONTRACTOR_WORK', id, null, newWork);
@@ -1419,10 +1771,44 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const payContractorWork = (workEntryId: string, amount: number, paymentMode: 'CASH' | 'BANK', accountId?: string) => {
     const existing = contractorWorkEntries.find((w) => w.id === workEntryId);
-    if (!existing || amount <= 0) return;
+    if (!existing) throw new Error('Contractor work entry not found.');
 
-    const newPrevPayments = roundTo2((existing.previousPayments || 0) + (existing.currentPayment || 0));
-    const newRemaining = roundTo2(Math.max(0, existing.totalContractAmount - (existing.advancePaid || 0) - newPrevPayments - amount));
+    validateContractorPaymentInput({ contractorWorkId: workEntryId, amount, paymentMode, accountId }, existing);
+
+    const acc = accounts.find((a) => a.id === accountId);
+    if (!acc) throw new Error('Payment account not found.');
+
+    const curBal = getAccountBalance(accountId!);
+    validateCashBankTransaction({
+      account: acc,
+      amount,
+      direction: 'CREDIT',
+      currentBalance: curBal,
+    });
+
+    const now = new Date().toISOString();
+    const today = now.split('T')[0];
+    const voucherNo = `CPAY-26-${String(contractorPayments.length + 1).padStart(4, '0')}`;
+    const accCode = acc.accountType === 'BANK' ? '1020' : '1010';
+
+    // Double-entry: Dr. 2110 Contractor & Labour Payable, Cr. 1010/1020 Cash/Bank
+    // Crucial: Recognizes contractor expense strictly ONCE; progress payments only reduce payable liability!
+    const je = createContractorProgressPaymentJournal(
+      {
+        contractorWorkId: workEntryId,
+        contractorName: existing.contractorName,
+        amount,
+        paymentDate: today,
+        paymentMode,
+        voucherNo,
+      },
+      accCode,
+      activeCompany,
+      currentUser.fullName
+    );
+
+    const newPrevPayments = roundTo2((existing.previousPayments || 0) + amount);
+    const newRemaining = roundTo2(Math.max(0, existing.remainingBalance - amount));
 
     const updated: ContractorWorkEntry = {
       ...existing,
@@ -1433,31 +1819,42 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       accountId,
     };
 
+    const cpay: ContractorPayment = {
+      id: 'cpay-' + Math.random().toString(36).substring(2, 11),
+      companyId: activeCompanyId,
+      contractorId: existing.contractorId,
+      contractorWorkId: workEntryId,
+      contractorName: existing.contractorName,
+      paymentDate: today,
+      amount,
+      paymentMode,
+      accountId: accountId!,
+      voucherNo,
+      createdAt: now,
+      createdBy: currentUser.fullName,
+    };
+
+    const accTx: AccountTransaction = {
+      id: 'atx-cw-pay-' + Math.random().toString(36).substring(2, 11),
+      accountId: accountId!,
+      transactionDate: today,
+      transactionType: 'OPERATING_EXPENSE',
+      direction: 'CREDIT',
+      amount,
+      referenceNo: voucherNo,
+      description: `Contractor Progress Payment: ${existing.contractorName} (${voucherNo})`,
+      createdBy: currentUser.fullName,
+      createdAt: now,
+    };
+
     setContractorWorkEntries((prev) => prev.map((w) => (w.id === workEntryId ? updated : w)));
+    setContractorPayments((prev) => [cpay, ...prev]);
+    setAccountTransactions((prev) => [accTx, ...prev]);
+    setJournalEntries((prev) => [je, ...prev]);
 
-    if (accountId) {
-      const acc = accounts.find((a) => a.id === accountId);
-      const accTx: AccountTransaction = {
-        id: 'atx-cw-pay-' + Math.random().toString(36).substring(2, 11),
-        accountId,
-        transactionDate: new Date().toISOString().split('T')[0],
-        transactionType: 'OPERATING_EXPENSE',
-        direction: 'CREDIT',
-        amount,
-        referenceNo: `CONTR-PAY-${existing.id}`,
-        description: `Contractor Payment: ${existing.contractorName} (${existing.workDescription})`,
-        createdBy: currentUser.fullName,
-        createdAt: new Date().toISOString(),
-      };
-      setAccountTransactions((prev) => [accTx, ...prev]);
-
-      try {
-        const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
-        const je = createContractorWorkJournal(updated, accCode, activeCompany, currentUser.fullName);
-        setJournalEntries((prev) => [je, ...prev]);
-      } catch (e) {
-        console.warn('Could not post journal for contractor pay:', e);
-      }
+    if (dbRepository.isRemoteDatabaseAvailable()) {
+      dbRepository.saveContractorPayment(cpay).catch((e) => console.warn('Sync contractor payment to DB failed', e));
+      dbRepository.updateContractorWork(workEntryId, { previousPayments: newPrevPayments, remainingBalance: newRemaining }).catch((e) => console.warn('Update contractor balance in DB failed', e));
     }
 
     logAudit('PAY_CONTRACTOR_WORK', 'CONTRACTOR_WORK', workEntryId, existing, updated);
@@ -1470,28 +1867,30 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newClosing: DailyCashClosingRecord = {
       ...closingData,
       id,
+      companyId: activeCompanyId,
       closedAt: now,
       closedBy: currentUser.fullName,
     };
 
-    setDailyCashClosings((prev) => [newClosing, ...prev]);
-
     // If there is a discrepancy, post adjustment journal
     if (Math.abs(closingData.cashDifference) > 0.01) {
-      try {
-        const je = createCashClosingJournal(
-          closingData.cashDifference,
-          closingData.closingDate,
-          closingData.discrepancyReason || 'Cash count audit difference',
-          activeCompany,
-          currentUser.fullName
-        );
-        if (je) {
-          setJournalEntries((prev) => [je, ...prev]);
-        }
-      } catch (e) {
-        console.warn('Could not post journal for daily cash closing difference:', e);
+      const je = createCashClosingJournal(
+        closingData.cashDifference,
+        closingData.closingDate,
+        closingData.discrepancyReason || 'Cash count audit difference',
+        activeCompany,
+        currentUser.fullName
+      );
+      if (je) {
+        setJournalEntries((prev) => [je, ...prev]);
+        newClosing.journalId = je.id;
       }
+    }
+
+    setDailyCashClosings((prev) => [newClosing, ...prev]);
+
+    if (dbRepository.isRemoteDatabaseAvailable()) {
+      dbRepository.saveDailyCashClosing(newClosing).catch((e) => console.warn('Sync cash closing to DB failed', e));
     }
 
     logAudit('DAILY_CASH_CLOSING', 'DAILY_CASH_CLOSING', id, null, newClosing);
@@ -2114,9 +2513,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCommercialDocuments(INITIAL_COMMERCIAL_DOCUMENTS);
     setJournalEntries(INITIAL_JOURNAL_ENTRIES);
     setSalaryRecords(INITIAL_SALARY_RECORDS);
+    setEmployeeAdvances(INITIAL_EMPLOYEE_ADVANCES);
     setDailyLabourEntries(INITIAL_DAILY_LABOUR);
+    setLabourPayments(INITIAL_LABOUR_PAYMENTS);
     setContractors(INITIAL_CONTRACTORS);
     setContractorWorkEntries(INITIAL_CONTRACTOR_WORK);
+    setContractorPayments(INITIAL_CONTRACTOR_PAYMENTS);
     setDailyCashClosings(INITIAL_DAILY_CASH_CLOSINGS);
     localStorage.clear();
   };
@@ -2153,9 +2555,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       workNotes,
       uploadedDocuments,
       salaryRecords,
+      employeeAdvances,
       dailyLabourEntries,
+      labourPayments,
       contractors,
       contractorWorkEntries,
+      contractorPayments,
       dailyCashClosings,
     };
     return JSON.stringify(backup, null, 2);
@@ -2191,9 +2596,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     workNotes,
     uploadedDocuments,
     salaryRecords,
+    employeeAdvances,
     dailyLabourEntries,
+    labourPayments,
     contractors,
     contractorWorkEntries,
+    contractorPayments,
     dailyCashClosings,
   });
 
@@ -2246,9 +2654,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       );
     }
     if (data.salaryRecords) setSalaryRecords(data.salaryRecords);
+    if (data.employeeAdvances) setEmployeeAdvances(data.employeeAdvances);
     if (data.dailyLabourEntries) setDailyLabourEntries(data.dailyLabourEntries);
+    if (data.labourPayments) setLabourPayments(data.labourPayments);
     if (data.contractors) setContractors(data.contractors);
     if (data.contractorWorkEntries) setContractorWorkEntries(data.contractorWorkEntries);
+    if (data.contractorPayments) setContractorPayments(data.contractorPayments);
     if (data.dailyCashClosings) setDailyCashClosings(data.dailyCashClosings);
   };
 
@@ -2650,16 +3061,21 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         payUnpaidExpense,
         reverseExpense,
         salaryRecords,
+        employeeAdvances,
         dailyLabourEntries,
+        labourPayments,
         contractors,
         contractorWorkEntries,
+        contractorPayments,
         dailyCashClosings,
+        issueEmployeeAdvance,
         recordSalaryPayment,
         updateSalaryRecord,
         deleteSalaryRecord,
         recordDailyLabour,
         updateDailyLabour,
         deleteDailyLabour,
+        recordLabourPayment,
         addContractor,
         updateContractor,
         deleteContractor,
@@ -2668,6 +3084,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteContractorWork,
         payContractorWork,
         recordDailyCashClosing,
+        getAccountBalance,
         addAccount,
         updateAccount,
         deleteAccount,

@@ -30,7 +30,12 @@ import type {
   BackupScheduleConfig,
   DailyTask,
   WorkNote,
-  UploadedDocument
+  UploadedDocument,
+  MonthlySalaryRecord,
+  DailyLabourEntry,
+  Contractor,
+  ContractorWorkEntry,
+  DailyCashClosingRecord
 } from '../types/index.ts';
 
 export const INITIAL_COMPANY_SETTINGS: Company = {
@@ -1263,4 +1268,259 @@ export const INITIAL_UPLOADED_DOCS: UploadedDocument[] = [
     createdAt: '2021-03-15T09:00:00Z'
   }
 ];
+
+// -------------------------------------------------------------
+// Small-Business Finance Seed Data (Yashoth Enterprises)
+// -------------------------------------------------------------
+
+export const INITIAL_EXPENSES: Expense[] = [
+  {
+    id: 'exp-init-01',
+    companyId: 'comp-yasoth-01',
+    voucherNo: 'EXP-26-0001',
+    expenseDate: '2026-10-10',
+    category: 'Diesel / Petrol',
+    description: 'Diesel for Ashok Leyland Tipper (TN 04 AB 1234)',
+    amount: 4500,
+    accountId: 'acc-cash-yard',
+    paymentMode: 'CASH',
+    status: 'PAID',
+    approvalStatus: 'APPROVED',
+    enteredBy: 'admin',
+    paidTo: 'Indian Oil Bunk Gummidipoondi',
+    billReference: 'IOC-88210',
+    createdBy: 'admin',
+    createdAt: '2026-10-10T11:00:00Z',
+  },
+  {
+    id: 'exp-init-02',
+    companyId: 'comp-yasoth-01',
+    voucherNo: 'EXP-26-0002',
+    expenseDate: '2026-10-12',
+    category: 'Tea / Drinking Water',
+    description: 'Weekly tea and drinking water can supply for yard workers',
+    amount: 450,
+    accountId: 'acc-cash-yard',
+    paymentMode: 'CASH',
+    status: 'PAID',
+    approvalStatus: 'APPROVED',
+    enteredBy: 'admin',
+    paidTo: 'Murugan Tea Stall',
+    billReference: 'MTS-104',
+    createdBy: 'admin',
+    createdAt: '2026-10-12T17:30:00Z',
+  },
+  {
+    id: 'exp-init-03',
+    companyId: 'comp-yasoth-01',
+    voucherNo: 'EXP-26-0003',
+    expenseDate: '2026-10-14',
+    category: 'Loading / Unloading',
+    description: 'Heavy HMS-1 iron beam loading charges by crane gang',
+    amount: 2500,
+    accountId: 'acc-cash-yard',
+    paymentMode: 'CASH',
+    status: 'PAID',
+    approvalStatus: 'APPROVED',
+    enteredBy: 'admin',
+    paidTo: 'Alinjivakkam Crane Gang',
+    billReference: 'ACG-55',
+    createdBy: 'admin',
+    createdAt: '2026-10-14T14:00:00Z',
+  },
+  {
+    id: 'exp-init-04',
+    companyId: 'comp-yasoth-01',
+    voucherNo: 'EXP-26-0004',
+    expenseDate: '2026-10-15',
+    category: 'Electricity',
+    description: 'Monthly yard EB electricity bill payment',
+    amount: 3850,
+    accountId: 'acc-bank-cub',
+    paymentMode: 'BANK',
+    status: 'PAID',
+    approvalStatus: 'APPROVED',
+    enteredBy: 'admin',
+    paidTo: 'TANGEDCO Alinjivakkam',
+    billReference: 'EB-03-249-1120',
+    createdBy: 'admin',
+    createdAt: '2026-10-15T10:15:00Z',
+  },
+  {
+    id: 'exp-init-05',
+    companyId: 'comp-yasoth-01',
+    voucherNo: 'EXP-26-0005',
+    expenseDate: '2026-10-16',
+    category: 'Repair / Maintenance',
+    description: 'Gas cutting torch hose set & nozzle replacement',
+    amount: 1800,
+    accountId: 'acc-cash-yard',
+    paymentMode: 'UNPAID',
+    status: 'UNPAID',
+    approvalStatus: 'APPROVED',
+    enteredBy: 'admin',
+    paidTo: 'Sri Amman Welding Works',
+    billReference: 'SAW-9912',
+    createdBy: 'admin',
+    createdAt: '2026-10-16T16:00:00Z',
+  }
+];
+
+export const INITIAL_SALARY_RECORDS: MonthlySalaryRecord[] = [
+  {
+    id: 'sal-init-01',
+    companyId: 'comp-yasoth-01',
+    employeeId: 'emp-01',
+    employeeName: 'S. Rajan',
+    designation: 'Yard Operations Supervisor',
+    salaryMonth: '2026-10',
+    grossSalary: 28000,
+    allowances: 1500,
+    deductions: 500,
+    advanceRecovery: 2000,
+    netSalaryPayable: 27000,
+    amountPaid: 27000,
+    remainingBalance: 0,
+    paymentDate: '2026-10-31',
+    paymentMode: 'BANK',
+    accountId: 'acc-bank-cub',
+    status: 'PAID',
+    notes: 'October 2026 monthly salary transferred via City Union Bank NEFT.',
+    createdAt: '2026-10-31T18:00:00Z',
+    createdBy: 'admin'
+  },
+  {
+    id: 'sal-init-02',
+    companyId: 'comp-yasoth-01',
+    employeeId: 'emp-02',
+    employeeName: 'M. Kumar',
+    designation: 'Weighbridge & Gate Operator',
+    salaryMonth: '2026-10',
+    grossSalary: 22000,
+    allowances: 1000,
+    deductions: 0,
+    advanceRecovery: 0,
+    netSalaryPayable: 23000,
+    amountPaid: 23000,
+    remainingBalance: 0,
+    paymentDate: '2026-10-31',
+    paymentMode: 'BANK',
+    accountId: 'acc-bank-cub',
+    status: 'PAID',
+    notes: 'October 2026 full salary transferred.',
+    createdAt: '2026-10-31T18:15:00Z',
+    createdBy: 'admin'
+  }
+];
+
+export const INITIAL_DAILY_LABOUR: DailyLabourEntry[] = [
+  {
+    id: 'dlab-init-01',
+    companyId: 'comp-yasoth-01',
+    workDate: '2026-10-15',
+    workerNameOrGroup: 'Mani Scrap Sorting Team (4 Persons)',
+    workerCount: 4,
+    workingDays: 1,
+    dailyRate: 650,
+    overtimeAmount: 400,
+    additionalCharges: 0,
+    totalLabourCost: 3000, // 4 * 1 * 650 + 400
+    advanceAmount: 0,
+    amountPaid: 3000,
+    remainingBalance: 0,
+    paymentMode: 'CASH',
+    accountId: 'acc-cash-yard',
+    notes: 'Cast iron and aluminium scrap sorting in Yard-01',
+    createdAt: '2026-10-15T18:30:00Z',
+    createdBy: 'admin'
+  },
+  {
+    id: 'dlab-init-02',
+    companyId: 'comp-yasoth-01',
+    workDate: '2026-10-16',
+    workerNameOrGroup: 'Velu Gas Cutting Gang (3 Persons)',
+    workerCount: 3,
+    workingDays: 1,
+    dailyRate: 750,
+    overtimeAmount: 300,
+    additionalCharges: 150,
+    totalLabourCost: 2700, // 3 * 1 * 750 + 300 + 150
+    advanceAmount: 500,
+    amountPaid: 1500,
+    remainingBalance: 700,
+    paymentMode: 'CASH',
+    accountId: 'acc-cash-yard',
+    notes: 'Heavy structural steel beam cutting at yard gate',
+    createdAt: '2026-10-16T19:00:00Z',
+    createdBy: 'admin'
+  }
+];
+
+export const INITIAL_CONTRACTORS: Contractor[] = [
+  {
+    id: 'contr-init-01',
+    companyId: 'comp-yasoth-01',
+    contractorName: 'Karthik Demolition & Gas Cutting Team',
+    phone: '+91 98401 23456',
+    address: 'Plot 44, Manali Industrial Estate, Chennai - 600068',
+    workDescription: 'Heavy Industrial Boiler & Shed Dismantling with Oxygen Lancing',
+    contractType: 'FIXED_CONTRACT',
+    isActive: true,
+    createdAt: '2026-10-01T09:00:00Z'
+  },
+  {
+    id: 'contr-init-02',
+    companyId: 'comp-yasoth-01',
+    contractorName: 'Saravanan Crane & Heavy Rigging Works',
+    phone: '+91 94441 98765',
+    address: 'G.N.T Road, Madhavaram, Chennai - 600110',
+    workDescription: 'Hydra 14-Ton Crane Shifting & Loading of Oversized Scrap',
+    contractType: 'DAILY_RATE',
+    isActive: true,
+    createdAt: '2026-10-05T09:00:00Z'
+  }
+];
+
+export const INITIAL_CONTRACTOR_WORK: ContractorWorkEntry[] = [
+  {
+    id: 'cwork-init-01',
+    companyId: 'comp-yasoth-01',
+    contractorId: 'contr-init-01',
+    contractorName: 'Karthik Demolition & Gas Cutting Team',
+    workDate: '2026-10-14',
+    workDescription: 'Industrial Boiler Dismantling Phase 1 (25 Tons Cut)',
+    workerCount: 6,
+    quantityCompleted: 25,
+    agreedRate: 45000,
+    totalContractAmount: 45000,
+    advancePaid: 10000,
+    previousPayments: 15000,
+    currentPayment: 10000,
+    remainingBalance: 10000,
+    paymentMode: 'BANK',
+    accountId: 'acc-bank-cub',
+    notes: 'Balance ₹10,000 to be paid after final site clearance',
+    createdAt: '2026-10-14T17:00:00Z',
+    createdBy: 'admin'
+  }
+];
+
+export const INITIAL_DAILY_CASH_CLOSINGS: DailyCashClosingRecord[] = [
+  {
+    id: 'cls-init-01',
+    companyId: 'comp-yasoth-01',
+    closingDate: '2026-10-15',
+    openingCash: 50000,
+    todayCashInflow: 35000,
+    todayCashOutflow: 18500,
+    expectedCashInHand: 66500,
+    physicallyCountedCash: 66500,
+    cashDifference: 0,
+    discrepancyReason: 'Audit verified: exact cash match in yard cash box drawer.',
+    notes: 'Verified by Admin and Yard Supervisor S. Rajan.',
+    closedBy: 'admin',
+    closedAt: '2026-10-15T20:30:00Z'
+  }
+];
+
 

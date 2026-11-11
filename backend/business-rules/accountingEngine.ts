@@ -84,10 +84,12 @@ export const STANDARD_CHART_OF_ACCOUNTS: ChartOfAccount[] = [
 
   // Liabilities (2000 - 2999)
   { code: '2010', name: 'Sundry Creditors (Suppliers A/P)', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
+  { code: '2020', name: 'Unpaid Operational Expenses Payable', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
   { code: '2050', name: 'Output Tax Liability — CGST', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
   { code: '2060', name: 'Output Tax Liability — SGST', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
   { code: '2070', name: 'Output Tax Liability — IGST', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
   { code: '2100', name: 'Employee Wages & Advances Payable', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
+  { code: '2110', name: 'Contractor & Labour Payable', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
 
   // Equity (3000 - 3999)
   { code: '3010', name: 'Proprietor / Partners Capital', category: 'EQUITY', normalBalance: 'CREDIT', isSystem: true },
@@ -101,10 +103,12 @@ export const STANDARD_CHART_OF_ACCOUNTS: ChartOfAccount[] = [
   // Direct & Indirect Expenses (5000 - 5999)
   { code: '5010', name: 'Scrap Raw Material Purchases', category: 'EXPENSE', normalBalance: 'DEBIT', isSystem: true },
   { code: '5020', name: 'Demolition Direct Labor & Cutting', category: 'EXPENSE', normalBalance: 'DEBIT', isSystem: true },
+  { code: '5025', name: 'Outsourced Contractor Charges', category: 'EXPENSE', normalBalance: 'DEBIT', isSystem: true },
   { code: '5030', name: 'Freight, Haulage & Crane Charges', category: 'EXPENSE', normalBalance: 'DEBIT', isSystem: true },
   { code: '5040', name: 'Yard Utilities & Maintenance', category: 'EXPENSE', normalBalance: 'DEBIT', isSystem: true },
   { code: '5050', name: 'Salaries & Staff Wages', category: 'EXPENSE', normalBalance: 'DEBIT', isSystem: true },
   { code: '5060', name: 'Vehicle Running & Diesel Cost', category: 'EXPENSE', normalBalance: 'DEBIT', isSystem: true },
+  { code: '5070', name: 'Office, Tea & Food Expenses', category: 'EXPENSE', normalBalance: 'DEBIT', isSystem: true },
   { code: '5090', name: 'Round-Off & Decimal Variance', category: 'EXPENSE', normalBalance: 'DEBIT', isSystem: true },
 ];
 
@@ -543,15 +547,31 @@ export function createExpenseJournal(
   let expenseAccountName = 'Yard Utilities & Maintenance';
 
   const cat = (expense.category || '').toLowerCase();
+  const paidToText = (expense.paidTo || '').toLowerCase();
   if (cat.includes('fuel') || cat.includes('diesel')) {
     expenseAccountCode = '5060';
     expenseAccountName = 'Vehicle Running & Diesel Cost';
-  } else if (cat.includes('wage') || cat.includes('salary') || cat.includes('labor')) {
+  } else if (cat.includes('daily labour') || cat.includes('wage') || cat.includes('labor') || cat.includes('கூலி')) {
     expenseAccountCode = '5020';
     expenseAccountName = 'Demolition Direct Labor & Cutting';
-  } else if (cat.includes('transport') || cat.includes('freight') || cat.includes('crane') || cat.includes('maintenance')) {
+  } else if (
+    cat.includes('loading') ||
+    cat.includes('unloading') ||
+    cat.includes('transport') ||
+    cat.includes('freight') ||
+    cat.includes('rent') ||
+    cat.includes('crane') ||
+    cat === 'yard_maintenance' ||
+    paidToText.includes('crane')
+  ) {
     expenseAccountCode = '5030';
     expenseAccountName = 'Freight, Haulage & Crane Charges';
+  } else if (cat.includes('repair') || cat.includes('maintenance') || cat.includes('electricity')) {
+    expenseAccountCode = '5040';
+    expenseAccountName = 'Yard Utilities & Maintenance';
+  } else if (cat.includes('food') || cat.includes('tea') || cat.includes('water') || cat.includes('office')) {
+    expenseAccountCode = '5070';
+    expenseAccountName = 'Office, Tea & Food Expenses';
   }
 
   lines.push({
@@ -563,13 +583,19 @@ export function createExpenseJournal(
     lineNarration: `Expense: ${expense.category} - ${paidTo}`,
   });
 
+  const isUnpaid = expense.status === 'UNPAID' || expense.paymentMode === 'UNPAID';
+  const creditCode = isUnpaid ? '2020' : accountCode;
+  const creditName = isUnpaid 
+    ? 'Unpaid Operational Expenses Payable' 
+    : (creditCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)');
+
   lines.push({
     id: `jl-${expense.id}-cr-cb`,
-    accountCode,
-    accountName: accountCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)',
+    accountCode: creditCode,
+    accountName: creditName,
     debit: 0,
     credit: amount,
-    lineNarration: `Paid to ${paidTo}`,
+    lineNarration: isUnpaid ? `Unpaid liability to ${paidTo}` : `Paid to ${paidTo}`,
   });
 
   const entry: JournalEntry = {
@@ -587,6 +613,369 @@ export function createExpenseJournal(
     isPosted: true,
     createdBy: expense.createdBy || 'system',
     createdAt: expense.createdAt || new Date().toISOString(),
+  };
+
+  validateJournalEntry(entry);
+  return entry;
+}
+
+/**
+ * Double-entry posting for paying an already accrued unpaid expense:
+ * Dr. 2020 Unpaid Operational Expenses Payable
+ *   Cr. 1010/1020 Cash or Bank Account
+ * Important: Never records expense twice!
+ */
+export function createPayUnpaidExpenseJournal(
+  expense: Expense,
+  accountCode: string,
+  company: Company,
+  actor: string
+): JournalEntry {
+  const amount = roundTo2(expense.amount);
+  const voucherNo = expense.voucherNo || expense.id;
+  const lines: JournalLine[] = [
+    {
+      id: `jl-payexp-dr-${expense.id}`,
+      accountCode: '2020',
+      accountName: 'Unpaid Operational Expenses Payable',
+      debit: amount,
+      credit: 0,
+      lineNarration: `Clear payable liability for ${expense.voucherNo}`,
+    },
+    {
+      id: `jl-payexp-cr-${expense.id}`,
+      accountCode,
+      accountName: accountCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)',
+      debit: 0,
+      credit: amount,
+      lineNarration: `Payment for expense voucher ${expense.voucherNo}`,
+    }
+  ];
+
+  const entry: JournalEntry = {
+    id: `je-payexp-${expense.id}`,
+    companyId: company.id,
+    entryNo: `JV-CLR-${voucherNo.replace(/[^A-Za-z0-9]/g, '')}`,
+    entryDate: new Date().toISOString().split('T')[0],
+    sourceType: 'PAYMENT',
+    sourceId: expense.id,
+    referenceNo: voucherNo,
+    narration: `Pay accrued expense voucher ${voucherNo} (${expense.category})`,
+    lines,
+    totalDebit: amount,
+    totalCredit: amount,
+    isPosted: true,
+    createdBy: actor,
+    createdAt: new Date().toISOString(),
+  };
+
+  validateJournalEntry(entry);
+  return entry;
+}
+
+/**
+ * Double-entry posting for Monthly Staff Salary:
+ * Dr. 5050 Salaries & Staff Wages [Gross + Allowances]
+ *   Cr. 1010/1020 Cash or Bank Account [Net Amount Paid]
+ *   Cr. 2100 Advance / Deductions Recovered [Deductions + Advance]
+ */
+export function createSalaryPaymentJournal(
+  record: {
+    id: string;
+    employeeName: string;
+    salaryMonth: string;
+    grossSalary: number;
+    allowances?: number;
+    deductions?: number;
+    advanceRecovery?: number;
+    amountPaid: number;
+    paymentMode?: 'CASH' | 'BANK';
+    notes?: string;
+  },
+  accountCode: string = '1010',
+  company: Company,
+  actor: string
+): JournalEntry {
+  const amountPaid = roundTo2(record.amountPaid);
+  const totalExpense = roundTo2((record.grossSalary || 0) + (record.allowances || 0));
+  const lines: JournalLine[] = [];
+
+  // Dr. Salary expense
+  lines.push({
+    id: `jl-sal-dr-${record.id}`,
+    accountCode: '5050',
+    accountName: 'Salaries & Staff Wages',
+    debit: totalExpense,
+    credit: 0,
+    lineNarration: `Monthly Salary: ${record.employeeName} (${record.salaryMonth})`,
+  });
+
+  // Cr. Cash / Bank paid
+  lines.push({
+    id: `jl-sal-cr-cb-${record.id}`,
+    accountCode,
+    accountName: accountCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)',
+    debit: 0,
+    credit: amountPaid,
+    lineNarration: `Salary paid to ${record.employeeName}`,
+  });
+
+  // Cr. Advance / Deductions recovered or unpaid balance if any
+  const remainingCredit = roundTo2(totalExpense - amountPaid);
+  if (remainingCredit > 0.001) {
+    lines.push({
+      id: `jl-sal-cr-rec-${record.id}`,
+      accountCode: '2100',
+      accountName: 'Employee Wages & Advances Payable',
+      debit: 0,
+      credit: remainingCredit,
+      lineNarration: `Advance & statutory deductions recovery (${record.salaryMonth})`,
+    });
+  }
+
+  const entry: JournalEntry = {
+    id: `je-sal-${record.id}`,
+    companyId: company.id,
+    entryNo: `JV-SAL-${record.id.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`,
+    entryDate: new Date().toISOString().split('T')[0],
+    sourceType: 'PAYMENT',
+    sourceId: record.id,
+    referenceNo: `SAL-${record.salaryMonth}`,
+    narration: `Salary payment for ${record.employeeName} (${record.salaryMonth})`,
+    lines,
+    totalDebit: totalExpense,
+    totalCredit: roundTo2(amountPaid + (remainingCredit > 0.001 ? remainingCredit : 0)),
+    isPosted: true,
+    createdBy: actor,
+    createdAt: new Date().toISOString(),
+  };
+
+  validateJournalEntry(entry);
+  return entry;
+}
+
+/**
+ * Double-entry posting for Daily Wage Labour:
+ * Dr. 5020 Demolition Direct Labor & Cutting [Total Labour Cost]
+ *   Cr. 1010/1020 Cash or Bank [Amount Paid]
+ *   Cr. 2100 Employee Wages Payable [Remaining Balance / Advance]
+ */
+export function createDailyLabourJournal(
+  labour: {
+    id: string;
+    workerNameOrGroup: string;
+    workDate: string;
+    totalLabourCost: number;
+    amountPaid: number;
+    remainingBalance: number;
+    paymentMode: 'CASH' | 'BANK' | 'UNPAID';
+  },
+  accountCode: string = '1010',
+  company: Company,
+  actor: string
+): JournalEntry {
+  const totalCost = roundTo2(labour.totalLabourCost);
+  const paid = roundTo2(labour.amountPaid);
+  const unpaid = roundTo2(totalCost - paid);
+  const lines: JournalLine[] = [];
+
+  lines.push({
+    id: `jl-lab-dr-${labour.id}`,
+    accountCode: '5020',
+    accountName: 'Demolition Direct Labor & Cutting',
+    debit: totalCost,
+    credit: 0,
+    lineNarration: `Daily Labour: ${labour.workerNameOrGroup} on ${labour.workDate}`,
+  });
+
+  if (paid > 0) {
+    lines.push({
+      id: `jl-lab-cr-cb-${labour.id}`,
+      accountCode,
+      accountName: accountCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)',
+      debit: 0,
+      credit: paid,
+      lineNarration: `Paid to ${labour.workerNameOrGroup}`,
+    });
+  }
+
+  if (unpaid > 0.001) {
+    lines.push({
+      id: `jl-lab-cr-unp-${labour.id}`,
+      accountCode: '2100',
+      accountName: 'Employee Wages & Advances Payable',
+      debit: 0,
+      credit: unpaid,
+      lineNarration: `Pending daily wage balance for ${labour.workerNameOrGroup}`,
+    });
+  }
+
+  const entry: JournalEntry = {
+    id: `je-lab-${labour.id}`,
+    companyId: company.id,
+    entryNo: `JV-LAB-${labour.id.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`,
+    entryDate: labour.workDate,
+    sourceType: 'EXPENSE',
+    sourceId: labour.id,
+    referenceNo: `LAB-${labour.workDate}`,
+    narration: `Daily labour entry for ${labour.workerNameOrGroup} (${labour.workDate})`,
+    lines,
+    totalDebit: totalCost,
+    totalCredit: roundTo2(paid + (unpaid > 0.001 ? unpaid : 0)),
+    isPosted: true,
+    createdBy: actor,
+    createdAt: new Date().toISOString(),
+  };
+
+  validateJournalEntry(entry);
+  return entry;
+}
+
+/**
+ * Double-entry posting for Outsourced Contractor Work:
+ * Dr. 5025 Outsourced Contractor Charges [Total Contract Amount]
+ *   Cr. 1010/1020 Cash or Bank [Amount Paid]
+ *   Cr. 2110 Contractor & Labour Payable [Remaining Balance]
+ */
+export function createContractorWorkJournal(
+  work: {
+    id: string;
+    contractorName: string;
+    workDate: string;
+    totalContractAmount: number;
+    currentPayment: number;
+    remainingBalance: number;
+  },
+  accountCode: string = '1010',
+  company: Company,
+  actor: string
+): JournalEntry {
+  const totalAmount = roundTo2(work.totalContractAmount);
+  const paid = roundTo2(work.currentPayment);
+  const unpaid = roundTo2(totalAmount - paid);
+  const lines: JournalLine[] = [];
+
+  lines.push({
+    id: `jl-cont-dr-${work.id}`,
+    accountCode: '5025',
+    accountName: 'Outsourced Contractor Charges',
+    debit: totalAmount,
+    credit: 0,
+    lineNarration: `Contractor: ${work.contractorName} on ${work.workDate}`,
+  });
+
+  if (paid > 0) {
+    lines.push({
+      id: `jl-cont-cr-cb-${work.id}`,
+      accountCode,
+      accountName: accountCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)',
+      debit: 0,
+      credit: paid,
+      lineNarration: `Paid to contractor ${work.contractorName}`,
+    });
+  }
+
+  if (unpaid > 0.001) {
+    lines.push({
+      id: `jl-cont-cr-unp-${work.id}`,
+      accountCode: '2110',
+      accountName: 'Contractor & Labour Payable',
+      debit: 0,
+      credit: unpaid,
+      lineNarration: `Pending contractor balance for ${work.contractorName}`,
+    });
+  }
+
+  const entry: JournalEntry = {
+    id: `je-cont-${work.id}`,
+    companyId: company.id,
+    entryNo: `JV-CONTR-${work.id.replace(/[^A-Za-z0-9]/g, '').slice(-8)}`,
+    entryDate: work.workDate,
+    sourceType: 'EXPENSE',
+    sourceId: work.id,
+    referenceNo: `CONTR-${work.workDate}`,
+    narration: `Contractor work for ${work.contractorName} (${work.workDate})`,
+    lines,
+    totalDebit: totalAmount,
+    totalCredit: roundTo2(paid + (unpaid > 0.001 ? unpaid : 0)),
+    isPosted: true,
+    createdBy: actor,
+    createdAt: new Date().toISOString(),
+  };
+
+  validateJournalEntry(entry);
+  return entry;
+}
+
+/**
+ * Double-entry posting for Cash Closing Discrepancy Adjustment:
+ */
+export function createCashClosingJournal(
+  difference: number,
+  date: string,
+  reason: string,
+  company: Company,
+  actor: string
+): JournalEntry | null {
+  const diff = roundTo2(difference);
+  if (Math.abs(diff) < 0.01) return null;
+
+  const lines: JournalLine[] = [];
+  const absDiff = Math.abs(diff);
+
+  if (diff < 0) {
+    // Shortage
+    lines.push({
+      id: `jl-cls-dr-${Date.now()}`,
+      accountCode: '5090',
+      accountName: 'Round-Off & Decimal Variance',
+      debit: absDiff,
+      credit: 0,
+      lineNarration: `Daily Cash Shortage: ${reason || 'Physical cash audit adjustment'}`,
+    });
+    lines.push({
+      id: `jl-cls-cr-${Date.now()}`,
+      accountCode: '1010',
+      accountName: 'Cash on Hand',
+      debit: 0,
+      credit: absDiff,
+      lineNarration: `Cash drawer shortage written off`,
+    });
+  } else {
+    // Excess
+    lines.push({
+      id: `jl-cls-dr-${Date.now()}`,
+      accountCode: '1010',
+      accountName: 'Cash on Hand',
+      debit: absDiff,
+      credit: 0,
+      lineNarration: `Cash drawer excess added`,
+    });
+    lines.push({
+      id: `jl-cls-cr-${Date.now()}`,
+      accountCode: '4050',
+      accountName: 'Other Direct Income',
+      debit: 0,
+      credit: absDiff,
+      lineNarration: `Daily Cash Excess: ${reason || 'Physical cash audit surplus'}`,
+    });
+  }
+
+  const entry: JournalEntry = {
+    id: `je-cls-${Date.now().toString(36)}`,
+    companyId: company.id,
+    entryNo: `JV-CLS-${date.replace(/[^A-Za-z0-9]/g, '')}`,
+    entryDate: date,
+    sourceType: 'MANUAL_JOURNAL',
+    sourceId: `closing-${date}`,
+    referenceNo: `CLS-${date}`,
+    narration: `Daily Cash Closing discrepancy adjustment (${diff > 0 ? 'Excess' : 'Shortage'} ₹${absDiff})`,
+    lines,
+    totalDebit: absDiff,
+    totalCredit: absDiff,
+    isPosted: true,
+    createdBy: actor,
+    createdAt: new Date().toISOString(),
   };
 
   validateJournalEntry(entry);

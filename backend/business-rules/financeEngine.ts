@@ -248,3 +248,129 @@ export function calculatePartyNetBalance(
   // Positive = Customer owes us; Negative = We owe supplier
   return roundTo2(party.openingBalance + totalInvoiced - totalReceived - totalPurchased + totalPaid);
 }
+
+/**
+ * 1. Permanent Monthly Employee Salary:
+ * Gross Salary + Approved Allowances - Deductions - Salary Advance Recovery = Net Salary Payable
+ */
+export function calculateMonthlySalary(
+  grossSalary: number,
+  allowances: number = 0,
+  deductions: number = 0,
+  advanceRecovery: number = 0
+): number {
+  const net = grossSalary + allowances - deductions - advanceRecovery;
+  return roundTo2(Math.max(0, net));
+}
+
+/**
+ * 2. Daily Wage Labour:
+ * Total Labour Cost = Worker Count × Working Days × Daily Rate + Overtime + Approved Additional Charges
+ */
+export function calculateDailyLabourCost(
+  workerCount: number,
+  workingDays: number,
+  dailyRate: number,
+  overtimeAmount: number = 0,
+  additionalCharges: number = 0
+): number {
+  if (workerCount <= 0 || workingDays <= 0 || dailyRate <= 0) {
+    return 0;
+  }
+  const baseCost = workerCount * workingDays * dailyRate;
+  return roundTo2(baseCost + (overtimeAmount || 0) + (additionalCharges || 0));
+}
+
+/**
+ * Daily Labour Balance = Total Labour Cost - Advance Adjustments - Payments
+ */
+export function calculateDailyLabourBalance(
+  totalLabourCost: number,
+  advanceAmount: number = 0,
+  amountPaid: number = 0
+): number {
+  return roundTo2(Math.max(0, totalLabourCost - (advanceAmount || 0) - (amountPaid || 0)));
+}
+
+/**
+ * 3. Outsourced / Contract Labour:
+ * Balance = Total Contract Amount - Advance Paid - Previous Payments - Current Payment
+ */
+export function calculateContractorBalance(
+  totalContractAmount: number,
+  advancePaid: number = 0,
+  previousPayments: number = 0,
+  currentPayment: number = 0
+): number {
+  return roundTo2(Math.max(0, totalContractAmount - (advancePaid || 0) - (previousPayments || 0) - (currentPayment || 0)));
+}
+
+/**
+ * 4. Guided Daily Cash Closing:
+ * Expected Cash in Hand = Opening Cash + Cash Inflow - Cash Outflow
+ * Difference = Physically Counted Cash - Expected Cash (+ = excess, - = shortage)
+ */
+export function computeDailyCashClosing(
+  openingCash: number,
+  cashInflow: number,
+  cashOutflow: number,
+  countedCash: number
+): {
+  expectedCash: number;
+  difference: number;
+  status: 'MATCHED' | 'EXCESS' | 'SHORTAGE';
+} {
+  const expectedCash = roundTo2(openingCash + cashInflow - cashOutflow);
+  const difference = roundTo2(countedCash - expectedCash);
+  let status: 'MATCHED' | 'EXCESS' | 'SHORTAGE' = 'MATCHED';
+  if (difference > 0.01) status = 'EXCESS';
+  else if (difference < -0.01) status = 'SHORTAGE';
+  return { expectedCash, difference, status };
+}
+
+/**
+ * 5. Profit & Loss:
+ * Revenue = Sales Invoices + Other Income
+ * Direct Cost = Material Purchases + Inward Freight + Direct Labour
+ * Gross Profit = Revenue - Direct Cost
+ * Operating Expenses = Daily Expenses + Staff Salaries + Yard Electricity/Rent/Fuel + Maintenance
+ * Net Business Profit / Loss = Gross Profit - Operating Expenses
+ */
+export function calculateProfitAndLoss(params: {
+  salesRevenue: number;
+  otherIncome?: number;
+  materialPurchaseCost: number;
+  inwardFreight?: number;
+  directLabour?: number;
+  operatingExpenses: number;
+  staffSalaries?: number;
+  yardUtilitiesFuel?: number;
+  maintenance?: number;
+}): {
+  revenue: number;
+  directCost: number;
+  grossProfit: number;
+  operatingExpenses: number;
+  netProfit: number;
+} {
+  const revenue = roundTo2(params.salesRevenue + (params.otherIncome || 0));
+  const directCost = roundTo2(
+    params.materialPurchaseCost + (params.inwardFreight || 0) + (params.directLabour || 0)
+  );
+  const grossProfit = roundTo2(revenue - directCost);
+  const operatingExpenses = roundTo2(
+    params.operatingExpenses +
+    (params.staffSalaries || 0) +
+    (params.yardUtilitiesFuel || 0) +
+    (params.maintenance || 0)
+  );
+  const netProfit = roundTo2(grossProfit - operatingExpenses);
+  return {
+    revenue,
+    directCost,
+    grossProfit,
+    operatingExpenses,
+    netProfit,
+  };
+}
+

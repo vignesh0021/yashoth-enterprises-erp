@@ -410,7 +410,8 @@ export type TransactionType =
   | 'EMPLOYEE_ADVANCE'
   | 'OWNER_INJECTION'
   | 'OWNER_DRAWING'
-  | 'OPENING_BALANCE';
+  | 'OPENING_BALANCE'
+  | 'ACCOUNT_ADJUSTMENT';
 
 export interface CashBankAccount {
   id: string;
@@ -442,18 +443,41 @@ export interface AccountTransaction {
   createdAt: string;
 }
 
+export const EXPENSE_CATEGORIES = [
+  'Daily Labour',
+  'Food / Lunch',
+  'Tea / Drinking Water',
+  'Loading / Unloading',
+  'Vehicle Rent',
+  'Diesel / Petrol',
+  'Electricity',
+  'Repair / Maintenance',
+  'Office Expenses',
+  'Other Expenses'
+] as const;
+
+export type ExpenseCategory = typeof EXPENSE_CATEGORIES[number] | string;
+
 export interface Expense {
   id: string;
   companyId?: string;
   voucherNo: string;
   expenseDate: string;
-  category: string;
+  category: ExpenseCategory;
+  description?: string;
   amount: number;
   accountId: string;
+  paymentMode?: 'CASH' | 'BANK' | 'UNPAID';
+  status?: 'PAID' | 'UNPAID' | 'REVERSED';
+  approvalStatus?: 'APPROVED' | 'PENDING' | 'REJECTED';
+  enteredBy?: string;
   vehicleId?: string;
   paidTo: string;
   billReference?: string;
+  attachmentUrl?: string;
   notes?: string;
+  reversalExpenseId?: string;
+  reversalReason?: string;
   createdBy: string;
   createdAt: string;
 }
@@ -716,6 +740,11 @@ export interface BackupDatabasePayload {
   dailyTasks?: DailyTask[];
   workNotes?: WorkNote[];
   uploadedDocuments?: UploadedDocument[];
+  salaryRecords?: MonthlySalaryRecord[];
+  dailyLabourEntries?: DailyLabourEntry[];
+  contractors?: Contractor[];
+  contractorWorkEntries?: ContractorWorkEntry[];
+  dailyCashClosings?: DailyCashClosingRecord[];
 }
 
 export interface BackupArchive {
@@ -840,5 +869,103 @@ export interface UploadedDocument {
   fileDataUrl: string; // Base64 data URL
   notes?: string;
   createdAt: string;
+}
+
+// -------------------------------------------------------------
+// Finance Management Models (Yashoth Enterprises Small-Business ERP)
+// -------------------------------------------------------------
+
+export interface MonthlySalaryRecord {
+  id: string;
+  companyId?: string;
+  employeeId: string;
+  employeeName: string;
+  designation: string;
+  salaryMonth: string; // e.g. "2026-10"
+  grossSalary: number;
+  allowances: number;
+  deductions: number;
+  advanceRecovery: number;
+  netSalaryPayable: number;
+  amountPaid: number;
+  remainingBalance: number;
+  paymentDate?: string;
+  paymentMode?: 'CASH' | 'BANK';
+  accountId?: string;
+  status: 'PENDING' | 'PARTIALLY_PAID' | 'PAID';
+  notes?: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface DailyLabourEntry {
+  id: string;
+  companyId?: string;
+  workDate: string;
+  workerNameOrGroup: string;
+  workerCount: number;
+  workingDays: number;
+  dailyRate: number;
+  overtimeAmount: number;
+  additionalCharges: number;
+  totalLabourCost: number; // workerCount * workingDays * dailyRate + overtimeAmount + additionalCharges
+  advanceAmount: number;
+  amountPaid: number;
+  remainingBalance: number; // totalLabourCost - advanceAmount - amountPaid
+  paymentMode: 'CASH' | 'BANK' | 'UNPAID';
+  accountId?: string;
+  notes?: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface Contractor {
+  id: string;
+  companyId?: string;
+  contractorName: string;
+  phone: string;
+  address: string;
+  workDescription: string;
+  contractType: 'DAILY_RATE' | 'FIXED_CONTRACT' | 'QUANTITY_BASED';
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface ContractorWorkEntry {
+  id: string;
+  companyId?: string;
+  contractorId: string;
+  contractorName: string;
+  workDate: string;
+  workDescription: string;
+  workerCount: number;
+  quantityCompleted: number;
+  agreedRate: number;
+  totalContractAmount: number;
+  advancePaid: number;
+  previousPayments: number;
+  currentPayment: number;
+  remainingBalance: number;
+  paymentMode: 'CASH' | 'BANK' | 'UNPAID';
+  accountId?: string;
+  notes?: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface DailyCashClosingRecord {
+  id: string;
+  companyId?: string;
+  closingDate: string;
+  openingCash: number;
+  todayCashInflow: number;
+  todayCashOutflow: number;
+  expectedCashInHand: number;
+  physicallyCountedCash: number;
+  cashDifference: number; // physicallyCountedCash - expectedCashInHand (+ = excess, - = shortage)
+  discrepancyReason?: string;
+  notes?: string;
+  closedBy: string;
+  closedAt: string;
 }
 

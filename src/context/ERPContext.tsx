@@ -39,7 +39,12 @@ import type {
   BackupDatabasePayload,
   DailyTask,
   WorkNote,
-  UploadedDocument
+  UploadedDocument,
+  MonthlySalaryRecord,
+  DailyLabourEntry,
+  Contractor,
+  ContractorWorkEntry,
+  DailyCashClosingRecord
 } from '../types/index.ts';
 
 import { authService } from '../services/authService.ts';
@@ -62,6 +67,11 @@ import {
   createPaymentJournal,
   createContraJournal,
   createExpenseJournal,
+  createPayUnpaidExpenseJournal,
+  createSalaryPaymentJournal,
+  createDailyLabourJournal,
+  createContractorWorkJournal,
+  createCashClosingJournal,
   generateGeneralLedger,
   generateTrialBalance,
   generateProfitAndLoss,
@@ -119,13 +129,28 @@ import {
   INITIAL_BACKUP_SCHEDULE,
   INITIAL_DAILY_TASKS,
   INITIAL_WORK_NOTES,
-  INITIAL_UPLOADED_DOCS
+  INITIAL_UPLOADED_DOCS,
+  INITIAL_EXPENSES,
+  INITIAL_SALARY_RECORDS,
+  INITIAL_DAILY_LABOUR,
+  INITIAL_CONTRACTORS,
+  INITIAL_CONTRACTOR_WORK,
+  INITIAL_DAILY_CASH_CLOSINGS
 } from '../services/mockData.ts';
 
 import { postPurchaseTransaction } from '../../backend/business-rules/purchaseEngine.ts';
 import { teamSyncService } from '../services/teamSyncService.ts';
 import { dispatchSalesTransaction } from '../../backend/business-rules/salesEngine.ts';
-import { postPaymentVoucher, executeContraTransfer } from '../../backend/business-rules/financeEngine.ts';
+import { 
+  postPaymentVoucher, 
+  executeContraTransfer,
+  calculateMonthlySalary,
+  calculateDailyLabourCost,
+  calculateDailyLabourBalance,
+  calculateContractorBalance,
+  computeDailyCashClosing,
+  calculateProfitAndLoss
+} from '../../backend/business-rules/financeEngine.ts';
 import { migrateParties, migrateOpeningStock } from '../../backend/business-rules/dataMigration.ts';
 import { createStockMovement } from '../../backend/business-rules/inventoryEngine.ts';
 import { calcNetWeight, calcPayableWeight, roundTo2, roundTo3 } from '../utils/calculations.ts';
@@ -228,6 +253,29 @@ interface ERPContextType {
   recordExpense: (expenseData: Omit<Expense, 'id' | 'voucherNo' | 'createdAt'>) => Expense;
   updateExpense: (id: string, updates: Partial<Expense>) => void;
   deleteExpense: (id: string) => { success: boolean; message?: string };
+  payUnpaidExpense: (expenseId: string, accountId: string, paymentMode: 'CASH' | 'BANK') => void;
+  reverseExpense: (expenseId: string, reason: string) => Expense;
+
+  // Small-Business Finance: Salary, Labour, Contractor, Daily Closing
+  salaryRecords: MonthlySalaryRecord[];
+  dailyLabourEntries: DailyLabourEntry[];
+  contractors: Contractor[];
+  contractorWorkEntries: ContractorWorkEntry[];
+  dailyCashClosings: DailyCashClosingRecord[];
+  recordSalaryPayment: (params: Omit<MonthlySalaryRecord, 'id' | 'createdAt' | 'createdBy'>) => MonthlySalaryRecord;
+  updateSalaryRecord: (id: string, updates: Partial<MonthlySalaryRecord>) => void;
+  deleteSalaryRecord: (id: string) => { success: boolean; message?: string };
+  recordDailyLabour: (params: Omit<DailyLabourEntry, 'id' | 'createdAt' | 'createdBy'>) => DailyLabourEntry;
+  updateDailyLabour: (id: string, updates: Partial<DailyLabourEntry>) => void;
+  deleteDailyLabour: (id: string) => { success: boolean; message?: string };
+  addContractor: (params: Omit<Contractor, 'id' | 'createdAt'>) => Contractor;
+  updateContractor: (id: string, updates: Partial<Contractor>) => void;
+  deleteContractor: (id: string) => { success: boolean; message?: string };
+  recordContractorWork: (params: Omit<ContractorWorkEntry, 'id' | 'createdAt' | 'createdBy'>) => ContractorWorkEntry;
+  updateContractorWork: (id: string, updates: Partial<ContractorWorkEntry>) => void;
+  deleteContractorWork: (id: string) => { success: boolean; message?: string };
+  payContractorWork: (workEntryId: string, amount: number, paymentMode: 'CASH' | 'BANK', accountId?: string) => void;
+  recordDailyCashClosing: (closingData: Omit<DailyCashClosingRecord, 'id' | 'closedAt' | 'closedBy'>) => DailyCashClosingRecord;
   addAccount: (accData: Omit<CashBankAccount, 'id'>) => CashBankAccount;
   updateAccount: (id: string, updates: Partial<CashBankAccount>) => void;
   deleteAccount: (id: string) => { success: boolean; message?: string };
@@ -361,7 +409,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [attendance, setAttendance] = useState<AttendanceEntry[]>(() => load('attendance', INITIAL_ATTENDANCE));
   const [accounts, setAccounts] = useState<CashBankAccount[]>(() => load('accounts', INITIAL_ACCOUNTS));
   const [accountTransactions, setAccountTransactions] = useState<AccountTransaction[]>(() => load('accountTransactions', INITIAL_ACCOUNT_TRANSACTIONS));
-  const [expenses, setExpenses] = useState<Expense[]>(() => load('expenses', []));
+  const [expenses, setExpenses] = useState<Expense[]>(() => {
+    const loaded = load<Expense[]>('expenses', []);
+    return loaded && loaded.length > 0 ? loaded : INITIAL_EXPENSES;
+  });
   const [weighments, setWeighments] = useState<Weighment[]>(() => load('weighments', []));
   const [collectionJobs, setCollectionJobs] = useState<CollectionJob[]>(() => load('collectionJobs', []));
   const [purchases, setPurchases] = useState<PurchaseHeader[]>(() => load('purchases', []));
@@ -410,6 +461,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const loaded = load<UploadedDocument[]>('uploadedDocuments', []);
     return loaded && loaded.length > 0 ? loaded : INITIAL_UPLOADED_DOCS;
   });
+  const [salaryRecords, setSalaryRecords] = useState<MonthlySalaryRecord[]>(() => load('salaryRecords', INITIAL_SALARY_RECORDS));
+  const [dailyLabourEntries, setDailyLabourEntries] = useState<DailyLabourEntry[]>(() => load('dailyLabourEntries', INITIAL_DAILY_LABOUR));
+  const [contractors, setContractors] = useState<Contractor[]>(() => load('contractors', INITIAL_CONTRACTORS));
+  const [contractorWorkEntries, setContractorWorkEntries] = useState<ContractorWorkEntry[]>(() => load('contractorWorkEntries', INITIAL_CONTRACTOR_WORK));
+  const [dailyCashClosings, setDailyCashClosings] = useState<DailyCashClosingRecord[]>(() => load('dailyCashClosings', INITIAL_DAILY_CASH_CLOSINGS));
 
   // Persist state updates to localStorage
   useEffect(() => {
@@ -445,6 +501,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(STORAGE_PREFIX + 'dailyTasks', JSON.stringify(dailyTasks));
       localStorage.setItem(STORAGE_PREFIX + 'workNotes', JSON.stringify(workNotes));
       localStorage.setItem(STORAGE_PREFIX + 'uploadedDocuments', JSON.stringify(uploadedDocuments));
+      localStorage.setItem(STORAGE_PREFIX + 'salaryRecords', JSON.stringify(salaryRecords));
+      localStorage.setItem(STORAGE_PREFIX + 'dailyLabourEntries', JSON.stringify(dailyLabourEntries));
+      localStorage.setItem(STORAGE_PREFIX + 'contractors', JSON.stringify(contractors));
+      localStorage.setItem(STORAGE_PREFIX + 'contractorWorkEntries', JSON.stringify(contractorWorkEntries));
+      localStorage.setItem(STORAGE_PREFIX + 'dailyCashClosings', JSON.stringify(dailyCashClosings));
     } catch (e) {
       console.warn('Error saving to localStorage', e);
     }
@@ -453,7 +514,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     employees, attendance, accounts, accountTransactions, expenses,
     weighments, collectionJobs, purchases, inventoryLots, stockMovements,
     sales, invoices, payments, stockCounts, auditLogs, commercialDocuments, journalEntries,
-    backupHistory, restoreLogs, backupSchedule, dailyTasks, workNotes, uploadedDocuments
+    backupHistory, restoreLogs, backupSchedule, dailyTasks, workNotes, uploadedDocuments,
+    salaryRecords, dailyLabourEntries, contractors, contractorWorkEntries, dailyCashClosings
   ]);
 
   const logAudit = (action: string, entityType: string, entityId: string, oldState?: any, newState?: any) => {
@@ -1026,29 +1088,37 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const seq = expenses.length + 1;
     const voucherNo = `EXP-26-${String(seq).padStart(4, '0')}`;
     const now = new Date().toISOString();
+    const isUnpaid = expenseData.status === 'UNPAID' || expenseData.paymentMode === 'UNPAID';
 
     const newExpense: Expense = {
       ...expenseData,
       id: 'exp-' + Math.random().toString(36).substring(2, 11),
       voucherNo,
-      createdAt: now,
-    };
-
-    const accountTx: AccountTransaction = {
-      id: 'atx-' + Math.random().toString(36).substring(2, 11),
-      accountId: expenseData.accountId,
-      transactionDate: expenseData.expenseDate,
-      transactionType: 'OPERATING_EXPENSE',
-      direction: 'CREDIT', // Money leaves account
-      amount: expenseData.amount,
-      referenceNo: voucherNo,
-      description: `Expense: ${expenseData.category} - ${expenseData.paidTo}`,
-      createdBy: currentUser.fullName,
+      status: isUnpaid ? 'UNPAID' : 'PAID',
+      paymentMode: expenseData.paymentMode || (isUnpaid ? 'UNPAID' : 'CASH'),
+      approvalStatus: expenseData.approvalStatus || 'APPROVED',
+      enteredBy: expenseData.enteredBy || currentUser.fullName,
       createdAt: now,
     };
 
     setExpenses((prev) => [newExpense, ...prev]);
-    setAccountTransactions((prev) => [accountTx, ...prev]);
+
+    // Only create account cash/bank deduction if it is paid!
+    if (!isUnpaid && expenseData.accountId) {
+      const accountTx: AccountTransaction = {
+        id: 'atx-' + Math.random().toString(36).substring(2, 11),
+        accountId: expenseData.accountId,
+        transactionDate: expenseData.expenseDate,
+        transactionType: 'OPERATING_EXPENSE',
+        direction: 'CREDIT', // Money leaves account
+        amount: expenseData.amount,
+        referenceNo: voucherNo,
+        description: `Expense: ${expenseData.category} - ${expenseData.paidTo}`,
+        createdBy: currentUser.fullName,
+        createdAt: now,
+      };
+      setAccountTransactions((prev) => [accountTx, ...prev]);
+    }
 
     // Automatically post balanced double-entry journal
     try {
@@ -1062,6 +1132,370 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     logAudit('RECORD_EXPENSE', 'EXPENSE', newExpense.id, null, newExpense);
     return newExpense;
+  };
+
+  const payUnpaidExpense = (expenseId: string, accountId: string, paymentMode: 'CASH' | 'BANK') => {
+    const existing = expenses.find((e) => e.id === expenseId);
+    if (!existing) return;
+    if (existing.status !== 'UNPAID') return;
+
+    const acc = accounts.find((a) => a.id === accountId);
+    const updated: Expense = {
+      ...existing,
+      status: 'PAID',
+      paymentMode,
+      accountId,
+    };
+
+    const accountTx: AccountTransaction = {
+      id: 'atx-' + Math.random().toString(36).substring(2, 11),
+      accountId,
+      transactionDate: new Date().toISOString().split('T')[0],
+      transactionType: 'OPERATING_EXPENSE',
+      direction: 'CREDIT',
+      amount: existing.amount,
+      referenceNo: existing.voucherNo,
+      description: `Payment for unpaid expense: ${existing.category} - ${existing.paidTo}`,
+      createdBy: currentUser.fullName,
+      createdAt: new Date().toISOString(),
+    };
+
+    setExpenses((prev) => prev.map((e) => (e.id === expenseId ? updated : e)));
+    setAccountTransactions((prev) => [accountTx, ...prev]);
+
+    try {
+      const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
+      const je = createPayUnpaidExpenseJournal(existing, accCode, activeCompany, currentUser.fullName);
+      setJournalEntries((prev) => [je, ...prev]);
+    } catch (e) {
+      console.warn('Could not post journal for payUnpaidExpense:', e);
+    }
+
+    logAudit('PAY_UNPAID_EXPENSE', 'EXPENSE', expenseId, existing, updated);
+  };
+
+  const reverseExpense = (expenseId: string, reason: string): Expense => {
+    const existing = expenses.find((e) => e.id === expenseId);
+    if (!existing) throw new Error('Expense not found');
+
+    const now = new Date().toISOString();
+    const reversalVoucherNo = `REV-${existing.voucherNo}`;
+
+    // Mark existing as REVERSED
+    const updatedExisting: Expense = {
+      ...existing,
+      status: 'REVERSED',
+      reversalReason: reason,
+      reversalExpenseId: 'rev-' + existing.id,
+    };
+
+    // If it was paid from an account, refund the money (DEBIT)
+    if (existing.status === 'PAID' && existing.accountId) {
+      const refundTx: AccountTransaction = {
+        id: 'atx-rev-' + Math.random().toString(36).substring(2, 11),
+        accountId: existing.accountId,
+        transactionDate: new Date().toISOString().split('T')[0],
+        transactionType: 'ACCOUNT_ADJUSTMENT',
+        direction: 'DEBIT', // Money refunded back
+        amount: existing.amount,
+        referenceNo: reversalVoucherNo,
+        description: `Reversal of expense ${existing.voucherNo}: ${reason}`,
+        createdBy: currentUser.fullName,
+        createdAt: now,
+      };
+      setAccountTransactions((prev) => [refundTx, ...prev]);
+    }
+
+    setExpenses((prev) => prev.map((e) => (e.id === expenseId ? updatedExisting : e)));
+    logAudit('REVERSE_EXPENSE', 'EXPENSE', expenseId, existing, updatedExisting);
+    return updatedExisting;
+  };
+
+  // --- Permanent Staff Salary Management ---
+  const recordSalaryPayment = (params: Omit<MonthlySalaryRecord, 'id' | 'createdAt' | 'createdBy'>): MonthlySalaryRecord => {
+    const id = 'sal-' + Math.random().toString(36).substring(2, 11);
+    const now = new Date().toISOString();
+    const newRecord: MonthlySalaryRecord = {
+      ...params,
+      id,
+      createdAt: now,
+      createdBy: currentUser.fullName,
+    };
+
+    setSalaryRecords((prev) => [newRecord, ...prev]);
+
+    // If advance recovered, deduct from employee advance balance
+    if (params.advanceRecovery > 0) {
+      setEmployees((prev) =>
+        prev.map((emp) => {
+          if (emp.id === params.employeeId) {
+            return {
+              ...emp,
+              currentAdvanceBalance: Math.max(0, emp.currentAdvanceBalance - params.advanceRecovery),
+            };
+          }
+          return emp;
+        })
+      );
+    }
+
+    // If money was paid from an account, create account transaction
+    if (params.amountPaid > 0 && params.accountId) {
+      const acc = accounts.find((a) => a.id === params.accountId);
+      const accTx: AccountTransaction = {
+        id: 'atx-sal-' + Math.random().toString(36).substring(2, 11),
+        accountId: params.accountId,
+        transactionDate: params.paymentDate || new Date().toISOString().split('T')[0],
+        transactionType: 'OPERATING_EXPENSE',
+        direction: 'CREDIT',
+        amount: params.amountPaid,
+        referenceNo: `SAL-${params.salaryMonth}-${params.employeeName.replace(/\s+/g, '')}`,
+        description: `Monthly Salary: ${params.employeeName} (${params.salaryMonth})`,
+        createdBy: currentUser.fullName,
+        createdAt: now,
+      };
+      setAccountTransactions((prev) => [accTx, ...prev]);
+
+      try {
+        const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
+        const je = createSalaryPaymentJournal(newRecord, accCode, activeCompany, currentUser.fullName);
+        setJournalEntries((prev) => [je, ...prev]);
+      } catch (e) {
+        console.warn('Could not post journal for salary:', e);
+      }
+    }
+
+    logAudit('RECORD_SALARY', 'SALARY_RECORD', id, null, newRecord);
+    return newRecord;
+  };
+
+  const updateSalaryRecord = (id: string, updates: Partial<MonthlySalaryRecord>) => {
+    setSalaryRecords((prev) => prev.map((s) => (s.id === id ? { ...s, ...updates } : s)));
+    logAudit('UPDATE_SALARY', 'SALARY_RECORD', id, null, updates);
+  };
+
+  const deleteSalaryRecord = (id: string): { success: boolean; message?: string } => {
+    const existing = salaryRecords.find((s) => s.id === id);
+    if (!existing) return { success: false, message: 'Salary record not found.' };
+    setSalaryRecords((prev) => prev.filter((s) => s.id !== id));
+    logAudit('DELETE_SALARY', 'SALARY_RECORD', id, existing, null);
+    return { success: true, message: `Salary record for ${existing.employeeName} (${existing.salaryMonth}) removed.` };
+  };
+
+  // --- Daily Wage Labour Management ---
+  const recordDailyLabour = (params: Omit<DailyLabourEntry, 'id' | 'createdAt' | 'createdBy'>): DailyLabourEntry => {
+    const id = 'dlab-' + Math.random().toString(36).substring(2, 11);
+    const now = new Date().toISOString();
+    const newEntry: DailyLabourEntry = {
+      ...params,
+      id,
+      createdAt: now,
+      createdBy: currentUser.fullName,
+    };
+
+    setDailyLabourEntries((prev) => [newEntry, ...prev]);
+
+    if (params.amountPaid > 0 && params.accountId) {
+      const acc = accounts.find((a) => a.id === params.accountId);
+      const accTx: AccountTransaction = {
+        id: 'atx-lab-' + Math.random().toString(36).substring(2, 11),
+        accountId: params.accountId,
+        transactionDate: params.workDate,
+        transactionType: 'OPERATING_EXPENSE',
+        direction: 'CREDIT',
+        amount: params.amountPaid,
+        referenceNo: `LAB-${params.workDate}`,
+        description: `Daily Labour: ${params.workerNameOrGroup} (${params.workDate})`,
+        createdBy: currentUser.fullName,
+        createdAt: now,
+      };
+      setAccountTransactions((prev) => [accTx, ...prev]);
+
+      try {
+        const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
+        const je = createDailyLabourJournal(newEntry, accCode, activeCompany, currentUser.fullName);
+        setJournalEntries((prev) => [je, ...prev]);
+      } catch (e) {
+        console.warn('Could not post journal for daily labour:', e);
+      }
+    }
+
+    logAudit('RECORD_DAILY_LABOUR', 'DAILY_LABOUR', id, null, newEntry);
+    return newEntry;
+  };
+
+  const updateDailyLabour = (id: string, updates: Partial<DailyLabourEntry>) => {
+    setDailyLabourEntries((prev) => prev.map((l) => (l.id === id ? { ...l, ...updates } : l)));
+    logAudit('UPDATE_DAILY_LABOUR', 'DAILY_LABOUR', id, null, updates);
+  };
+
+  const deleteDailyLabour = (id: string): { success: boolean; message?: string } => {
+    const existing = dailyLabourEntries.find((l) => l.id === id);
+    if (!existing) return { success: false, message: 'Daily labour entry not found.' };
+    setDailyLabourEntries((prev) => prev.filter((l) => l.id !== id));
+    logAudit('DELETE_DAILY_LABOUR', 'DAILY_LABOUR', id, existing, null);
+    return { success: true, message: `Daily labour entry for ${existing.workerNameOrGroup} deleted.` };
+  };
+
+  // --- Contractor Register Management ---
+  const addContractor = (params: Omit<Contractor, 'id' | 'createdAt'>): Contractor => {
+    const id = 'contr-' + Math.random().toString(36).substring(2, 11);
+    const newContr: Contractor = {
+      ...params,
+      id,
+      createdAt: new Date().toISOString(),
+    };
+    setContractors((prev) => [newContr, ...prev]);
+    logAudit('ADD_CONTRACTOR', 'CONTRACTOR', id, null, newContr);
+    return newContr;
+  };
+
+  const updateContractor = (id: string, updates: Partial<Contractor>) => {
+    setContractors((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates } : c)));
+    logAudit('UPDATE_CONTRACTOR', 'CONTRACTOR', id, null, updates);
+  };
+
+  const deleteContractor = (id: string): { success: boolean; message?: string } => {
+    const existing = contractors.find((c) => c.id === id);
+    if (!existing) return { success: false, message: 'Contractor not found.' };
+    setContractors((prev) => prev.filter((c) => c.id !== id));
+    logAudit('DELETE_CONTRACTOR', 'CONTRACTOR', id, existing, null);
+    return { success: true, message: `Contractor "${existing.contractorName}" removed.` };
+  };
+
+  const recordContractorWork = (params: Omit<ContractorWorkEntry, 'id' | 'createdAt' | 'createdBy'>): ContractorWorkEntry => {
+    const id = 'cwork-' + Math.random().toString(36).substring(2, 11);
+    const now = new Date().toISOString();
+    const newWork: ContractorWorkEntry = {
+      ...params,
+      id,
+      createdAt: now,
+      createdBy: currentUser.fullName,
+    };
+
+    setContractorWorkEntries((prev) => [newWork, ...prev]);
+
+    if (params.currentPayment > 0 && params.accountId) {
+      const acc = accounts.find((a) => a.id === params.accountId);
+      const accTx: AccountTransaction = {
+        id: 'atx-cw-' + Math.random().toString(36).substring(2, 11),
+        accountId: params.accountId,
+        transactionDate: params.workDate,
+        transactionType: 'OPERATING_EXPENSE',
+        direction: 'CREDIT',
+        amount: params.currentPayment,
+        referenceNo: `CONTR-${params.workDate}`,
+        description: `Contractor Work Payment: ${params.contractorName} (${params.workDescription})`,
+        createdBy: currentUser.fullName,
+        createdAt: now,
+      };
+      setAccountTransactions((prev) => [accTx, ...prev]);
+
+      try {
+        const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
+        const je = createContractorWorkJournal(newWork, accCode, activeCompany, currentUser.fullName);
+        setJournalEntries((prev) => [je, ...prev]);
+      } catch (e) {
+        console.warn('Could not post journal for contractor work:', e);
+      }
+    }
+
+    logAudit('RECORD_CONTRACTOR_WORK', 'CONTRACTOR_WORK', id, null, newWork);
+    return newWork;
+  };
+
+  const updateContractorWork = (id: string, updates: Partial<ContractorWorkEntry>) => {
+    setContractorWorkEntries((prev) => prev.map((w) => (w.id === id ? { ...w, ...updates } : w)));
+    logAudit('UPDATE_CONTRACTOR_WORK', 'CONTRACTOR_WORK', id, null, updates);
+  };
+
+  const deleteContractorWork = (id: string): { success: boolean; message?: string } => {
+    const existing = contractorWorkEntries.find((w) => w.id === id);
+    if (!existing) return { success: false, message: 'Contractor work entry not found.' };
+    setContractorWorkEntries((prev) => prev.filter((w) => w.id !== id));
+    logAudit('DELETE_CONTRACTOR_WORK', 'CONTRACTOR_WORK', id, existing, null);
+    return { success: true, message: `Contractor work for ${existing.contractorName} deleted.` };
+  };
+
+  const payContractorWork = (workEntryId: string, amount: number, paymentMode: 'CASH' | 'BANK', accountId?: string) => {
+    const existing = contractorWorkEntries.find((w) => w.id === workEntryId);
+    if (!existing || amount <= 0) return;
+
+    const newPrevPayments = roundTo2((existing.previousPayments || 0) + (existing.currentPayment || 0));
+    const newRemaining = roundTo2(Math.max(0, existing.totalContractAmount - (existing.advancePaid || 0) - newPrevPayments - amount));
+
+    const updated: ContractorWorkEntry = {
+      ...existing,
+      previousPayments: newPrevPayments,
+      currentPayment: amount,
+      remainingBalance: newRemaining,
+      paymentMode,
+      accountId,
+    };
+
+    setContractorWorkEntries((prev) => prev.map((w) => (w.id === workEntryId ? updated : w)));
+
+    if (accountId) {
+      const acc = accounts.find((a) => a.id === accountId);
+      const accTx: AccountTransaction = {
+        id: 'atx-cw-pay-' + Math.random().toString(36).substring(2, 11),
+        accountId,
+        transactionDate: new Date().toISOString().split('T')[0],
+        transactionType: 'OPERATING_EXPENSE',
+        direction: 'CREDIT',
+        amount,
+        referenceNo: `CONTR-PAY-${existing.id}`,
+        description: `Contractor Payment: ${existing.contractorName} (${existing.workDescription})`,
+        createdBy: currentUser.fullName,
+        createdAt: new Date().toISOString(),
+      };
+      setAccountTransactions((prev) => [accTx, ...prev]);
+
+      try {
+        const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
+        const je = createContractorWorkJournal(updated, accCode, activeCompany, currentUser.fullName);
+        setJournalEntries((prev) => [je, ...prev]);
+      } catch (e) {
+        console.warn('Could not post journal for contractor pay:', e);
+      }
+    }
+
+    logAudit('PAY_CONTRACTOR_WORK', 'CONTRACTOR_WORK', workEntryId, existing, updated);
+  };
+
+  // --- Guided Daily Cash Closing Management ---
+  const recordDailyCashClosing = (closingData: Omit<DailyCashClosingRecord, 'id' | 'closedAt' | 'closedBy'>): DailyCashClosingRecord => {
+    const id = 'cls-' + Math.random().toString(36).substring(2, 11);
+    const now = new Date().toISOString();
+    const newClosing: DailyCashClosingRecord = {
+      ...closingData,
+      id,
+      closedAt: now,
+      closedBy: currentUser.fullName,
+    };
+
+    setDailyCashClosings((prev) => [newClosing, ...prev]);
+
+    // If there is a discrepancy, post adjustment journal
+    if (Math.abs(closingData.cashDifference) > 0.01) {
+      try {
+        const je = createCashClosingJournal(
+          closingData.cashDifference,
+          closingData.closingDate,
+          closingData.discrepancyReason || 'Cash count audit difference',
+          activeCompany,
+          currentUser.fullName
+        );
+        if (je) {
+          setJournalEntries((prev) => [je, ...prev]);
+        }
+      } catch (e) {
+        console.warn('Could not post journal for daily cash closing difference:', e);
+      }
+    }
+
+    logAudit('DAILY_CASH_CLOSING', 'DAILY_CASH_CLOSING', id, null, newClosing);
+    return newClosing;
   };
 
   // Phase 4: Commercial Documents & Financial Reports Management
@@ -1666,7 +2100,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAttendance(INITIAL_ATTENDANCE);
     setAccounts(INITIAL_ACCOUNTS);
     setAccountTransactions(INITIAL_ACCOUNT_TRANSACTIONS);
-    setExpenses([]);
+    setExpenses(INITIAL_EXPENSES);
     setWeighments([]);
     setCollectionJobs([]);
     setPurchases([]);
@@ -1679,6 +2113,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAuditLogs([]);
     setCommercialDocuments(INITIAL_COMMERCIAL_DOCUMENTS);
     setJournalEntries(INITIAL_JOURNAL_ENTRIES);
+    setSalaryRecords(INITIAL_SALARY_RECORDS);
+    setDailyLabourEntries(INITIAL_DAILY_LABOUR);
+    setContractors(INITIAL_CONTRACTORS);
+    setContractorWorkEntries(INITIAL_CONTRACTOR_WORK);
+    setDailyCashClosings(INITIAL_DAILY_CASH_CLOSINGS);
     localStorage.clear();
   };
 
@@ -1713,6 +2152,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       dailyTasks,
       workNotes,
       uploadedDocuments,
+      salaryRecords,
+      dailyLabourEntries,
+      contractors,
+      contractorWorkEntries,
+      dailyCashClosings,
     };
     return JSON.stringify(backup, null, 2);
   };
@@ -1746,6 +2190,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     dailyTasks,
     workNotes,
     uploadedDocuments,
+    salaryRecords,
+    dailyLabourEntries,
+    contractors,
+    contractorWorkEntries,
+    dailyCashClosings,
   });
 
   const applyRestoredPayload = (data: BackupDatabasePayload) => {
@@ -1796,6 +2245,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         })
       );
     }
+    if (data.salaryRecords) setSalaryRecords(data.salaryRecords);
+    if (data.dailyLabourEntries) setDailyLabourEntries(data.dailyLabourEntries);
+    if (data.contractors) setContractors(data.contractors);
+    if (data.contractorWorkEntries) setContractorWorkEntries(data.contractorWorkEntries);
+    if (data.dailyCashClosings) setDailyCashClosings(data.dailyCashClosings);
   };
 
   const restoreBackup = (jsonStr: string): boolean => {
@@ -2193,6 +2647,27 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         recordExpense,
         updateExpense,
         deleteExpense,
+        payUnpaidExpense,
+        reverseExpense,
+        salaryRecords,
+        dailyLabourEntries,
+        contractors,
+        contractorWorkEntries,
+        dailyCashClosings,
+        recordSalaryPayment,
+        updateSalaryRecord,
+        deleteSalaryRecord,
+        recordDailyLabour,
+        updateDailyLabour,
+        deleteDailyLabour,
+        addContractor,
+        updateContractor,
+        deleteContractor,
+        recordContractorWork,
+        updateContractorWork,
+        deleteContractorWork,
+        payContractorWork,
+        recordDailyCashClosing,
         addAccount,
         updateAccount,
         deleteAccount,

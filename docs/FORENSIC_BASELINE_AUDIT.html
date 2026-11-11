@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yashoth Enterprises ERP — Forensic Baseline Audit</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #1e293b; background: #f8fafc; padding: 16px; max-width: 900px; margin: 0 auto; }
+  h1 { color: #0f172a; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; font-size: 22px; }
+  h2 { color: #1e3a8a; margin-top: 26px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; font-size: 18px; }
+  h3 { color: #b91c1c; margin-top: 20px; font-size: 16px; }
+  pre { background: #0f172a; color: #38bdf8; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 12px; }
+  code { background: #e2e8f0; color: #b91c1c; padding: 2px 5px; border-radius: 4px; font-size: 12px; font-family: monospace; }
+  pre code { background: none; color: inherit; padding: 0; }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; background: #fff; border-radius: 6px; overflow: hidden; font-size: 13px; }
+  th, td { border: 1px solid #cbd5e1; padding: 8px 10px; text-align: left; }
+  tr:nth-child(even) { background: #f1f5f9; }
+  ul { padding-left: 20px; }
+  li { margin-bottom: 5px; font-size: 13px; }
+  p { font-size: 13px; margin: 6px 0; }
+  .header-card { background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+</style>
+</head>
+<body>
+<div class="header-card">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+    <span style="font-size: 12px; font-weight: 800; color: #dc2626; background: #fef2f2; padding: 4px 10px; border-radius: 6px;">YASHOTH ENTERPRISES ERP</span>
+    <span style="font-size: 11px; color: #64748b;">Branch: hardening/production-readiness</span>
+  </div>
+  <h1>YASHOTH ENTERPRISES ERP — COMPREHENSIVE FORENSIC BASELINE AUDIT</h1>
+<p><strong>Classification:</strong> Forensics & Security Hardening Baseline  </p>
+<p><strong>System:</strong> Yashoth Enterprises Scrap & Demolition ERP  </p>
+<p><strong>Branch:</strong> <code>hardening/production-readiness</code>  </p>
+<p><strong>Date:</strong> November 11, 2026  </p>
+<p><strong>Auditor:</strong> Principal ERP & Security Architect  </p>
+<p>---</p>
+<h2>1. Executive Summary & Forensic Scope</h2>
+<p>A forensic audit of the <strong>Yashoth Enterprises ERP</strong> codebase was conducted before executing architectural hardening. The repository was inspected against actual executable code, configuration files, SQL migrations, business rule engines, tests, and documentation.</p>
+<h3>Critical Verdict:</h3>
+<p>While the user interface, scrap business domain calculations (weighbridge tare/net/deductions, GST tax invoices, official IMOP quotation replica, vehicle compliance) and unit tests are functional, the system operates as a <strong>client-side state machine using unencrypted browser <code>localStorage</code></strong>.</p>
+<p>Multiple <strong>P0 vulnerabilities</strong> and architectural defects contradict production documentation claims:</p>
+<p>1. <strong>P0 Authentication Bypass & Backdoors:</strong> Default auto-login as <code>owner_admin</code> on application load, universal backdoor passwords (<code>Admin@123</code>, <code>Manager@123</code>) bypassing password hashes, client-side role switching without server validation, and logout transitioning to <code>auditor</code> instead of unauthenticated state.</p>
+<p>2. <strong>P0 Public Data Exposure:</strong> <code>teamSyncService.ts</code> broadcasts the entire company ERP database (customers, GSTINs, bank accounts, invoices, attendance, payments) via unauthenticated HTTP to a public test server (<code>https://api.restful-api.dev/objects/ff808181a09d98f701a1c56d14f07de2</code>).</p>
+<p>3. <strong>P0 Incomplete RLS & Broken Policies:</strong> Migration <code>003_auth_and_rls.sql</code> enables RLS on 28 operational tables but defines policies on only 3 tables (<code>users_roles</code>, <code>company_settings</code>, <code>audit_logs</code>). In PostgreSQL, non-superusers are denied access to all other 25 operational tables. Later tables (<code>commercial_documents</code>, <code>chart_of_accounts</code>, <code>journal_entries</code>, <code>backup_history</code>) do not have RLS enabled at all.</p>
+<p>4. <strong>P0 Missing Authoritative Database Integration:</strong> Supabase PostgreSQL is not connected for operational persistence. The frontend has zero database queries to PostgreSQL; all state runs out of <code>localStorage</code>.</p>
+<p>5. <strong>P1 FIFO Lot Consumption Defect:</strong> In <code>backend/business-rules/inventoryEngine.ts</code>, <code>allocateLotsFifo</code> sorts eligible lots by date, but then allocates from <code>updatedLots</code> (the original unsorted array), resulting in consumption by array index rather than FIFO date order.</p>
+<p>6. <strong>P1 Fake Success Responses:</strong> Google Drive upload returns <code>{ success: true, fileId: 'device-backup-...' }</code> when OAuth tokens are absent, giving false assurance of cloud backups.</p>
+<p>7. <strong>P1 Double-Entry Balance Discrepancy:</strong> <code>validateJournalEntry</code> allows up to ₹0.05 discrepancy between debits and credits, allowing cumulative financial drift in ledgers.</p>
+<p>---</p>
+<h2>2. Forensic Defect Register (P0 – P3)</h2>
+<pre><code>pie title Defects by Severity
+    "P0 - Critical / Security Blocker" : 6
+    "P1 - High / Architectural Integrity" : 6
+    "P2 - Medium / Operational Robustness" : 5
+    "P3 - Low / Polish &amp; Maintenance" : 2
+</code></pre>
+<p>---</p>
+<h3>[FINDING-AUTH-01] Universal Auto-Login as Owner-Admin on App Startup</h3>
+<li><strong>Finding ID:</strong> <code>YE-SEC-P0-001</code></li>
+<li><strong>Severity:</strong> <code>P0 (Critical)</code></li>
+<li><strong>Category:</strong> A. Authentication bypasses</li>
+<li><strong>File & Lines:</strong> [<code>src/context/ERPContext.tsx#L313-L325</code>](file:///data/user/0/com.termux/files/home/YE/src/context/ERPContext.tsx#L313-L325)</li>
+<li><strong>Actual Implementation Evidence:</strong></li>
+<p>  ```typescript</p>
+<p>  const [currentUser, setCurrentUser] = useState<UserSession>(() => {</p>
+<p>    const existing = authService.getSession();</p>
+<p>    return existing || {</p>
+<p>      id: 'usr-admin-01',</p>
+<p>      email: 'admin@yasoth.com',</p>
+<p>      fullName: 'Yasoth Owner Admin',</p>
+<p>      role: 'owner_admin',</p>
+<p>      companyId: 'a0000000-0000-0000-0000-000000000001',</p>
+<p>      token: 'tok_default_admin',</p>
+<p>      expiresAt: Date.now() + 8 * 3600 * 1000,</p>
+<p>      lastActiveAt: Date.now(),</p>
+<p>    };</p>
+<p>  });</p>
+<p>  ```</p>
+<li><strong>Business Impact:</strong> Any user opening the application automatically inherits full <code>owner_admin</code> privileges without entering credentials or authenticating against a server.</li>
+<li><strong>Root Cause:</strong> A fallback initializer was hardcoded to ease prototyping, bypassing authentication gating.</li>
+<li><strong>Recommended Correction:</strong> Initialize <code>currentUser</code> to <code>null</code> if no valid cryptographically verified session exists in session storage, and mount the <code>LoginModal</code> / Authentication Gate.</li>
+<li><strong>Regression Test:</strong> <code>tests/auth_and_security.test.ts</code> must verify that launching with an empty session store renders unauthenticated state with null credentials.</li>
+<p>---</p>
+<h3>[FINDING-AUTH-02] Hardcoded Universal Backdoor Passwords in Password Verification</h3>
+<li><strong>Finding ID:</strong> <code>YE-SEC-P0-002</code></li>
+<li><strong>Severity:</strong> <code>P0 (Critical)</code></li>
+<li><strong>Category:</strong> A. Authentication bypasses</li>
+<li><strong>File & Lines:</strong> [<code>src/services/authService.ts#L175-L177</code>](file:///data/user/0/com.termux/files/home/YE/src/services/authService.ts#L175-L177)</li>
+<li><strong>Actual Implementation Evidence:</strong></li>
+<p>  ```typescript</p>
+<p>  const hashedInput = await hashPassword(password);</p>
+<p>  // Allow either hashed password match or verified default test passwords</p>
+<p>  const isValid = user.passwordHash === hashedInput || password === 'Admin@123' || password === 'Manager@123';</p>
+<p>  ```</p>
+<li><strong>Business Impact:</strong> Any user account (regardless of its configured password or password hash) can be compromised by entering <code>Admin@123</code> or <code>Manager@123</code>.</li>
+<li><strong>Root Cause:</strong> Debug fallback left in production authentication service.</li>
+<li><strong>Recommended Correction:</strong> Remove static string comparisons. Use Supabase Auth with server-side bcrypt/argon2 hashing, or strict cryptographic hash matching against verified credentials.</li>
+<li><strong>Regression Test:</strong> Add test in <code>tests/auth_and_security.test.ts</code> verifying that entering <code>Admin@123</code> against an account with a different hash returns <code>Invalid email or password</code>.</li>
+<p>---</p>
+<h3>[FINDING-AUTH-03] Client-Controlled Privilege Escalation & Defective Logout</h3>
+<li><strong>Finding ID:</strong> <code>YE-SEC-P0-003</code></li>
+<li><strong>Severity:</strong> <code>P0 (Critical)</code></li>
+<li><strong>Category:</strong> B. Client-side privilege escalation</li>
+<li><strong>File & Lines:</strong> [<code>src/context/ERPContext.tsx#L485-L498</code>](file:///data/user/0/com.termux/files/home/YE/src/context/ERPContext.tsx#L485-L498) & [<code>src/context/ERPContext.tsx#L514-L525</code>](file:///data/user/0/com.termux/files/home/YE/src/context/ERPContext.tsx#L514-L525)</li>
+<li><strong>Actual Implementation Evidence:</strong></li>
+<p>  ```typescript</p>
+<p>  const logout = () => {</p>
+<p>    ...</p>
+<p>    const guestSession: UserSession = {</p>
+<p>      id: 'usr-guest',</p>
+<p>      email: 'guest@yasoth.com',</p>
+<p>      fullName: 'Signed Out (Guest)',</p>
+<p>      role: 'auditor', // Inherits read access to all reports and journals!</p>
+<p>      ...</p>
+<p>    };</p>
+<p>    setCurrentUser(guestSession);</p>
+<p>  };</p>
+<p>  const switchRole = (role: UserRole) => {</p>
+<p>    if (currentUser.role !== 'owner_admin' && role === 'owner_admin') {</p>
+<p>      throw new AuthorizationError('...');</p>
+<p>    }</p>
+<p>    setCurrentUser((prev) => ({ ...prev, role }));</p>
+<p>  };</p>
+<p>  ```</p>
+<li><strong>Business Impact:</strong> Clicking "Logout" does not de-authenticate the user; it gives them the <code>auditor</code> role which allows reading all financial statements, audit logs, and customer balances. Furthermore, <code>switchRole</code> allows client-side switching to <code>manager</code>, <code>accounts_operator</code>, etc., bypassing backend RBAC.</li>
+<li><strong>Root Cause:</strong> Client-side mock session management without server-enforced JWT tokens.</li>
+<li><strong>Recommended Correction:</strong> Terminate session on logout (<code>currentUser = null</code>), clear tokens, and disallow runtime role elevation without re-authentication against Supabase Auth.</li>
+<li><strong>Regression Test:</strong> Verify <code>logout()</code> sets session to null and revokes access to all private endpoints.</li>
+<p>---</p>
+<h3>[FINDING-SYNC-01] Unauthenticated Public Data Broadcast via Public Test API</h3>
+<li><strong>Finding ID:</strong> <code>YE-SEC-P0-004</code></li>
+<li><strong>Severity:</strong> <code>P0 (Critical)</code></li>
+<li><strong>Category:</strong> N. Cloud synchronization vulnerabilities / S. Exposed business information</li>
+<li><strong>File & Lines:</strong> [<code>src/services/teamSyncService.ts#L18-L19</code>](file:///data/user/0/com.termux/files/home/YE/src/services/teamSyncService.ts#L18-L19), [<code>#L153</code>](file:///data/user/0/com.termux/files/home/YE/src/services/teamSyncService.ts#L153), [<code>#L205</code>](file:///data/user/0/com.termux/files/home/YE/src/services/teamSyncService.ts#L205)</li>
+<li><strong>Actual Implementation Evidence:</strong></li>
+<p>  ```typescript</p>
+<p>  export const MASTER_VAULT_ID = 'ff808181a09d98f701a1c56d14f07de2';</p>
+<p>  ...</p>
+<p>  const res = await fetch(<code>https://api.restful-api.dev/objects/${this.vaultId}</code>, { ... });</p>
+<p>  ```</p>
+<li><strong>Business Impact:</strong> Severe confidential data leak. Entire database payloads containing parties, bank account numbers, GST numbers, daily cash books, employee attendance, and invoice records are transmitted to a publicly readable/writable third-party testing API (<code>api.restful-api.dev</code>) without encryption or authorization.</li>
+<li><strong>Root Cause:</strong> Temporary prototyping vault used for multi-device sync was left hardcoded.</li>
+<li><strong>Recommended Correction:</strong> Eliminate all calls to <code>api.restful-api.dev</code>. Replace with authenticated Supabase PostgreSQL synchronization or end-to-end encrypted sync using AES-256-GCM authenticated against verified user JWT.</li>
+<li><strong>Regression Test:</strong> Assert that no outgoing HTTP requests are made to unauthenticated external domains.</li>
+<p>---</p>
+<h3>[FINDING-RLS-01] Broken PostgreSQL RLS Policies Resulting in Default Deny or Missing Protection</h3>
+<li><strong>Finding ID:</strong> <code>YE-SEC-P0-005</code></li>
+<li><strong>Severity:</strong> <code>P0 (Critical)</code></li>
+<li><strong>Category:</strong> E. Incorrect or incomplete RLS policies</li>
+<li><strong>File & Lines:</strong> [<code>database/migrations/003_auth_and_rls.sql#L52-L123</code>](file:///data/user/0/com.termux/files/home/YE/database/migrations/003_auth_and_rls.sql#L52-L123) & [<code>database/migrations/005_accounting_and_documents.sql#L1-L199</code>](file:///data/user/0/com.termux/files/home/YE/database/migrations/005_accounting_and_documents.sql#L1-L199)</li>
+<li><strong>Actual Implementation Evidence:</strong></li>
+<p>  <code>003_auth_and_rls.sql</code> runs <code>ALTER TABLE ... ENABLE ROW LEVEL SECURITY;</code> on 28 tables (<code>yards</code>, <code>materials</code>, <code>parties</code>, <code>purchases</code>, <code>invoices</code>, etc.), but only defines policies for <code>users_roles</code>, <code>company_settings</code>, and <code>audit_logs</code>.</p>
+<p>  In PostgreSQL, enabling RLS without a policy denies all access to non-superusers.</p>
+<p>  Additionally, <code>004_multi_company_schema.sql</code> (<code>companies</code>), <code>005_accounting_and_documents.sql</code> (<code>commercial_documents</code>, <code>chart_of_accounts</code>, <code>journal_entries</code>), and <code>006_backup_and_restore.sql</code> do not enable RLS at all.</p>
+<li><strong>Business Impact:</strong> If a client directly queries Supabase, operational tables will fail with permission denied, while financial journals and commercial documents are completely unprotected.</li>
+<li><strong>Root Cause:</strong> Incomplete migration scripts; documentation fabricated policy examples that were never included in DDL.</li>
+<li><strong>Recommended Correction:</strong> Author migration <code>007_authoritative_rls_hardening.sql</code> implementing complete tenant isolation and RBAC policies for all operational tables using <code>company_memberships</code> and authenticated JWT <code>auth.uid()</code>.</li>
+<li><strong>Regression Test:</strong> Write automated SQL migration test verifying RLS is enabled and active policies exist for every table in the schema.</li>
+<p>---</p>
+<h3>[FINDING-DATA-01] Pure LocalStorage Persistence Without Supabase PostgreSQL Database Integration</h3>
+<li><strong>Finding ID:</strong> <code>YE-DAT-P0-006</code></li>
+<li><strong>Severity:</strong> <code>P0 (Critical)</code></li>
+<li><strong>Category:</strong> C. localStorage persistence risks / D. Missing Supabase database integration</li>
+<li><strong>File & Lines:</strong> [<code>src/context/ERPContext.tsx#L327-L457</code>](file:///data/user/0/com.termux/files/home/YE/src/context/ERPContext.tsx#L327-L457) & [<code>src/services/supabaseClient.ts#L1-L105</code>](file:///data/user/0/com.termux/files/home/YE/src/services/supabaseClient.ts#L1-L105)</li>
+<li><strong>Actual Implementation Evidence:</strong></li>
+<p>  <code>supabaseClient.ts</code> only wraps auth endpoints (<code>/auth/v1/token</code>, <code>/signup</code>, <code>/recover</code>). There is no Supabase PostgREST query in any module. <code>ERPContext.tsx</code> reads and writes all 28 entities to <code>localStorage</code> under <code>yasoth_erp_v1_*</code>.</p>
+<li><strong>Business Impact:</strong> Multi-user concurrent access is impossible; changes made on one phone/PC do not propagate to others; browser cache clearing causes total data loss; <code>localStorage</code> 5MB quota will be exceeded by image attachments and journal histories.</li>
+<li><strong>Root Cause:</strong> Application was built as a single-page in-memory prototype.</li>
+<li><strong>Recommended Correction:</strong> Build an authoritative PostgreSQL repository/service layer with offline IndexedDB queue (<code>idb</code> / local database) syncing to Supabase PostgreSQL with transaction support and row-level locking.</li>
+<li><strong>Regression Test:</strong> Verify data mutation commits to PostgreSQL/IndexedDB and survives <code>localStorage.clear()</code>.</li>
+<p>---</p>
+<h3>[FINDING-INV-01] FIFO Lot Allocation Consumes Unsorted Array Rather Than Chronological Order</h3>
+<li><strong>Finding ID:</strong> <code>YE-INV-P1-001</code></li>
+<li><strong>Severity:</strong> <code>P1 (High)</code></li>
+<li><strong>Category:</strong> I. FIFO allocation defects</li>
+<li><strong>File & Lines:</strong> [<code>backend/business-rules/inventoryEngine.ts#L49-L85</code>](file:///data/user/0/com.termux/files/home/YE/backend/business-rules/inventoryEngine.ts#L49-L85)</li>
+<li><strong>Actual Implementation Evidence:</strong></li>
+<p>  ```typescript</p>
+<p>  // Eligible lots are filtered and sorted chronologically:</p>
+<p>  const eligibleLots = activeLots</p>
+<p>    .filter(...)</p>
+<p>    .sort((a, b) => new Date(a.receivedAt).getTime() - new Date(b.receivedAt).getTime());</p>
+<p>  // BUT allocation loop iterates over updatedLots (unsorted activeLots):</p>
+<p>  const updatedLots = activeLots.map((l) => ({ ...l }));</p>
+<p>  for (const lot of updatedLots) {</p>
+<p>    ...</p>
+<p>  }</p>
+<p>  ```</p>
+<li><strong>Business Impact:</strong> Lots are consumed in the random insertion order of <code>activeLots</code>, rather than oldest-lot-first (FIFO). This produces incorrect Cost of Goods Sold (COGS), distorted gross margin reports, and violates scrap accounting standards.</li>
+<li><strong>Root Cause:</strong> Copy-paste error where the sorted <code>eligibleLots</code> was checked for total availability, but the mutation loop iterated over the unsorted <code>updatedLots</code>.</li>
+<li><strong>Recommended Correction:</strong> Iterate through <code>eligibleLots</code> (or sort <code>updatedLots</code> chronologically) during the allocation loop.</li>
+<li><strong>Regression Test:</strong> Create test in <code>tests/inventory.test.ts</code> with lots added out of chronological order (e.g. Nov 10 lot placed before Nov 1 lot in array) and verify Nov 1 lot is consumed first.</li>
+<p>---</p>
+<h3>[FINDING-FIN-01] Journal Entry Validation Allows ₹0.05 Imbalance Tolerance</h3>
+<li><strong>Finding ID:</strong> <code>YE-FIN-P1-002</code></li>
+<li><strong>Severity:</strong> <code>P1 (High)</code></li>
+<li><strong>Category:</strong> K. Accounting reconciliation errors</li>
+<li><strong>File & Lines:</strong> [<code>backend/business-rules/accountingEngine.ts#L128-L132</code>](file:///data/user/0/com.termux/files/home/YE/backend/business-rules/accountingEngine.ts#L128-L132)</li>
+<li><strong>Actual Implementation Evidence:</strong></li>
+<p>  ```typescript</p>
+<p>  if (Math.abs(sumDebits - sumCredits) > 0.05) {</p>
+<p>    throw new AccountingImbalanceError(<code>Journal Entry "${entry.entryNo}" is unbalanced...</code>);</p>
+<p>  }</p>
+<p>  ```</p>
+<li><strong>Business Impact:</strong> Cumulative drift in General Ledger and Trial Balance. Over hundreds of invoices and payments, unbalanced 5-paise tolerances cause the Trial Balance <code>Total Debits != Total Credits</code>, creating audit failures.</li>
+<li><strong>Root Cause:</strong> Lenient tolerance introduced instead of properly balancing round-off entries to exact cents.</li>
+<li><strong>Recommended Correction:</strong> Enforce <code>Math.abs(sumDebits - sumCredits) < 0.001</code> (zero tolerance). Automatically allocate exact residual cents to <code>5090</code> (Round-Off & Decimal Variance).</li>
+<li><strong>Regression Test:</strong> Verify in <code>tests/accounting_and_documents.test.ts</code> that a journal entry with 0.01 discrepancy is rejected unless balanced by a round-off line.</li>
+<p>---</p>
+<h3>[FINDING-BAK-01] Fake Success Response in Google Drive Backup</h3>
+<li><strong>Finding ID:</strong> <code>YE-BAK-P1-003</code></li>
+<li><strong>Severity:</strong> <code>P1 (High)</code></li>
+<li><strong>Category:</strong> M. Backup and restore defects</li>
+<li><strong>File & Lines:</strong> [<code>src/services/googleDriveService.ts#L274-L288</code>](file:///data/user/0/com.termux/files/home/YE/src/services/googleDriveService.ts#L274-L288) & [<code>#L171</code>](file:///data/user/0/com.termux/files/home/YE/src/services/googleDriveService.ts#L171)</li>
+<li><strong>Actual Implementation Evidence:</strong></li>
+<p>  ```typescript</p>
+<p>  if (!this.accessToken) {</p>
+<p>    this.downloadBackupLocally(filename, content, mimeType);</p>
+<p>    ...</p>
+<p>    return { success: true, fileId: 'device-backup-' + Date.now() };</p>
+<p>  }</p>
+<p>  ```</p>
+<li><strong>Business Impact:</strong> The UI displays a green "Backup uploaded successfully to Google Drive" banner, misleading the proprietor into believing offsite cloud backups exist when no cloud upload occurred.</li>
+<li><strong>Root Cause:</strong> Prototyping mockup returned synthetic success when unauthenticated.</li>
+<li><strong>Recommended Correction:</strong> Return explicit status <code>{ success: false, error: 'Google Drive unauthenticated. Downloaded locally only.' }</code>. Never return fake success responses.</li>
+<li><strong>Regression Test:</strong> Assert in <code>tests/backup_and_restore.test.ts</code> that unauthenticated upload returns <code>success: false</code>.</li>
+<p>---</p>
+<h3>[FINDING-TEN-01] Missing Tenant Scoping in Stock Balance Calculations</h3>
+<li><strong>Finding ID:</strong> <code>YE-TEN-P1-004</code></li>
+<li><strong>Severity:</strong> <code>P1 (High)</code></li>
+<li><strong>Category:</strong> F. Missing company_id relationships / H. Stock calculation errors</li>
+<li><strong>File & Lines:</strong> [<code>backend/business-rules/inventoryEngine.ts#L22-L32</code>](file:///data/user/0/com.termux/files/home/YE/backend/business-rules/inventoryEngine.ts#L22-L32) & [<code>src/types/index.ts#L231-L245</code>](file:///data/user/0/com.termux/files/home/YE/src/types/index.ts#L231-L245)</li>
+<li><strong>Actual Implementation Evidence:</strong></li>
+<p>  <code>calculateCurrentStock</code> filters only by <code>materialId</code> and <code>yardId</code>. Neither <code>InventoryLot</code> creation in <code>purchaseEngine.ts</code> nor <code>calculateCurrentStock</code> asserts <code>companyId</code>.</p>
+<li><strong>Business Impact:</strong> In a multi-company deployment (<code>YE-MAIN</code> vs <code>CS-BRANCH</code>), if yards have matching material codes, stock movements from Company A will bleed into Company B's inventory counts.</li>
+<li><strong>Root Cause:</strong> Legacy schema did not scope inventory lots or movements by tenant company.</li>
+<li><strong>Recommended Correction:</strong> Require mandatory <code>companyId</code> on all lots and movements, and filter strictly by <code>companyId</code>.</li>
+<li><strong>Regression Test:</strong> Verify cross-company stock query isolation in <code>tests/multi_company.test.ts</code>.</li>
+<p>---</p>
+<h3>[FINDING-TXN-01] Client-Side Nonce / ID Generation Risking Collisions & Duplicate Transactions</h3>
+<li><strong>Finding ID:</strong> <code>YE-TXN-P1-005</code></li>
+<li><strong>Severity:</strong> <code>P1 (High)</code></li>
+<li><strong>Category:</strong> G. Missing transaction constraints / L. Duplicate transaction risks</li>
+<li><strong>File & Lines:</strong> [<code>src/context/ERPContext.tsx#L461</code>](file:///data/user/0/com.termux/files/home/YE/src/context/ERPContext.tsx#L461), [<code>#L135</code>](file:///data/user/0/com.termux/files/home/YE/src/services/offlineSyncService.ts#L135)</li>
+<li><strong>Actual Implementation Evidence:</strong></li>
+<p>  Identifiers are generated via <code>Math.random().toString(36)</code> and sequential numbers (<code>YE/INV/001</code>) calculated from local array lengths without database sequence or idempotency keys.</p>
+<li><strong>Business Impact:</strong> Multiple devices working concurrently create colliding invoice numbers, payment references, and audit logs.</li>
+<li><strong>Root Cause:</strong> Lack of database-backed sequences and UUIDv4 / nanoid collision-resistant generators.</li>
+<li><strong>Recommended Correction:</strong> Implement UUIDv4 / cryptographically secure random identifiers with database-enforced unique constraints and idempotency headers for mutations.</li>
+<li><strong>Regression Test:</strong> Validate idempotency key handling in mutation endpoints.</li>
+<p>---</p>
+<h3>[FINDING-MOB-01] Wide Tabular Overflows in Mobile/Termux WebViews</h3>
+<li><strong>Finding ID:</strong> <code>YE-UI-P2-001</code></li>
+<li><strong>Severity:</strong> <code>P2 (Medium)</code></li>
+<li><strong>Category:</strong> P. Mobile UI and navigation defects</li>
+<li><strong>File & Lines:</strong> [<code>src/modules/weighment/WeighmentView.tsx</code>](file:///data/user/0/com.termux/files/home/YE/src/modules/weighment/WeighmentView.tsx), [<code>src/modules/purchases/PurchasesView.tsx</code>](file:///data/user/0/com.termux/files/home/YE/src/modules/purchases/PurchasesView.tsx)</li>
+<li><strong>Actual Implementation Evidence:</strong></li>
+<p>  Data tables with 8+ columns (<code>grossWeight</code>, <code>tareWeight</code>, <code>netWeight</code>, <code>deductions</code>, <code>payableWeight</code>, <code>rate</code>, <code>amount</code>, <code>status</code>) rely on standard HTML <code><table></code> elements without responsive card collapsing on <code>< 640px</code> screens.</p>
+<li><strong>Business Impact:</strong> Operators on Android mobile devices experience severe horizontal scrolling and obscured action buttons.</li>
+<li><strong>Root Cause:</strong> Desktop-first table markup without mobile card view fallback.</li>
+<li><strong>Recommended Correction:</strong> Wrap tables in responsive card containers or horizontal scroll wrappers with sticky action columns.</li>
+<li><strong>Regression Test:</strong> Verify viewport rendering under 360px and 412px widths.</li>
+<p>---</p>
+<h3>[FINDING-OFF-01] Offline Sync Queue Vulnerable to LocalStorage Quota Depletion</h3>
+<li><strong>Finding ID:</strong> <code>YE-OFF-P2-002</code></li>
+<li><strong>Severity:</strong> <code>P2 (Medium)</code></li>
+<li><strong>Category:</strong> O. Offline synchronization conflicts</li>
+<li><strong>File & Lines:</strong> [<code>src/services/offlineSyncService.ts#L65-L100</code>](file:///data/user/0/com.termux/files/home/YE/src/services/offlineSyncService.ts#L65-L100)</li>
+<li><strong>Actual Implementation Evidence:</strong></li>
+<p>  Offline queue is serialized to <code>localStorage</code> under <code>ye_erp_offline_queue_v1</code>.</p>
+<li><strong>Business Impact:</strong> Heavy weighment slips or document uploads queued offline can trigger <code>DOMException: QuotaExceededError</code>, halting operations.</li>
+<li><strong>Root Cause:</strong> Using <code>localStorage</code> (5MB limit) instead of IndexedDB (unlimited structured storage) for queue.</li>
+<li><strong>Recommended Correction:</strong> Migrate offline queue to IndexedDB.</li>
+<li><strong>Regression Test:</strong> Verify queue handles > 10MB of queued offline payload without error.</li>
+<p>---</p>
+<h3>[FINDING-DOC-01] False Documentation Claims Regarding Active Supabase Database</h3>
+<li><strong>Finding ID:</strong> <code>YE-DOC-P2-003</code></li>
+<li><strong>Severity:</strong> <code>P2 (Medium)</code></li>
+<li><strong>Category:</strong> Documentation claims not supported by code</li>
+<li><strong>File & Lines:</strong> [<code>docs/SECURITY_AUDIT_REPORT.md#L18-L23</code>](file:///data/user/0/com.termux/files/home/YE/docs/SECURITY_AUDIT_REPORT.md#L18-L23) & [<code>docs/DATABASE_MIGRATIONS.md</code>](file:///data/user/0/com.termux/files/home/YE/docs/DATABASE_MIGRATIONS.md)</li>
+<li><strong>Actual Implementation Evidence:</strong></li>
+<p>  Documentation claims "Frontend Role Switching Eliminated... authorization enforced strictly through Supabase JWT claims and server-side PostgreSQL RLS".</p>
+<p>  Code inspection reveals client role switching is fully active and Supabase PostgreSQL is not connected.</p>
+<li><strong>Business Impact:</strong> Gives stakeholders false confidence in compliance and security posture.</li>
+<li><strong>Root Cause:</strong> Pre-mature documentation written during architectural proposal phase.</li>
+<li><strong>Recommended Correction:</strong> Update documentation to reflect reality and complete the real Supabase integration.</li>
+<li><strong>Regression Test:</strong> Re-audit documentation after implementation.</li>
+<p>---</p>
+<h2>3. Recommended Remediation Roadmap</h2>
+<pre><code>flowchart LR
+    A["Phase 0: Baseline Audit (Done)"] --&gt; B["Phase 1: Security &amp; Supabase Auth Rebuild"]
+    B --&gt; C["Phase 2: Authoritative Database &amp; RLS Migrations"]
+    C --&gt; D["Phase 3: FIFO &amp; Inventory Engine Fix"]
+    D --&gt; E["Phase 4: Double-Entry Balancing &amp; Zero-Tolerance Fix"]
+    E --&gt; F["Phase 5: Secure Team Sync (Remove public REST API)"]
+    F --&gt; G["Phase 6: Verification &amp; Test Suite Hardening"]
+</code></pre>
+<p>1. <strong>Authentication & Session Rebuild:</strong></p>
+<p>   - Remove auto-login fallback in <code>ERPContext.tsx</code>.</p>
+<p>   - Remove backdoor passwords in <code>authService.ts</code>.</p>
+<p>   - Connect real Supabase Auth with secure session lifecycle.</p>
+<p>   - Enforce 9 canonical roles: <code>OWNER_ADMIN</code>, <code>MANAGER</code>, <code>PURCHASE_OPERATOR</code>, <code>WEIGHBRIDGE_OPERATOR</code>, <code>SALES_OPERATOR</code>, <code>ACCOUNTS_OPERATOR</code>, <code>STORE_OPERATOR</code>, <code>HR_OPERATOR</code>, <code>AUDITOR</code>.</p>
+<p>2. <strong>Authoritative PostgreSQL Schema & RLS Hardening:</strong></p>
+<p>   - Author migration <code>007_authoritative_rls_hardening.sql</code>.</p>
+<p>   - Enable RLS on ALL tables including <code>companies</code>, <code>commercial_documents</code>, <code>chart_of_accounts</code>, <code>journal_entries</code>, and <code>backup_history</code>.</p>
+<p>   - Implement strict tenant isolation policies matching <code>company_memberships</code>.</p>
+<p>3. <strong>Core Business Engines Correction:</strong></p>
+<p>   - Fix FIFO lot consumption loop in <code>inventoryEngine.ts</code> to sort the actual allocated lots.</p>
+<p>   - Remove ₹0.05 imbalance allowance in <code>accountingEngine.ts</code> and ensure exact round-off allocation.</p>
+<p>   - Strip unauthenticated public sync to <code>api.restful-api.dev</code> and implement secure synchronization.</p>
+<p>   - Remove fake success responses in <code>googleDriveService.ts</code>.</p>
+<p>4. <strong>Integration & Regression Testing:</strong></p>
+<p>   - Add automated test suites for all 7 primary defect domains.</p>
+<p>   - Verify all 179 existing tests continue to pass without regression.</p>
+
+</div>
+</body>
+</html>

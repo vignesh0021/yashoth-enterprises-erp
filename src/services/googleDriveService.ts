@@ -55,7 +55,7 @@ class GoogleDriveService {
   private tokenClient: any = null;
   private userEmail: string | null = null;
   private customClientId: string = '';
-  private defaultOfficialEmail: string = 'nandhakumar4290@gmail.com';
+  private defaultOfficialEmail: string = 'yashothenterprises44@gmail.com';
 
   constructor() {
     this.customClientId = safeGetItem('ye_gdrive_client_id') || (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || '';

@@ -1756,7 +1756,17 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (data.materialGrades) setMaterialGrades(data.materialGrades);
     if (data.parties) setParties(data.parties);
     if (data.vehicles) setVehicles(data.vehicles);
-    if (data.vehicleDocuments) setVehicleDocuments(data.vehicleDocuments);
+    if (data.vehicleDocuments) {
+      setVehicleDocuments((prev) =>
+        data.vehicleDocuments!.map((incoming) => {
+          const local = prev.find((p) => p.id === incoming.id);
+          return {
+            ...incoming,
+            attachmentUrl: incoming.attachmentUrl || local?.attachmentUrl || '',
+          };
+        })
+      );
+    }
     if (data.employees) setEmployees(data.employees);
     if (data.attendance) setAttendance(data.attendance);
     if (data.accounts) setAccounts(data.accounts);
@@ -1775,7 +1785,17 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (data.journalEntries) setJournalEntries(data.journalEntries);
     if (data.dailyTasks) setDailyTasks(data.dailyTasks);
     if (data.workNotes) setWorkNotes(data.workNotes);
-    if (data.uploadedDocuments) setUploadedDocuments(data.uploadedDocuments);
+    if (data.uploadedDocuments) {
+      setUploadedDocuments((prev) =>
+        data.uploadedDocuments!.map((incoming) => {
+          const local = prev.find((p) => p.id === incoming.id);
+          return {
+            ...incoming,
+            fileDataUrl: incoming.fileDataUrl || local?.fileDataUrl || '',
+          };
+        })
+      );
+    }
   };
 
   const restoreBackup = (jsonStr: string): boolean => {

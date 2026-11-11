@@ -334,12 +334,12 @@ describe('Suite 12: Vehicle Insurance Alert Engine, Free Vahan RTO Lookup, GST E
 
     it('verifies Google Drive Service Gmail connection and fallback email backup mechanism', () => {
       const status = googleDriveService.getStatus();
-      expect(status.userEmail).toBe('nandhakumar4290@gmail.com');
+      expect(status.userEmail).toBe('yashothenterprises44@gmail.com');
 
-      const connected = googleDriveService.connectGmailAccount('nandhakumar4290@gmail.com');
+      const connected = googleDriveService.connectGmailAccount('yashothenterprises44@gmail.com');
       expect(connected.success).toBe(true);
-      expect(connected.userEmail).toBe('nandhakumar4290@gmail.com');
-      expect(googleDriveService.getUserEmail()).toBe('nandhakumar4290@gmail.com');
+      expect(connected.userEmail).toBe('yashothenterprises44@gmail.com');
+      expect(googleDriveService.getUserEmail()).toBe('yashothenterprises44@gmail.com');
     });
 
     it('verifies zero-scroll DashboardView layout and the 6 tappable portions', () => {
@@ -349,19 +349,22 @@ describe('Suite 12: Vehicle Insurance Alert Engine, Free Vahan RTO Lookup, GST E
       // Verify zero-scroll viewport styling
       expect(dashboardCode).toContain('overflow-y-auto sm:overflow-hidden');
       expect(dashboardCode).toContain('Prop. P. NANDHA KUMAR');
-      expect(dashboardCode).toContain('nandhakumar4290@gmail.com');
+      expect(dashboardCode).toContain('yashothenterprises44@gmail.com');
       expect(dashboardCode).toContain('https://ewaybillgst.gov.in/Login.aspx');
 
-      // Verify the 6 tappable portions
-      expect(dashboardCode).toContain('1. Cashflow & Funds');
-      expect(dashboardCode).toContain('2. Tasks & Notes');
-      expect(dashboardCode).toContain('3. Fleet & Insurance');
-      expect(dashboardCode).toContain('4. Quotations & POs');
-      expect(dashboardCode).toContain('5. e-Way Bill Hub');
-      expect(dashboardCode).toContain('6. Stock & Yard');
+      // Verify the executive portions including Staff & Attendance
+      expect(dashboardCode).toContain('1. Cashflow');
+      expect(dashboardCode).toContain('2. Staff & Wages');
+      expect(dashboardCode).toContain('3. Fleet & RTO');
+      expect(dashboardCode).toContain('4. Tasks & Notes');
+      expect(dashboardCode).toContain('5. Quotes & POs');
+      expect(dashboardCode).toContain('6. e-Way Bill');
+      expect(dashboardCode).toContain('7. Scrap Stock');
+      expect(dashboardCode).toContain('8. Weighbridge');
 
       // Verify complete detail drilldown modals
       expect(dashboardCode).toContain("activeDetailModal === 'FINANCE'");
+      expect(dashboardCode).toContain("activeDetailModal === 'EMPLOYEES'");
       expect(dashboardCode).toContain("activeDetailModal === 'TASKS'");
       expect(dashboardCode).toContain("activeDetailModal === 'VEHICLES'");
       expect(dashboardCode).toContain("activeDetailModal === 'DOCS'");
@@ -437,8 +440,18 @@ describe('Suite 12: Vehicle Insurance Alert Engine, Free Vahan RTO Lookup, GST E
 
     it('verifies Master Vault ID and official team sync identity configuration', () => {
       expect(MASTER_VAULT_ID).toBe('ff808181a09d98f701a1c56d14f07de2');
-      expect(OFFICIAL_SYNC_EMAIL).toBe('nandhakumar4290@gmail.com');
+      expect(OFFICIAL_SYNC_EMAIL).toBe('yashothenterprises44@gmail.com');
       expect(teamSyncService.getVaultId()).toBe('ff808181a09d98f701a1c56d14f07de2');
+    });
+
+    it('accurately resolves TN 18 M 2904 to Honda Unicorn and Redhills RTO', async () => {
+      const res = await lookupVehicleRtoDetails('TN 18 M 2904', 'TWO_WHEELER');
+      expect(res.success).toBe(true);
+      expect(res.vehicleType).toBe('Honda Unicorn');
+      expect(res.vehicleClass).toContain('Two-Wheeler');
+      expect(res.rtoCode).toBe('TN-18');
+      expect(res.rtoOfficeName).toContain('Chamundi Complex');
+      expect(res.fuelType).toBe('PETROL');
     });
 
     it('verifies Quotation upload and leading zero fix across views', () => {

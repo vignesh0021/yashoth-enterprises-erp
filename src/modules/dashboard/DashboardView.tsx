@@ -35,7 +35,10 @@ import {
   Sparkles,
   Building2,
   CreditCard,
-  Scale
+  Scale,
+  Users,
+  UserCheck,
+  PhoneCall
 } from 'lucide-react';
 
 export const DashboardView: React.FC = () => {
@@ -64,17 +67,21 @@ export const DashboardView: React.FC = () => {
     uploadedDocuments,
     renewVehicleDocument,
     syncPushToCloud,
-    syncPullFromCloud
+    syncPullFromCloud,
+    employees,
+    attendance,
+    markAttendance,
+    weighments
   } = useERP();
 
   const navigate = useNavigate();
   const todayStr = new Date().toISOString().split('T')[0];
-  const officialEmail = 'nandhakumar4290@gmail.com';
+  const officialEmail = 'yashothenterprises44@gmail.com';
   const ewayBillPortalUrl = 'https://ewaybillgst.gov.in/Login.aspx';
 
-  // Modal State for the 6 Portions
+  // Modal State for the Portions
   const [activeDetailModal, setActiveDetailModal] = useState<
-    'FINANCE' | 'TASKS' | 'VEHICLES' | 'DOCS' | 'EWAY' | 'STOCK' | null
+    'FINANCE' | 'TASKS' | 'VEHICLES' | 'DOCS' | 'EWAY' | 'STOCK' | 'EMPLOYEES' | null
   >(null);
 
   // New Daily Task Input State
@@ -185,6 +192,30 @@ export const DashboardView: React.FC = () => {
   // 6. Calculations: Invoices & E-Way Bills
   const activeEwayInvoices = invoices.filter((i) => !i.isCancelled && (i.ewayBillNo || i.vehicleRegistration));
 
+  // 7. Calculations: Employees, Attendance & Daily Wages
+  const activeEmployees = employees.filter((e) => e.isActive);
+  const todayAttendance = attendance.filter((a) => a.attendanceDate === todayStr);
+  const presentCount = todayAttendance.filter(
+    (a) => a.status === 'PRESENT' || a.status === 'DOUBLE_SHIFT' || a.status === 'OVERTIME' || a.status === 'HALF_DAY'
+  ).length;
+  const absentCount = todayAttendance.filter((a) => a.status === 'ABSENT').length;
+  const doubleShiftCount = todayAttendance.filter((a) => a.status === 'DOUBLE_SHIFT').length;
+  const todayDailyWages = todayAttendance.reduce((sum, att) => {
+    const emp = employees.find((e) => e.id === att.employeeId);
+    if (!emp) return sum;
+    const baseRate = emp.dailyWageRate || (emp.monthlySalary ? Math.round(emp.monthlySalary / 26) : 0);
+    if (att.status === 'DOUBLE_SHIFT') return sum + baseRate * 2;
+    if (att.status === 'HALF_DAY') return sum + baseRate * 0.5;
+    if (att.status === 'PRESENT' || att.status === 'OVERTIME') return sum + baseRate;
+    return sum;
+  }, 0);
+
+  // 8. Calculations: Weighbridge & Inwards
+  const todayWeighments = weighments.filter((w) => w.createdAt.startsWith(todayStr));
+  const todayNetWeightKg = todayWeighments.reduce((sum, w) => sum + (w.netWeight || 0), 0);
+  const todayNetWeightTons = kgToTon(todayNetWeightKg);
+  const pendingGrossWeighments = weighments.filter((w) => w.grossWeight > 0 && w.tareWeight === 0);
+
   // Handler: Add Daily Task
   const handleCreateTask = (e: React.FormEvent) => {
     e.preventDefault();
@@ -215,7 +246,7 @@ export const DashboardView: React.FC = () => {
     showToast('success', 'Note saved to yard operation log.');
   };
 
-  // Handler: 1-Tap Email Daily Summary to nandhakumar4290@gmail.com
+  // Handler: 1-Tap Email Daily Summary to yashothenterprises44@gmail.com
   const handleEmailDailySummary = () => {
     const subject = encodeURIComponent(
       `[YE ERP] Daily Executive Summary — ${new Date().toLocaleDateString('en-IN')}`
@@ -232,6 +263,11 @@ export const DashboardView: React.FC = () => {
       `• Total Reconciled Funds: ${formatINR(totalReconciledFunds)}\n` +
       `• Customer Receivables Due: ${formatINR(customerReceivables)}\n` +
       `• Supplier Payables Due: ${formatINR(supplierPayables)}\n\n` +
+      `--- STAFF & YARD ATTENDANCE ---\n` +
+      `• Active Workforce: ${activeEmployees.length} Staff\n` +
+      `• Present Today: ${presentCount} | Absent: ${absentCount}\n` +
+      `• Double Shifts: ${doubleShiftCount}\n` +
+      `• Today's Accrued Wages: ${formatINR(todayDailyWages)}\n\n` +
       `--- SCRAP INVENTORY & DISPATCH ---\n` +
       `• Total Stock on Hand: ${totalStockTons.toFixed(3)} Tons (${formatWeight(totalStockKg)})\n` +
       `• Stock Valuation: ${formatINR(stockValuation)}\n` +
@@ -328,249 +364,325 @@ export const DashboardView: React.FC = () => {
         </div>
       </div>
 
-      {/* THE 6 TAPPABLE EXECUTIVE PORTIONS (Exact Viewport-Fit Front Display) */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-3 flex-1 min-h-0">
+      {/* THE 8 TAPPABLE EXECUTIVE PORTIONS (Exact Viewport-Fit Front Display) */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-2.5 flex-1 min-h-0">
         
         {/* PORTION 1: TODAY'S FINANCIAL FLOW & RECONCILED CASH */}
         <div
           onClick={() => setActiveDetailModal('FINANCE')}
-          className="bg-white hover:bg-slate-50/80 active:bg-slate-100 p-3 sm:p-4 rounded-2xl border-2 border-slate-200 hover:border-indigo-400 transition-all shadow-xs cursor-pointer flex flex-col justify-between group"
+          className="bg-white hover:bg-slate-50/80 active:bg-slate-100 p-2.5 sm:p-3 rounded-2xl border-2 border-slate-200 hover:border-emerald-400 transition-all shadow-xs cursor-pointer flex flex-col justify-between group"
         >
           <div>
-            <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
-              <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                <Wallet className="w-4 h-4 text-emerald-600" />
-                <span>1. Cashflow & Funds</span>
+            <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+              <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
+                <Wallet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>1. Cashflow</span>
               </span>
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                Live Reconciled
+              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800">
+                Live
               </span>
             </div>
 
-            <div className="mt-2.5">
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Reconciled Bank & Cash</span>
-              <p className="text-base sm:text-xl font-black text-slate-900 font-mono mt-0.5">
+            <div className="mt-1.5">
+              <span className="text-[9px] text-slate-400 uppercase font-bold block">Reconciled Funds</span>
+              <p className="text-sm sm:text-lg font-black text-slate-900 font-mono mt-0.5 truncate">
                 {formatINR(totalReconciledFunds)}
               </p>
             </div>
 
-            <div className="mt-2 grid grid-cols-2 gap-1.5 text-[10px] font-medium">
-              <div className="bg-emerald-50/60 p-1.5 rounded-lg border border-emerald-100">
-                <span className="text-emerald-700 block font-semibold">Today Inflow</span>
-                <span className="font-mono font-bold text-emerald-900">{formatINR(todaySalesVal)}</span>
+            <div className="mt-1.5 grid grid-cols-2 gap-1 text-[9px] font-medium">
+              <div className="bg-emerald-50/60 p-1 rounded-lg border border-emerald-100">
+                <span className="text-emerald-700 block font-semibold truncate">Inflow</span>
+                <span className="font-mono font-bold text-emerald-900 truncate block">{formatINR(todaySalesVal)}</span>
               </div>
-              <div className="bg-rose-50/60 p-1.5 rounded-lg border border-rose-100">
-                <span className="text-rose-700 block font-semibold">Today Outflow</span>
-                <span className="font-mono font-bold text-rose-900">{formatINR(todayPurchaseVal + todayExpensesVal)}</span>
+              <div className="bg-rose-50/60 p-1 rounded-lg border border-rose-100">
+                <span className="text-rose-700 block font-semibold truncate">Outflow</span>
+                <span className="font-mono font-bold text-rose-900 truncate block">{formatINR(todayPurchaseVal + todayExpensesVal)}</span>
               </div>
             </div>
           </div>
 
-          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] font-bold text-indigo-600 group-hover:text-indigo-800">
-            <span>Tap for full cashflow ledger</span>
-            <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+          <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[9px] sm:text-[10px] font-bold text-indigo-600 group-hover:text-indigo-800">
+            <span>Ledger</span>
+            <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
           </div>
         </div>
 
-        {/* PORTION 2: DAILY TASKS & YARD WORK NOTES */}
+        {/* PORTION 2: STAFF & ATTENDANCE / DAILY WAGES */}
         <div
-          onClick={() => setActiveDetailModal('TASKS')}
-          className="bg-white hover:bg-slate-50/80 active:bg-slate-100 p-3 sm:p-4 rounded-2xl border-2 border-slate-200 hover:border-amber-400 transition-all shadow-xs cursor-pointer flex flex-col justify-between group"
+          onClick={() => setActiveDetailModal('EMPLOYEES')}
+          className="bg-white hover:bg-slate-50/80 active:bg-slate-100 p-2.5 sm:p-3 rounded-2xl border-2 border-slate-200 hover:border-blue-400 transition-all shadow-xs cursor-pointer flex flex-col justify-between group"
         >
           <div>
-            <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
-              <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                <CheckSquare className="w-4 h-4 text-amber-600" />
-                <span>2. Tasks & Notes</span>
+            <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+              <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
+                <Users className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <span>2. Staff & Wages</span>
               </span>
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900">
-                {pendingTasks.length} Pending
+              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-blue-100 text-blue-800">
+                {presentCount}/{activeEmployees.length} Present
               </span>
             </div>
 
-            <div className="mt-2.5 space-y-1.5">
-              {pendingTasks.slice(0, 2).map((t) => (
-                <div key={t.id} className="flex items-center gap-2 text-[11px] truncate">
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${
-                    t.priority === 'HIGH' ? 'bg-red-500' : 'bg-amber-400'
-                  }`}></span>
-                  <span className="font-semibold text-slate-800 truncate">{t.title}</span>
-                </div>
-              ))}
-              {pendingTasks.length === 0 && (
-                <p className="text-[11px] text-slate-400 italic">No pending tasks today. All clear!</p>
-              )}
+            <div className="mt-1.5">
+              <span className="text-[9px] text-slate-400 uppercase font-bold block">Active Workforce</span>
+              <p className="text-sm sm:text-lg font-black text-slate-900 mt-0.5 truncate">
+                {activeEmployees.length} Staff <span className="text-[11px] font-normal text-slate-500">({presentCount} OK)</span>
+              </p>
             </div>
 
-            <div className="mt-2 flex items-center gap-2 text-[10px]">
-              <span className="bg-slate-100 px-2 py-0.5 rounded font-semibold text-slate-600">
-                📝 {workNotes.length} Yard Notes
-              </span>
-              {highPriorityPending.length > 0 && (
-                <span className="bg-red-50 text-red-700 border border-red-200 px-1.5 py-0.5 rounded font-bold">
-                  {highPriorityPending.length} Urgent
-                </span>
-              )}
+            <div className="mt-1.5 grid grid-cols-2 gap-1 text-[9px] font-medium">
+              <div className="bg-blue-50/60 p-1 rounded-lg border border-blue-100">
+                <span className="text-blue-700 block font-semibold truncate">Today Wages</span>
+                <span className="font-mono font-bold text-blue-900 truncate block">{formatINR(todayDailyWages)}</span>
+              </div>
+              <div className="bg-amber-50/60 p-1 rounded-lg border border-amber-100">
+                <span className="text-amber-700 block font-semibold truncate">Shifts</span>
+                <span className="font-bold text-amber-900 truncate block">{doubleShiftCount > 0 ? `${doubleShiftCount} Double` : 'Regular'}</span>
+              </div>
             </div>
           </div>
 
-          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] font-bold text-amber-700 group-hover:text-amber-900">
-            <span>Tap to check & add tasks</span>
-            <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+          <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[9px] sm:text-[10px] font-bold text-blue-600 group-hover:text-blue-800">
+            <span>Mark attendance</span>
+            <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
           </div>
         </div>
 
         {/* PORTION 3: FLEET, INSURANCE & RTO COMPLIANCE */}
         <div
           onClick={() => setActiveDetailModal('VEHICLES')}
-          className={`bg-white hover:bg-slate-50/80 active:bg-slate-100 p-3 sm:p-4 rounded-2xl border-2 transition-all shadow-xs cursor-pointer flex flex-col justify-between group ${
-            urgentVehicleAlerts.length > 0 ? 'border-rose-300' : 'border-slate-200 hover:border-emerald-400'
+          className={`bg-white hover:bg-slate-50/80 active:bg-slate-100 p-2.5 sm:p-3 rounded-2xl border-2 transition-all shadow-xs cursor-pointer flex flex-col justify-between group ${
+            urgentVehicleAlerts.length > 0 ? 'border-rose-300' : 'border-slate-200 hover:border-red-400'
           }`}
         >
           <div>
-            <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
-              <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                <Truck className="w-4 h-4 text-red-600" />
-                <span>3. Fleet & Insurance</span>
+            <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+              <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
+                <Truck className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                <span>3. Fleet & RTO</span>
               </span>
-              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${
+              <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
                 urgentVehicleAlerts.length > 0 ? 'bg-rose-100 text-rose-800 animate-pulse' : 'bg-emerald-100 text-emerald-800'
               }`}>
                 {urgentVehicleAlerts.length > 0 ? `${urgentVehicleAlerts.length} Alerts` : 'Compliant'}
               </span>
             </div>
 
-            <div className="mt-2.5">
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Active Fleet Size</span>
-              <p className="text-base sm:text-xl font-black text-slate-900 mt-0.5">
-                {vehicles.length} Vehicles <span className="text-xs font-normal text-slate-500">({fleetCompliance.fullyCompliantVehicles} OK)</span>
+            <div className="mt-1.5">
+              <span className="text-[9px] text-slate-400 uppercase font-bold block">Active Fleet</span>
+              <p className="text-sm sm:text-lg font-black text-slate-900 mt-0.5 truncate">
+                {vehicles.length} Vehicles <span className="text-[11px] font-normal text-slate-500">({fleetCompliance.fullyCompliantVehicles} OK)</span>
               </p>
             </div>
 
-            <div className="mt-2 text-[10px] space-y-1">
+            <div className="mt-1.5 text-[9px] space-y-1">
               {urgentVehicleAlerts.slice(0, 1).map((a, i) => (
-                <div key={i} className="bg-rose-50 p-1.5 rounded-lg border border-rose-200 text-rose-900 flex items-center justify-between">
+                <div key={i} className="bg-rose-50 p-1 rounded-lg border border-rose-200 text-rose-900 flex items-center justify-between truncate">
                   <span className="font-mono font-bold truncate">{a.registrationNo}</span>
-                  <span className="text-[9px] font-black uppercase">{a.statusLabel}</span>
+                  <span className="text-[8px] font-black uppercase ml-1 shrink-0">{a.statusLabel}</span>
                 </div>
               ))}
               {urgentVehicleAlerts.length === 0 && (
-                <div className="bg-emerald-50 p-1.5 rounded-lg border border-emerald-100 text-emerald-800 font-semibold">
-                  ✓ Insurance & FC valid for all trucks
+                <div className="bg-emerald-50 p-1 rounded-lg border border-emerald-100 text-emerald-800 font-semibold truncate">
+                  ✓ RC & Insurance valid
                 </div>
               )}
             </div>
           </div>
 
-          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] font-bold text-red-600 group-hover:text-red-800">
-            <span>Tap for RTO alerts & papers</span>
-            <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+          <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[9px] sm:text-[10px] font-bold text-red-600 group-hover:text-red-800">
+            <span>RTO papers</span>
+            <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
           </div>
         </div>
 
-        {/* PORTION 4: COMMERCIAL DOCS, QUOTATIONS & POS */}
+        {/* PORTION 4: DAILY TASKS & YARD WORK NOTES */}
+        <div
+          onClick={() => setActiveDetailModal('TASKS')}
+          className="bg-white hover:bg-slate-50/80 active:bg-slate-100 p-2.5 sm:p-3 rounded-2xl border-2 border-slate-200 hover:border-amber-400 transition-all shadow-xs cursor-pointer flex flex-col justify-between group"
+        >
+          <div>
+            <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+              <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
+                <CheckSquare className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span>4. Tasks & Notes</span>
+              </span>
+              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900">
+                {pendingTasks.length} Pending
+              </span>
+            </div>
+
+            <div className="mt-1.5 space-y-1">
+              {pendingTasks.slice(0, 1).map((t) => (
+                <div key={t.id} className="flex items-center gap-1.5 text-[10px] truncate">
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                    t.priority === 'HIGH' ? 'bg-red-500' : 'bg-amber-400'
+                  }`}></span>
+                  <span className="font-semibold text-slate-800 truncate">{t.title}</span>
+                </div>
+              ))}
+              {pendingTasks.length === 0 && (
+                <p className="text-[10px] text-slate-400 italic">No pending tasks today</p>
+              )}
+            </div>
+
+            <div className="mt-1.5 flex items-center gap-1 text-[9px]">
+              <span className="bg-slate-100 px-1.5 py-0.5 rounded font-semibold text-slate-600 truncate">
+                📝 {workNotes.length} Yard Notes
+              </span>
+              {highPriorityPending.length > 0 && (
+                <span className="bg-red-50 text-red-700 border border-red-200 px-1 py-0.5 rounded font-bold shrink-0">
+                  {highPriorityPending.length} Urgent
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[9px] sm:text-[10px] font-bold text-amber-700 group-hover:text-amber-900">
+            <span>Check tasks</span>
+            <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
+          </div>
+        </div>
+
+        {/* PORTION 5: COMMERCIAL DOCS, QUOTATIONS & POS */}
         <div
           onClick={() => setActiveDetailModal('DOCS')}
-          className="bg-white hover:bg-slate-50/80 active:bg-slate-100 p-3 sm:p-4 rounded-2xl border-2 border-slate-200 hover:border-indigo-400 transition-all shadow-xs cursor-pointer flex flex-col justify-between group"
+          className="bg-white hover:bg-slate-50/80 active:bg-slate-100 p-2.5 sm:p-3 rounded-2xl border-2 border-slate-200 hover:border-indigo-400 transition-all shadow-xs cursor-pointer flex flex-col justify-between group"
         >
           <div>
-            <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
-              <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                <FileText className="w-4 h-4 text-indigo-600" />
-                <span>4. Quotations & POs</span>
+            <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+              <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
+                <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                <span>5. Quotes & POs</span>
               </span>
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800">
-                A4 Printable
+              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-800">
+                A4
               </span>
             </div>
 
-            <div className="mt-2.5 grid grid-cols-2 gap-1.5 text-[10px]">
-              <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
-                <span className="text-slate-400 block uppercase font-bold text-[9px]">Quotations</span>
-                <span className="text-base font-black text-slate-900 font-mono block mt-0.5">{quotationDocs.length}</span>
-                <span className="text-[9px] text-amber-700 font-semibold">Instant Live</span>
+            <div className="mt-1.5 grid grid-cols-2 gap-1 text-[9px]">
+              <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100">
+                <span className="text-slate-400 block uppercase font-bold text-[8px]">Quotations</span>
+                <span className="text-sm font-black text-slate-900 font-mono block mt-0.5">{quotationDocs.length}</span>
+                <span className="text-[8px] text-amber-700 font-semibold">Live</span>
               </div>
-              <div className="bg-slate-50 p-2 rounded-xl border border-slate-100">
-                <span className="text-slate-400 block uppercase font-bold text-[9px]">Purchase Orders</span>
-                <span className="text-base font-black text-slate-900 font-mono block mt-0.5">{poDocs.length}</span>
-                <span className="text-[9px] text-indigo-700 font-semibold">{uploadedPoDocs.length} Uploaded</span>
+              <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100">
+                <span className="text-slate-400 block uppercase font-bold text-[8px]">POs</span>
+                <span className="text-sm font-black text-slate-900 font-mono block mt-0.5">{poDocs.length}</span>
+                <span className="text-[8px] text-indigo-700 font-semibold">{uploadedPoDocs.length} Upld</span>
               </div>
             </div>
           </div>
 
-          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] font-bold text-indigo-600 group-hover:text-indigo-800">
-            <span>Tap to view & preview POs</span>
-            <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+          <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[9px] sm:text-[10px] font-bold text-indigo-600 group-hover:text-indigo-800">
+            <span>View POs</span>
+            <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
           </div>
         </div>
 
-        {/* PORTION 5: NATIONAL E-WAY BILL & DISPATCH HUB */}
+        {/* PORTION 6: NATIONAL E-WAY BILL & DISPATCH HUB */}
         <div
           onClick={() => setActiveDetailModal('EWAY')}
-          className="bg-white hover:bg-slate-50/80 active:bg-slate-100 p-3 sm:p-4 rounded-2xl border-2 border-slate-200 hover:border-emerald-400 transition-all shadow-xs cursor-pointer flex flex-col justify-between group"
+          className="bg-white hover:bg-slate-50/80 active:bg-slate-100 p-2.5 sm:p-3 rounded-2xl border-2 border-slate-200 hover:border-emerald-400 transition-all shadow-xs cursor-pointer flex flex-col justify-between group"
         >
           <div>
-            <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
-              <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                <ExternalLink className="w-4 h-4 text-emerald-600" />
-                <span>5. e-Way Bill Hub</span>
+            <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+              <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
+                <ExternalLink className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <span>6. e-Way Bill</span>
               </span>
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
-                NIC Portal
+              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800">
+                NIC
               </span>
             </div>
 
-            <div className="mt-2.5">
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Active Consignments</span>
-              <p className="text-base sm:text-xl font-black text-slate-900 font-mono mt-0.5">
-                {activeEwayInvoices.length} Dispatches <span className="text-xs font-normal text-slate-500">with e-Way</span>
+            <div className="mt-1.5">
+              <span className="text-[9px] text-slate-400 uppercase font-bold block">Active Dispatches</span>
+              <p className="text-sm sm:text-lg font-black text-slate-900 font-mono mt-0.5 truncate">
+                {activeEwayInvoices.length} Dispatches
               </p>
             </div>
 
-            <div className="mt-2 bg-emerald-50/80 p-2 rounded-xl border border-emerald-100 text-[10px] text-emerald-900">
+            <div className="mt-1.5 bg-emerald-50/80 p-1.5 rounded-lg border border-emerald-100 text-[9px] text-emerald-900 truncate">
               <span className="font-bold block truncate">ewaybillgst.gov.in</span>
-              <span className="text-[9px] text-emerald-700 block truncate">Linked: {officialEmail}</span>
+              <span className="text-[8px] text-emerald-700 block truncate">{officialEmail}</span>
             </div>
           </div>
 
-          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] font-bold text-emerald-700 group-hover:text-emerald-900">
-            <span>Tap for portal login & JSON</span>
-            <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+          <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[9px] sm:text-[10px] font-bold text-emerald-700 group-hover:text-emerald-900">
+            <span>NIC portal</span>
+            <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
           </div>
         </div>
 
-        {/* PORTION 6: SCRAP STOCK & YARD INVENTORY */}
+        {/* PORTION 7: SCRAP STOCK & YARD INVENTORY */}
         <div
           onClick={() => setActiveDetailModal('STOCK')}
-          className="bg-white hover:bg-slate-50/80 active:bg-slate-100 p-3 sm:p-4 rounded-2xl border-2 border-slate-200 hover:border-amber-400 transition-all shadow-xs cursor-pointer flex flex-col justify-between group"
+          className="bg-white hover:bg-slate-50/80 active:bg-slate-100 p-2.5 sm:p-3 rounded-2xl border-2 border-slate-200 hover:border-amber-400 transition-all shadow-xs cursor-pointer flex flex-col justify-between group"
         >
           <div>
-            <div className="flex items-center justify-between pb-1.5 border-b border-slate-100">
-              <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                <Boxes className="w-4 h-4 text-amber-600" />
-                <span>6. Stock & Yard</span>
+            <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+              <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
+                <Boxes className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                <span>7. Scrap Stock</span>
               </span>
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
-                {materials.length} Materials
+              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800">
+                {materials.length} Items
               </span>
             </div>
 
-            <div className="mt-2.5">
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Total Physical Stock</span>
-              <p className="text-base sm:text-xl font-black text-slate-900 font-mono mt-0.5">
-                {totalStockTons.toFixed(3)} <span className="text-xs font-bold text-slate-600">Tons</span>
+            <div className="mt-1.5">
+              <span className="text-[9px] text-slate-400 uppercase font-bold block">Physical Stock</span>
+              <p className="text-sm sm:text-lg font-black text-slate-900 font-mono mt-0.5 truncate">
+                {totalStockTons.toFixed(3)} <span className="text-[11px] font-bold text-slate-600">Tons</span>
               </p>
             </div>
 
-            <div className="mt-2 flex items-center justify-between text-[10px]">
+            <div className="mt-1.5 flex items-center justify-between text-[9px]">
               <span className="text-slate-500 font-semibold">Valuation:</span>
-              <span className="font-mono font-black text-slate-900">{formatINR(stockValuation)}</span>
+              <span className="font-mono font-black text-slate-900 truncate">{formatINR(stockValuation)}</span>
             </div>
           </div>
 
-          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] font-bold text-amber-700 group-hover:text-amber-900">
-            <span>Tap for material-wise stock</span>
-            <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+          <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[9px] sm:text-[10px] font-bold text-amber-700 group-hover:text-amber-900">
+            <span>Material stock</span>
+            <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
+          </div>
+        </div>
+
+        {/* PORTION 8: WEIGHBRIDGE & GATE OPERATIONS */}
+        <div
+          onClick={() => navigate('/weighment')}
+          className="bg-white hover:bg-slate-50/80 active:bg-slate-100 p-2.5 sm:p-3 rounded-2xl border-2 border-slate-200 hover:border-teal-400 transition-all shadow-xs cursor-pointer flex flex-col justify-between group"
+        >
+          <div>
+            <div className="flex items-center justify-between pb-1 border-b border-slate-100">
+              <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
+                <Scale className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                <span>8. Weighbridge</span>
+              </span>
+              <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-teal-100 text-teal-800">
+                {todayWeighments.length} Today
+              </span>
+            </div>
+
+            <div className="mt-1.5">
+              <span className="text-[9px] text-slate-400 uppercase font-bold block">Net Material Weighed</span>
+              <p className="text-sm sm:text-lg font-black text-slate-900 font-mono mt-0.5 truncate">
+                {todayNetWeightTons.toFixed(3)} <span className="text-[11px] font-bold text-slate-600">Tons</span>
+              </p>
+            </div>
+
+            <div className="mt-1.5 flex items-center justify-between text-[9px]">
+              <span className="text-slate-500 font-semibold">Yard Trucks:</span>
+              <span className="font-bold text-teal-900">{pendingGrossWeighments.length} Gross Done</span>
+            </div>
+          </div>
+
+          <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[9px] sm:text-[10px] font-bold text-teal-700 group-hover:text-teal-900">
+            <span>Open weigh slips</span>
+            <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
           </div>
         </div>
 
@@ -648,6 +760,173 @@ export const DashboardView: React.FC = () => {
                 className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold flex items-center gap-1.5 min-h-[44px] cursor-pointer"
               >
                 <span>Open Full Accounts View</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL: COMPLETE STAFF & ATTENDANCE DRILLDOWN */}
+      {activeDetailModal === 'EMPLOYEES' && (
+        <Modal
+          isOpen={true}
+          onClose={() => setActiveDetailModal(null)}
+          title="Staff Attendance & Daily Wage Cockpit"
+          subtitle="Live daily presence, shift wages, overtime, and fast 1-tap attendance marking."
+          maxWidth="4xl"
+        >
+          <div className="space-y-4 text-xs">
+            {/* Top Stat Pills */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <span className="text-[10px] text-slate-400 uppercase font-bold block">Active Workforce</span>
+                <span className="text-base font-black text-slate-900 font-mono">{activeEmployees.length} Staff</span>
+              </div>
+              <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200">
+                <span className="text-[10px] text-emerald-600 uppercase font-bold block">Present Today</span>
+                <span className="text-base font-black text-emerald-800 font-mono">{presentCount} Present</span>
+              </div>
+              <div className="bg-rose-50 p-3 rounded-xl border border-rose-200">
+                <span className="text-[10px] text-rose-600 uppercase font-bold block">Absent Today</span>
+                <span className="text-base font-black text-rose-800 font-mono">{absentCount} Absent</span>
+              </div>
+              <div className="bg-blue-50 p-3 rounded-xl border border-blue-200">
+                <span className="text-[10px] text-blue-600 uppercase font-bold block">Today's Accrued Wages</span>
+                <span className="text-base font-black text-blue-800 font-mono">{formatINR(todayDailyWages)}</span>
+              </div>
+            </div>
+
+            {/* Employee List with 1-Tap Attendance */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+                <span className="font-bold text-slate-800 uppercase tracking-wider text-[11px]">
+                  Team Attendance Marking — {new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}
+                </span>
+                <span className="text-[10px] text-slate-500 font-medium">1-Tap Quick Mark</span>
+              </div>
+
+              <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto pr-1">
+                {activeEmployees.map((emp) => {
+                  const att = todayAttendance.find((a) => a.employeeId === emp.id);
+                  const status = att?.status || 'NOT_MARKED';
+
+                  return (
+                    <div key={emp.id} className="py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
+                          status === 'PRESENT' || status === 'DOUBLE_SHIFT' || status === 'OVERTIME'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : status === 'ABSENT'
+                            ? 'bg-rose-100 text-rose-800'
+                            : 'bg-slate-100 text-slate-700'
+                        }`}>
+                          {emp.fullName.charAt(0)}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-slate-900 text-xs">{emp.fullName}</span>
+                            <span className="text-[10px] text-slate-400 font-mono">({emp.employeeCode})</span>
+                          </div>
+                          <p className="text-[10px] text-slate-500">
+                            {emp.designation} · {emp.dailyWageRate ? `${formatINR(emp.dailyWageRate)}/day` : `${formatINR(emp.monthlySalary)}/mo`}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Status and 1-tap toggles */}
+                      <div className="flex items-center gap-1.5 self-end sm:self-auto flex-wrap">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            markAttendance(emp.id, todayStr, 'PRESENT');
+                            showToast('success', `${emp.fullName} marked Present`);
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors cursor-pointer ${
+                            status === 'PRESENT'
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-200'
+                          }`}
+                        >
+                          ✓ Present
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            markAttendance(emp.id, todayStr, 'DOUBLE_SHIFT');
+                            showToast('success', `${emp.fullName} marked Double Shift`);
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors cursor-pointer ${
+                            status === 'DOUBLE_SHIFT'
+                              ? 'bg-amber-600 text-white shadow-xs'
+                              : 'bg-slate-100 hover:bg-amber-50 text-slate-700 hover:text-amber-700 border border-slate-200'
+                          }`}
+                        >
+                          ⚡ Double Shift
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            markAttendance(emp.id, todayStr, 'HALF_DAY');
+                            showToast('success', `${emp.fullName} marked Half Day`);
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors cursor-pointer ${
+                            status === 'HALF_DAY'
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200'
+                          }`}
+                        >
+                          ½ Half
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            markAttendance(emp.id, todayStr, 'ABSENT');
+                            showToast('success', `${emp.fullName} marked Absent`);
+                          }}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors cursor-pointer ${
+                            status === 'ABSENT'
+                              ? 'bg-rose-600 text-white shadow-xs'
+                              : 'bg-slate-100 hover:bg-rose-50 text-slate-700 hover:text-rose-700 border border-slate-200'
+                          }`}
+                        >
+                          ✕ Absent
+                        </button>
+
+                        {emp.phone && (
+                          <a
+                            href={`tel:${emp.phone}`}
+                            className="p-1.5 bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-600 rounded-lg border border-slate-200"
+                            title={`Call ${emp.fullName}`}
+                          >
+                            <PhoneCall className="w-3.5 h-3.5" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Action buttons */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-200">
+              <span className="text-[11px] text-slate-500">
+                Staff wages reconcile directly into daily outflow reports.
+              </span>
+
+              <button
+                onClick={() => {
+                  setActiveDetailModal(null);
+                  navigate('/employees');
+                }}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold flex items-center gap-1.5 min-h-[44px] cursor-pointer"
+              >
+                <Users className="w-4 h-4 text-blue-400" />
+                <span>Open Full Employees & Wages View</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>

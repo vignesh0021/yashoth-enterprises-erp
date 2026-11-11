@@ -84,11 +84,11 @@ export const BackupManagerView: React.FC = () => {
     setIsTeamSyncing(true);
     setTeamSyncMsg(null);
     try {
-      const res = await syncPushToCloud('nandhakumar4290@gmail.com');
+      const res = await syncPushToCloud('yashothenterprises44@gmail.com');
       if (res.success) {
         setTeamSyncMsg({
           type: 'success',
-          text: `Pushed whole ERP database to Team Cloud Hub (Revision ${res.revision}). All 3 devices with nandhakumar4290@gmail.com now share this identical data!`,
+          text: `Pushed whole ERP database to Team Cloud Hub (Revision ${res.revision}). All 3 devices with yashothenterprises44@gmail.com now share this identical data!`,
         });
       } else {
         setTeamSyncMsg({ type: 'error', text: res.error || 'Failed to sync to cloud hub.' });
@@ -914,7 +914,7 @@ export const BackupManagerView: React.FC = () => {
                   <span>Option 3: 3-Member Zero-Lag Shared Cloud Sync</span>
                 </h3>
                 <p className="text-[11px] text-indigo-200 mt-0.5">
-                  Single email (<strong className="text-amber-300">nandhakumar4290@gmail.com</strong>) used across 3 devices. Backup once and all 3 members see identical live data instantly with zero lag.
+                  Single email (<strong className="text-amber-300">yashothenterprises44@gmail.com</strong>) used across 3 devices. Backup once and all 3 members see identical live data instantly with zero lag.
                 </p>
               </div>
               <span className="px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 self-start sm:self-auto">
@@ -937,7 +937,7 @@ export const BackupManagerView: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px]">
               <div className="p-3 bg-white/5 rounded-lg border border-white/10">
                 <span className="text-indigo-300 block font-semibold">Shared Email Identity</span>
-                <span className="font-bold text-white block mt-0.5 font-mono">nandhakumar4290@gmail.com</span>
+                <span className="font-bold text-white block mt-0.5 font-mono">yashothenterprises44@gmail.com</span>
                 <span className="text-[10px] text-slate-400">All 3 staff members</span>
               </div>
               <div className="p-3 bg-white/5 rounded-lg border border-white/10">

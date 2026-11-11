@@ -58,3 +58,69 @@ export function cleanPhoneNumber(rawTel: string): string {
   }
   return cleaned;
 }
+
+/**
+ * Parses any pasted or shared contact string (e.g. from WhatsApp, Truecaller, or Phone contacts)
+ * into a structured PickedContact with sanitized phone number, name, and email.
+ */
+export function parseContactText(text: string): PickedContact | null {
+  if (!text || !text.trim()) return null;
+  const lines = text.split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean);
+
+  let phone = '';
+  let email = '';
+  let name = '';
+
+  // 1. Try to find email
+  const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  if (emailMatch) {
+    email = emailMatch[0].trim();
+  }
+
+  // 2. Try to find Indian phone numbers (10 digits, +91 prefix, or spaces/dashes)
+  const phoneMatches = text.match(/(?:\+91[\-\s]?)?[6-9]\d{4}[\-\s]?\d{5}/g) ||
+                       text.match(/(?:\+91[\-\s]?)?[6-9]\d{9}/g) ||
+                       text.match(/\b\d{10}\b/g);
+
+  if (phoneMatches && phoneMatches.length > 0) {
+    phone = cleanPhoneNumber(phoneMatches[0]);
+  }
+
+  // 3. Extract name: line that doesn't contain the phone number or email
+  for (const line of lines) {
+    const isPhoneLine = phone && line.replace(/[^\d]/g, '').includes(phone);
+    const isEmailLine = email && line.includes(email);
+    if (!isPhoneLine && !isEmailLine && line.length >= 2 && line.length <= 60) {
+      // Remove labels like "Name:", "Contact:", etc.
+      const cleanName = line.replace(/^(name|contact|driver|employee|person)\s*[:\-]\s*/i, '').trim();
+      if (cleanName) {
+        name = cleanName;
+        break;
+      }
+    }
+  }
+
+  if (phone || name || email) {
+    return { name, phone, email };
+  }
+  return null;
+}
+
+export function isClipboardSupported(): boolean {
+  return typeof navigator !== 'undefined' && typeof navigator.clipboard?.readText === 'function';
+}
+
+/**
+ * 1-Tap reads copied contact text from device clipboard and auto-parses Name and Phone.
+ */
+export async function readContactFromClipboard(): Promise<PickedContact | null> {
+  if (!isClipboardSupported()) return null;
+  try {
+    const text = await navigator.clipboard.readText();
+    return parseContactText(text);
+  } catch (err: any) {
+    console.info('Clipboard read permission denied or unavailable:', err?.message);
+    return null;
+  }
+}
+

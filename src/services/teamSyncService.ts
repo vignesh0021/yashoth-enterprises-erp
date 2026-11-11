@@ -3,7 +3,7 @@
  *
  * Implements:
  * 1. Multi-Device Real-Time Cloud Sync Hub:
- *    - Connects 3 team members sharing email 'nandhakumar4290@gmail.com'.
+ *    - Connects 3 team members sharing email 'yashothenterprises44@gmail.com'.
  *    - Instant push/pull with zero lag and zero forced email popups.
  *    - Actor attribution (Proprietor, Yard Supervisor, Accounts Admin).
  *    - Revision tracking to detect newer cloud state.
@@ -16,7 +16,36 @@
 import type { BackupDatabasePayload } from '../types/index.ts';
 
 export const MASTER_VAULT_ID = 'ff808181a09d98f701a1c56d14f07de2';
-export const OFFICIAL_SYNC_EMAIL = 'nandhakumar4290@gmail.com';
+export const OFFICIAL_SYNC_EMAIL = 'yashothenterprises44@gmail.com';
+
+/**
+ * Strips heavy Base64 strings (>256 chars) from documents before sending to the
+ * shared cloud vault. Keeps JSON payload lightweight (< 30 KB) so restful-api.dev
+ * never throws HTTP 500 or 413 Payload Too Large. Document metadata remains 100% intact.
+ */
+export function sanitizePayloadForCloud(payload: BackupDatabasePayload): BackupDatabasePayload {
+  const clean: BackupDatabasePayload = { ...payload };
+
+  if (Array.isArray(clean.uploadedDocuments)) {
+    clean.uploadedDocuments = clean.uploadedDocuments.map((doc) => {
+      if (doc.fileDataUrl && doc.fileDataUrl.length > 256) {
+        return { ...doc, fileDataUrl: '' };
+      }
+      return doc;
+    });
+  }
+
+  if (Array.isArray(clean.vehicleDocuments)) {
+    clean.vehicleDocuments = clean.vehicleDocuments.map((doc) => {
+      if (doc.attachmentUrl && doc.attachmentUrl.length > 256) {
+        return { ...doc, attachmentUrl: '' };
+      }
+      return doc;
+    });
+  }
+
+  return clean;
+}
 
 const STORAGE_VAULT_ID_KEY = 'ye_team_sync_vault_id_v1';
 const STORAGE_LOCAL_REVISION_KEY = 'ye_team_sync_local_rev_v1';
@@ -171,6 +200,8 @@ class TeamSyncService {
     const nextRev = this.getLocalRevision() + 1;
     const actor = actorOverride || this.memberName;
 
+    const sanitizedPayload = sanitizePayloadForCloud(payload);
+
     const vaultPayload: CloudVaultData = {
       vaultName: 'YASHOTH_ENTERPRISES_MASTER_VAULT',
       companyCode: 'YE-MAIN',
@@ -180,7 +211,7 @@ class TeamSyncService {
       syncedAt: new Date().toISOString(),
       syncedBy: actor,
       notes: `Updated by ${actor} from Yashoth Enterprises Android ERP`,
-      payload,
+      payload: sanitizedPayload,
     };
 
     try {

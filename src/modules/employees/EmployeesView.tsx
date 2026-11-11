@@ -22,6 +22,7 @@ import {
   BookUser
 } from 'lucide-react';
 import { pickContactFromPhonebook, isContactPickerSupported } from '../../utils/contactPicker.ts';
+import { QuickContactModal } from '../../components/QuickContactModal.tsx';
 
 export const EmployeesView: React.FC = () => {
   const { 
@@ -57,6 +58,7 @@ export const EmployeesView: React.FC = () => {
   const [dailyWage, setDailyWage] = useState<number>(650);
   const [monthlySalary, setMonthlySalary] = useState<number>(0);
   const [advanceBalance, setAdvanceBalance] = useState<number>(0);
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
 
   // Form State for Custom Shift & Overtime Modal
   const [isOtModalOpen, setIsOtModalOpen] = useState(false);
@@ -1066,17 +1068,9 @@ export const EmployeesView: React.FC = () => {
                 <label className="font-bold text-slate-700">Phone Number</label>
                 <button
                   type="button"
-                  onClick={async () => {
-                    const c = await pickContactFromPhonebook();
-                    if (c) {
-                      if (c.phone) setPhone(c.phone);
-                      if (c.name && (!name || !name.trim())) setName(c.name);
-                      setFeedbackMsg({ type: 'success', text: `Fetched contact: ${c.name || c.phone}` });
-                      setTimeout(() => setFeedbackMsg(null), 3000);
-                    }
-                  }}
+                  onClick={() => setIsContactModalOpen(true)}
                   className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-full border border-blue-200 transition-colors cursor-pointer"
-                  title="Pick directly from your phone's contacts"
+                  title="Pick from contacts, clipboard, or team"
                 >
                   <BookUser className="w-3.5 h-3.5" />
                   <span>Fetch from Contacts</span>
@@ -1190,6 +1184,18 @@ export const EmployeesView: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      <QuickContactModal
+        isOpen={isContactModalOpen}
+        onClose={() => setIsContactModalOpen(false)}
+        title="Fetch Staff Contact"
+        onSelect={(c) => {
+          if (c.phone) setPhone(c.phone);
+          if (c.name && (!name || !name.trim())) setName(c.name);
+          setFeedbackMsg({ type: 'success', text: `Fetched contact: ${c.name || c.phone}` });
+          setTimeout(() => setFeedbackMsg(null), 3000);
+        }}
+      />
     </div>
   );
 };

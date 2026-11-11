@@ -49,7 +49,7 @@ export const INITIAL_COMPANY_SETTINGS: Company = {
   gstin: '33AXVPN9382L1ZF',
   pan: 'AXVPN9382L',
   phone: '+91 94440 12345',
-  email: 'yashothenterprises2022@gmail.com',
+  email: 'yashothenterprises44@gmail.com',
   bankName: 'CITY UNION BANK',
   bankAccountNo: '510909010195638',
   bankBranch: 'PONNERI',
@@ -367,6 +367,16 @@ export const INITIAL_VEHICLES: Vehicle[] = [
     tareWeight: 2450,
     isActive: true,
   },
+  {
+    id: 'veh-03',
+    registrationNo: 'TN 18 M 2904',
+    vehicleType: 'Honda Unicorn (160cc)',
+    ownershipType: 'OWNED',
+    driverName: 'V*****H S',
+    driverPhone: '+91 96009 10944',
+    tareWeight: 140,
+    isActive: true,
+  },
 ];
 
 export const INITIAL_VEHICLE_DOCS: VehicleDocument[] = [
@@ -419,6 +429,26 @@ export const INITIAL_VEHICLE_DOCS: VehicleDocument[] = [
     expiryDate: '2026-11-20',
     reminderDaysBefore: 30,
     notes: 'Tamil Nadu & Andhra Pradesh Goods Carrier Permit',
+  },
+  {
+    id: 'vdoc-06',
+    vehicleId: 'veh-03',
+    documentType: 'INSURANCE',
+    documentNumber: 'POL/CHOLA/2024/99182904',
+    issueDate: '2024-06-09',
+    expiryDate: '2027-06-08',
+    reminderDaysBefore: 30,
+    notes: 'Chola MS General Insurance Policy (Long Term Two-Wheeler)',
+  },
+  {
+    id: 'vdoc-07',
+    vehicleId: 'veh-03',
+    documentType: 'FITNESS',
+    documentNumber: 'FC/TN18/2021/2904',
+    issueDate: '2021-11-24',
+    expiryDate: '2036-11-23',
+    reminderDaysBefore: 60,
+    notes: 'Redhills RTO Chamundi Complex RC Registration / Fitness (15 Years)',
   },
 ];
 

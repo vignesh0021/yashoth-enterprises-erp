@@ -21,6 +21,7 @@ import {
   BookUser
 } from 'lucide-react';
 import { pickContactFromPhonebook } from '../../utils/contactPicker.ts';
+import { QuickContactModal } from '../../components/QuickContactModal.tsx';
 
 export const PartiesView: React.FC = () => {
   const { parties, addParty, updateParty, deleteParty, invoices, purchases, payments } = useERP();
@@ -28,6 +29,7 @@ export const PartiesView: React.FC = () => {
   const [filterType, setFilterType] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [editingParty, setEditingParty] = useState<Party | null>(null);
   const [selectedParty, setSelectedParty] = useState<Party | null>(null);
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -380,15 +382,9 @@ export const PartiesView: React.FC = () => {
                 <label className="font-bold text-slate-700">Phone / Mobile *</label>
                 <button
                   type="button"
-                  onClick={async () => {
-                    const c = await pickContactFromPhonebook();
-                    if (c) {
-                      if (c.phone) setPhone(c.phone);
-                      if (c.name && (!contactPerson || !contactPerson.trim())) setContactPerson(c.name);
-                    }
-                  }}
+                  onClick={() => setIsContactModalOpen(true)}
                   className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-full border border-blue-200 transition-colors cursor-pointer"
-                  title="Pick directly from your phone's contacts"
+                  title="Pick directly from contacts, clipboard, or existing team"
                 >
                   <BookUser className="w-3.5 h-3.5" />
                   <span>Fetch from Contacts</span>
@@ -500,6 +496,20 @@ export const PartiesView: React.FC = () => {
           </div>
         </Modal>
       )}
+
+      <QuickContactModal
+        isOpen={isContactModalOpen}
+        onClose={() => setIsContactModalOpen(false)}
+        title="Fetch Party / Client Contact"
+        onSelect={(c) => {
+          if (c.phone) setPhone(c.phone);
+          if (c.name && (!contactPerson || !contactPerson.trim())) setContactPerson(c.name);
+          if (c.name && (!name || !name.trim())) setName(c.name);
+          if (c.email) setEmail(c.email);
+          setFeedbackMsg({ type: 'success', text: `Fetched contact: ${c.name || c.phone}` });
+          setTimeout(() => setFeedbackMsg(null), 3000);
+        }}
+      />
     </div>
   );
 };

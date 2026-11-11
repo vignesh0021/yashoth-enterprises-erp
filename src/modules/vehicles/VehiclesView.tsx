@@ -43,6 +43,7 @@ import {
   Truck
 } from 'lucide-react';
 import { pickContactFromPhonebook } from '../../utils/contactPicker.ts';
+import { QuickContactModal } from '../../components/QuickContactModal.tsx';
 import { getCarInfoUrl, getParivahanUrl, parseCarInfoText } from '../../utils/carInfoScraper.ts';
 
 export const VehiclesView: React.FC = () => {
@@ -109,6 +110,7 @@ export const VehiclesView: React.FC = () => {
   const [driverName, setDriverName] = useState('');
   const [driverPhone, setDriverPhone] = useState('');
   const [tareWeight, setTareWeight] = useState<number>(4100);
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
 
   // Document Form State
   const [docType, setDocType] = useState<VehicleDocument['documentType']>('INSURANCE');
@@ -1441,15 +1443,9 @@ export const VehiclesView: React.FC = () => {
                 <label className="font-bold text-slate-700">Driver Mobile / WhatsApp</label>
                 <button
                   type="button"
-                  onClick={async () => {
-                    const c = await pickContactFromPhonebook();
-                    if (c) {
-                      if (c.phone) setDriverPhone(c.phone);
-                      if (c.name && (!driverName || !driverName.trim())) setDriverName(c.name);
-                    }
-                  }}
+                  onClick={() => setIsContactModalOpen(true)}
                   className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-full border border-blue-200 transition-colors cursor-pointer"
-                  title="Pick directly from your phone's contacts"
+                  title="Pick directly from your phone's contacts, clipboard, or existing team"
                 >
                   <BookUser className="w-3.5 h-3.5" />
                   <span>Fetch from Contacts</span>
@@ -1874,6 +1870,18 @@ export const VehiclesView: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      <QuickContactModal
+        isOpen={isContactModalOpen}
+        onClose={() => setIsContactModalOpen(false)}
+        title="Fetch Driver / Vehicle Contact"
+        onSelect={(c) => {
+          if (c.phone) setDriverPhone(c.phone);
+          if (c.name && (!driverName || !driverName.trim())) setDriverName(c.name);
+          setFeedbackMsg({ type: 'success', text: `Fetched contact: ${c.name || c.phone}` });
+          setTimeout(() => setFeedbackMsg(null), 3000);
+        }}
+      />
     </div>
   );
 };

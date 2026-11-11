@@ -125,7 +125,7 @@ export function validateJournalEntry(entry: JournalEntry): void {
     throw new AccountingImbalanceError(`Journal Entry "${entry.entryNo}" cannot have zero debits and zero credits.`);
   }
 
-  if (Math.abs(sumDebits - sumCredits) > 0.05) {
+  if (Math.abs(sumDebits - sumCredits) > 0.001) {
     throw new AccountingImbalanceError(
       `Journal Entry "${entry.entryNo}" is unbalanced: Total Debits (₹${sumDebits}) != Total Credits (₹${sumCredits}). Difference: ₹${roundTo2(sumDebits - sumCredits)}`
     );
@@ -231,8 +231,47 @@ export function createSalesInvoiceJournal(invoice: Invoice, company: Company): J
     }
   }
 
-  const computedTotalDebit = roundTo2(lines.reduce((s, l) => s + (l.debit || 0), 0));
-  const computedTotalCredit = roundTo2(lines.reduce((s, l) => s + (l.credit || 0), 0));
+  const preTotalDebit = roundTo2(lines.reduce((s, l) => s + (l.debit || 0), 0));
+  const preTotalCredit = roundTo2(lines.reduce((s, l) => s + (l.credit || 0), 0));
+  const residualDiff = roundTo2(preTotalDebit - preTotalCredit);
+
+  if (Math.abs(residualDiff) > 0.001) {
+    if (residualDiff > 0) {
+      // Debits exceed credits: credit 5090
+      const existingRo = lines.find((l) => l.accountCode === '5090' && l.credit > 0);
+      if (existingRo) {
+        existingRo.credit = roundTo2(existingRo.credit + residualDiff);
+      } else {
+        lines.push({
+          id: `jl-${invoice.id}-cr-ro-bal`,
+          accountCode: '5090',
+          accountName: 'Round-Off & Decimal Variance',
+          debit: 0,
+          credit: residualDiff,
+          lineNarration: 'Balancing decimal variance',
+        });
+      }
+    } else {
+      // Credits exceed debits: debit 5090
+      const absDiff = Math.abs(residualDiff);
+      const existingRo = lines.find((l) => l.accountCode === '5090' && l.debit > 0);
+      if (existingRo) {
+        existingRo.debit = roundTo2(existingRo.debit + absDiff);
+      } else {
+        lines.push({
+          id: `jl-${invoice.id}-dr-ro-bal`,
+          accountCode: '5090',
+          accountName: 'Round-Off & Decimal Variance',
+          debit: absDiff,
+          credit: 0,
+          lineNarration: 'Balancing decimal variance',
+        });
+      }
+    }
+  }
+
+  const finalTotalDebit = roundTo2(lines.reduce((s, l) => s + (l.debit || 0), 0));
+  const finalTotalCredit = roundTo2(lines.reduce((s, l) => s + (l.credit || 0), 0));
 
   const entry: JournalEntry = {
     id: `je-sal-${invoice.id}`,
@@ -244,8 +283,8 @@ export function createSalesInvoiceJournal(invoice: Invoice, company: Company): J
     referenceNo: invoice.invoiceNo,
     narration: `Tax Invoice ${invoice.invoiceNo} for ${invoice.customerName} (Grand Total: ₹${grandTotal})`,
     lines,
-    totalDebit: computedTotalDebit,
-    totalCredit: computedTotalCredit,
+    totalDebit: finalTotalDebit,
+    totalCredit: finalTotalCredit,
     isPosted: true,
     createdBy: invoice.createdBy || 'system',
     createdAt: invoice.createdAt || new Date().toISOString(),
@@ -322,7 +361,20 @@ export function createPurchaseInvoiceJournal(
     }
   }
 
-  // 3. Credit Sundry Creditors (Supplier A/P)
+  // 3. Other charges (freight, crane, etc.)
+  if ((purchase as any).otherCharges && (purchase as any).otherCharges > 0) {
+    const oc = roundTo2((purchase as any).otherCharges);
+    lines.push({
+      id: `jl-${purchase.id}-dr-other`,
+      accountCode: '5030',
+      accountName: 'Freight, Haulage & Crane Charges',
+      debit: oc,
+      credit: 0,
+      lineNarration: `Other freight & transport charges on ${purchase.purchaseNo}`,
+    });
+  }
+
+  // 4. Credit Sundry Creditors (Supplier A/P)
   lines.push({
     id: `jl-${purchase.id}-cr-ap`,
     accountCode: '2010',
@@ -334,6 +386,35 @@ export function createPurchaseInvoiceJournal(
     lineNarration: `Purchase ${purchase.purchaseNo} from ${partyName}`,
   });
 
+  const preTotalDebit = roundTo2(lines.reduce((s, l) => s + (l.debit || 0), 0));
+  const preTotalCredit = roundTo2(lines.reduce((s, l) => s + (l.credit || 0), 0));
+  const residualDiff = roundTo2(preTotalDebit - preTotalCredit);
+
+  if (Math.abs(residualDiff) > 0.001) {
+    if (residualDiff > 0) {
+      lines.push({
+        id: `jl-${purchase.id}-cr-ro-bal`,
+        accountCode: '5090',
+        accountName: 'Round-Off & Decimal Variance',
+        debit: 0,
+        credit: residualDiff,
+        lineNarration: 'Purchase balancing adjustment',
+      });
+    } else {
+      lines.push({
+        id: `jl-${purchase.id}-dr-ro-bal`,
+        accountCode: '5090',
+        accountName: 'Round-Off & Decimal Variance',
+        debit: Math.abs(residualDiff),
+        credit: 0,
+        lineNarration: 'Purchase balancing adjustment',
+      });
+    }
+  }
+
+  const finalTotalDebit = roundTo2(lines.reduce((s, l) => s + (l.debit || 0), 0));
+  const finalTotalCredit = roundTo2(lines.reduce((s, l) => s + (l.credit || 0), 0));
+
   const entry: JournalEntry = {
     id: `je-pur-${purchase.id}`,
     companyId: company.id,
@@ -344,8 +425,8 @@ export function createPurchaseInvoiceJournal(
     referenceNo: purchase.purchaseNo,
     narration: `Purchase ${purchase.purchaseNo} from ${partyName} (Total: ₹${totalAmount})`,
     lines,
-    totalDebit: totalAmount,
-    totalCredit: totalAmount,
+    totalDebit: finalTotalDebit,
+    totalCredit: finalTotalCredit,
     isPosted: true,
     createdBy: purchase.createdBy || 'system',
     createdAt: purchase.createdAt || new Date().toISOString(),

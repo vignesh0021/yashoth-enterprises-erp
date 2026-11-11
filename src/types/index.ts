@@ -6,6 +6,7 @@ export type UserRole =
   | 'manager' 
   | 'purchase_operator' 
   | 'weighment_operator' 
+  | 'weighbridge_operator'
   | 'sales_operator' 
   | 'accounts_operator' 
   | 'store_operator' 

@@ -20,7 +20,7 @@ const DEFAULT_USERS: AuthUser[] = [
     role: 'owner_admin',
     companyId: 'a0000000-0000-0000-0000-000000000001',
     // SHA-256 of "YE_ERP_SALT_2026:Admin@123"
-    passwordHash: '8b78912753a9e14a13c9a6a86c67d6ec67e49eb7263b6528d25d1e67e997a47a',
+    passwordHash: '259d79cf76c38703c1546f7bb5b31767b1f9fa6eee92cd819f284c93f632ea20',
     isActive: true,
     createdAt: '2026-10-01T00:00:00Z',
   },
@@ -31,7 +31,7 @@ const DEFAULT_USERS: AuthUser[] = [
     role: 'manager',
     companyId: 'a0000000-0000-0000-0000-000000000001',
     // SHA-256 of "YE_ERP_SALT_2026:Manager@123"
-    passwordHash: 'c7c25055b89eb06b744fa70c40e3427fef69c67bc2f98ce975bb5958564a51e6',
+    passwordHash: '06547cba371b56d8054cbd7598326007539ccc23eb35e5157d2da2e4ca3967e5',
     isActive: true,
     createdAt: '2026-10-01T00:00:00Z',
   },
@@ -41,7 +41,7 @@ const DEFAULT_USERS: AuthUser[] = [
     fullName: 'V. Sundaram (Accounts Head)',
     role: 'accounts_operator',
     companyId: 'a0000000-0000-0000-0000-000000000001',
-    passwordHash: 'c7c25055b89eb06b744fa70c40e3427fef69c67bc2f98ce975bb5958564a51e6',
+    passwordHash: '06547cba371b56d8054cbd7598326007539ccc23eb35e5157d2da2e4ca3967e5',
     isActive: true,
     createdAt: '2026-10-01T00:00:00Z',
   },
@@ -51,7 +51,7 @@ const DEFAULT_USERS: AuthUser[] = [
     fullName: 'K. Venkat (Purchase Officer)',
     role: 'purchase_operator',
     companyId: 'a0000000-0000-0000-0000-000000000001',
-    passwordHash: 'c7c25055b89eb06b744fa70c40e3427fef69c67bc2f98ce975bb5958564a51e6',
+    passwordHash: '06547cba371b56d8054cbd7598326007539ccc23eb35e5157d2da2e4ca3967e5',
     isActive: true,
     createdAt: '2026-10-01T00:00:00Z',
   },
@@ -61,7 +61,7 @@ const DEFAULT_USERS: AuthUser[] = [
     fullName: 'Internal Auditor',
     role: 'auditor',
     companyId: 'a0000000-0000-0000-0000-000000000001',
-    passwordHash: 'c7c25055b89eb06b744fa70c40e3427fef69c67bc2f98ce975bb5958564a51e6',
+    passwordHash: '06547cba371b56d8054cbd7598326007539ccc23eb35e5157d2da2e4ca3967e5',
     isActive: true,
     createdAt: '2026-10-01T00:00:00Z',
   },
@@ -78,9 +78,18 @@ class AuthService {
 
   private loadUsers(): void {
     try {
-      const stored = localStorage.getItem(USERS_STORAGE_KEY);
+      const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(USERS_STORAGE_KEY) : null;
       if (stored) {
         this.users = JSON.parse(stored);
+        // Refresh default accounts with authentic hashes
+        for (const def of DEFAULT_USERS) {
+          const idx = this.users.findIndex((u) => u.email.toLowerCase() === def.email.toLowerCase());
+          if (idx !== -1) {
+            this.users[idx].passwordHash = def.passwordHash;
+          } else {
+            this.users.push(def);
+          }
+        }
       } else {
         this.users = [...DEFAULT_USERS];
         this.saveUsers();
@@ -172,12 +181,16 @@ class AuthService {
     }
 
     const hashedInput = await hashPassword(password);
-    // Allow either hashed password match or verified default test passwords
-    const isValid = user.passwordHash === hashedInput || password === 'Admin@123' || password === 'Manager@123';
+    // Strict cryptographic hash verification (No plaintext backdoors)
+    const isValid = user.passwordHash === hashedInput;
 
     if (!isValid) {
       return { session: null, error: 'Invalid email or password.' };
     }
+
+    const secureToken = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? `tok_${crypto.randomUUID()}`
+      : `tok_${Math.random().toString(36).substring(2, 15)}_${Date.now()}`;
 
     const session: UserSession = {
       id: user.id,
@@ -185,7 +198,7 @@ class AuthService {
       fullName: user.fullName,
       role: user.role,
       companyId: user.companyId || 'a0000000-0000-0000-0000-000000000001',
-      token: 'tok_' + Math.random().toString(36).substring(2, 15),
+      token: secureToken,
       expiresAt: Date.now() + SESSION_TTL_MS,
       lastActiveAt: Date.now(),
     };

@@ -161,4 +161,47 @@ describe('Inventory & Stock Ledger Engine', () => {
     expect(reversal.movementType).toBe('REVERSAL');
     expect(reversal.quantity).toBe(500); // positive restore
   });
+
+  it('should strictly allocate from oldest lot first even when array is unsorted', () => {
+    // Newer lot placed at index 0, older lot placed at index 1
+    const unsortedLots: InventoryLot[] = [
+      {
+        id: 'lot-newer',
+        lotNumber: 'LOT-OCT-15',
+        materialId,
+        yardId,
+        initialQuantity: 1000,
+        remainingQuantity: 1000,
+        unitCost: 35,
+        receivedAt: '2026-10-15T10:00:00Z',
+        isExhausted: false,
+      },
+      {
+        id: 'lot-older',
+        lotNumber: 'LOT-OCT-01',
+        materialId,
+        yardId,
+        initialQuantity: 1000,
+        remainingQuantity: 1000,
+        unitCost: 20,
+        receivedAt: '2026-10-01T10:00:00Z',
+        isExhausted: false,
+      },
+    ];
+
+    // Request 500 KG. FIFO must consume from lot-older (OCT-01 @ ₹20) NOT lot-newer (OCT-15 @ ₹35)
+    const { updatedLots, result } = allocateLotsFifo(unsortedLots, materialId, yardId, 500);
+
+    expect(result.allocations.length).toBe(1);
+    expect(result.allocations[0].lotNumber).toBe('LOT-OCT-01');
+    expect(result.allocations[0].allocatedQuantity).toBe(500);
+    expect(result.allocations[0].unitCost).toBe(20);
+    expect(result.totalCogs).toBe(10000);
+
+    const olderLot = updatedLots.find((l) => l.id === 'lot-older');
+    const newerLot = updatedLots.find((l) => l.id === 'lot-newer');
+    expect(olderLot?.remainingQuantity).toBe(500);
+    expect(newerLot?.remainingQuantity).toBe(1000); // Intact
+  });
 });
+

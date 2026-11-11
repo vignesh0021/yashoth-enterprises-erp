@@ -76,6 +76,10 @@ export const ROLE_PERMISSIONS: Record<UserRole, PermissionAction[]> = {
     'company:view',
     'weighment:record'
   ],
+  weighbridge_operator: [
+    'company:view',
+    'weighment:record'
+  ],
   sales_operator: [
     'company:view',
     'sales:create',

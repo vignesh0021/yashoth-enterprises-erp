@@ -22,11 +22,17 @@ export interface LotAllocationResult {
 export function calculateCurrentStock(
   movements: StockMovement[],
   materialId: string,
-  yardId?: string
+  yardId?: string,
+  companyId?: string
 ): number {
   return roundTo3(
     movements
-      .filter((m) => m.materialId === materialId && (!yardId || m.yardId === yardId))
+      .filter(
+        (m) =>
+          m.materialId === materialId &&
+          (!yardId || m.yardId === yardId) &&
+          (!companyId || !(m as any).companyId || (m as any).companyId === companyId)
+      )
       .reduce((sum, m) => sum + m.quantity, 0)
   );
 }
@@ -69,15 +75,13 @@ export function allocateLotsFifo(
 
   // Clone lots to avoid mutating caller state directly
   const updatedLots = activeLots.map((l) => ({ ...l }));
+  const lotMap = new Map(updatedLots.map((l) => [l.id, l]));
 
-  for (const lot of updatedLots) {
+  // Strictly allocate in chronological receivedAt order (FIFO)
+  for (const eligible of eligibleLots) {
     if (remainingToAllocate <= 0) break;
-    if (
-      lot.materialId !== materialId ||
-      lot.yardId !== yardId ||
-      lot.isExhausted ||
-      lot.remainingQuantity <= 0
-    ) {
+    const lot = lotMap.get(eligible.id);
+    if (!lot || lot.isExhausted || lot.remainingQuantity <= 0) {
       continue;
     }
 

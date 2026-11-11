@@ -99,6 +99,155 @@ class SupabaseClient {
       return { error: err };
     }
   }
+
+  // --------------------------------------------------------------------------
+  // PostgREST Authoritative PostgreSQL Database API (Uses Public Anon Key + Bearer JWT)
+  // --------------------------------------------------------------------------
+
+  public getDbHeaders(authToken?: string): HeadersInit {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      apikey: this.config.supabaseAnonKey,
+      Prefer: 'return=representation',
+    };
+    if (authToken && authToken.startsWith('tok_') === false) {
+      headers['Authorization'] = `Bearer ${authToken}`;
+    } else {
+      headers['Authorization'] = `Bearer ${this.config.supabaseAnonKey}`;
+    }
+    return headers;
+  }
+
+  public async queryTable<T = any>(
+    table: string,
+    params: {
+      select?: string;
+      filters?: Record<string, string>;
+      authToken?: string;
+    } = {}
+  ): Promise<{ data: T[] | null; error: Error | null }> {
+    if (!this.isConfigured()) {
+      return { data: null, error: new Error('Supabase is not configured.') };
+    }
+
+    try {
+      const url = new URL(`${this.config.supabaseUrl}/rest/v1/${table}`);
+      if (params.select) {
+        url.searchParams.set('select', params.select);
+      }
+      if (params.filters) {
+        Object.entries(params.filters).forEach(([k, v]) => {
+          url.searchParams.set(k, v);
+        });
+      }
+
+      const res = await fetch(url.toString(), {
+        method: 'GET',
+        headers: this.getDbHeaders(params.authToken),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        return { data: null, error: new Error(errJson.message || `HTTP ${res.status}: Failed to query ${table}`) };
+      }
+
+      const data = await res.json();
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: err };
+    }
+  }
+
+  public async insertRow<T = any>(
+    table: string,
+    payload: any,
+    authToken?: string
+  ): Promise<{ data: T | null; error: Error | null }> {
+    if (!this.isConfigured()) {
+      return { data: null, error: new Error('Supabase is not configured.') };
+    }
+
+    try {
+      const res = await fetch(`${this.config.supabaseUrl}/rest/v1/${table}`, {
+        method: 'POST',
+        headers: this.getDbHeaders(authToken),
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        return { data: null, error: new Error(errJson.message || `HTTP ${res.status}: Failed to insert into ${table}`) };
+      }
+
+      const rows = await res.json();
+      return { data: Array.isArray(rows) ? rows[0] : rows, error: null };
+    } catch (err: any) {
+      return { data: null, error: err };
+    }
+  }
+
+  public async updateRow<T = any>(
+    table: string,
+    matchFilter: Record<string, string>,
+    payload: any,
+    authToken?: string
+  ): Promise<{ data: T | null; error: Error | null }> {
+    if (!this.isConfigured()) {
+      return { data: null, error: new Error('Supabase is not configured.') };
+    }
+
+    try {
+      const url = new URL(`${this.config.supabaseUrl}/rest/v1/${table}`);
+      Object.entries(matchFilter).forEach(([k, v]) => {
+        url.searchParams.set(k, v);
+      });
+
+      const res = await fetch(url.toString(), {
+        method: 'PATCH',
+        headers: this.getDbHeaders(authToken),
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        return { data: null, error: new Error(errJson.message || `HTTP ${res.status}: Failed to update ${table}`) };
+      }
+
+      const rows = await res.json();
+      return { data: Array.isArray(rows) ? rows[0] : rows, error: null };
+    } catch (err: any) {
+      return { data: null, error: err };
+    }
+  }
+
+  public async executeRpc<T = any>(
+    functionName: string,
+    params: Record<string, any> = {},
+    authToken?: string
+  ): Promise<{ data: T | null; error: Error | null }> {
+    if (!this.isConfigured()) {
+      return { data: null, error: new Error('Supabase is not configured.') };
+    }
+
+    try {
+      const res = await fetch(`${this.config.supabaseUrl}/rest/v1/rpc/${functionName}`, {
+        method: 'POST',
+        headers: this.getDbHeaders(authToken),
+        body: JSON.stringify(params),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        return { data: null, error: new Error(errJson.message || `HTTP ${res.status}: RPC ${functionName} failed`) };
+      }
+
+      const data = await res.json();
+      return { data, error: null };
+    } catch (err: any) {
+      return { data: null, error: err };
+    }
+  }
 }
 
 export const supabase = new SupabaseClient();
+

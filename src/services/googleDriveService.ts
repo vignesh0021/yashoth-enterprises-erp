@@ -252,6 +252,7 @@ class GoogleDriveService {
    * Downloads backup file locally to device Downloads.
    */
   public downloadBackupLocally(filename: string, content: string, mimeType: string = 'application/json'): void {
+    if (typeof document === 'undefined') return;
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -272,19 +273,12 @@ class GoogleDriveService {
     mimeType: string = 'application/json'
   ): Promise<{ success: boolean; fileId?: string; error?: string }> {
     if (!this.accessToken) {
-      // In mobile / standalone mode: silently download locally to device storage
+      // In mobile / standalone mode without Google OAuth token: save locally to device storage
       this.downloadBackupLocally(filename, content, mimeType);
-      
-      // Also sync to Team Cloud Vault for 3-member shared access
-      try {
-        const parsed = JSON.parse(content);
-        const payload = parsed.data || parsed;
-        await teamSyncService.pushToCloud(payload);
-      } catch (err) {
-        console.warn('Team sync background update note:', err);
-      }
-
-      return { success: true, fileId: 'device-backup-' + Date.now() };
+      return {
+        success: false,
+        error: 'Google Drive is not authenticated. File was downloaded to device local storage instead.',
+      };
     }
 
     try {

@@ -45,6 +45,7 @@ import {
 } from '../backend/business-rules/accountingEngine.ts';
 import { 
   allocateLotsFifo, 
+  calculateCurrentStock,
   verifyFifoCogsIntegrity 
 } from '../backend/business-rules/inventoryEngine.ts';
 import { dbRepository } from '../src/services/databaseRepository.ts';
@@ -1534,9 +1535,18 @@ describe('Suite 14: Yashoth Enterprises ERP — Small-Business Finance Managemen
       const authMemberCheckCount = (sql.match(/auth_is_company_member\(p_company_id\)/g) || []).length;
       expect(authMemberCheckCount).toBeGreaterThanOrEqual(7);
 
-      // Check cross-company account validation is present
-      expect(sql).toContain('FROM cash_bank_accounts WHERE id = p_account_id AND company_id = p_company_id');
+      // Check unauthenticated caller verification is present in all RPCs
+      const unauthCheckCount = (sql.match(/auth_current_user_id\(\) IS NULL/g) || []).length;
+      expect(unauthCheckCount).toBeGreaterThanOrEqual(7);
+
+      // Check cross-company account and payment mode validation is present
+      expect(sql).toContain('FROM cash_bank_accounts');
+      expect(sql).toContain('account_type = UPPER(p_payment_mode)');
       expect(sql).toContain('Cash/bank account % does not belong to company %');
+
+      // Check explicit permission revoking from PUBLIC and anon
+      expect(sql).toContain('REVOKE ALL ON FUNCTION fn_post_contractor_payment_atomic FROM PUBLIC, anon;');
+      expect(sql).toContain('REVOKE ALL ON FUNCTION fn_post_salary_accrual_atomic FROM PUBLIC, anon;');
     });
 
     it('FIFO COGS Audit: rejects missing lot companyId, movement companyId, and cross-company references', () => {
@@ -1737,6 +1747,287 @@ describe('Suite 14: Yashoth Enterprises ERP — Small-Business Finance Managemen
           remainingBalance: 500, // Wrong! 2400 - 400 - 1000 = 1000, not 500
         });
       }).toThrow('Daily labour remaining balance (₹500) does not match calculated balance (₹1000');
+    });
+
+    it('Suite 14.21: Third-Pass Security, FIFO Isolation, Sequential Advance Recovery & Reconciliation Engine', () => {
+      // 1. Strict FIFO Company Isolation in Stock Calculation
+      const movementsWithCompanies: StockMovement[] = [
+        {
+          id: 'mov-c1-01',
+          companyId: 'company-alpha',
+          materialId: 'mat-copper',
+          yardId: 'yard-main',
+          movementType: 'PURCHASE_RECEIPT',
+          quantity: 1000,
+          unitCost: 450,
+          totalCost: 450000,
+          transactionRef: 'PR-001',
+          createdAt: '2026-10-01T10:00:00Z',
+          createdBy: 'Admin',
+        },
+        {
+          id: 'mov-c2-01',
+          companyId: 'company-beta',
+          materialId: 'mat-copper',
+          yardId: 'yard-main',
+          movementType: 'PURCHASE_RECEIPT',
+          quantity: 2500,
+          unitCost: 440,
+          totalCost: 1100000,
+          transactionRef: 'PR-002',
+          createdAt: '2026-10-01T11:00:00Z',
+          createdBy: 'Admin',
+        },
+        {
+          id: 'mov-no-company',
+          companyId: undefined as any,
+          materialId: 'mat-copper',
+          yardId: 'yard-main',
+          movementType: 'PURCHASE_RECEIPT',
+          quantity: 500,
+          unitCost: 450,
+          totalCost: 225000,
+          transactionRef: 'PR-003',
+          createdAt: '2026-10-01T12:00:00Z',
+          createdBy: 'Admin',
+        },
+      ];
+
+      // Alpha stock should only be 1000 KG, strictly ignoring company-beta and company-less movements
+      const alphaStock = calculateCurrentStock(movementsWithCompanies, 'mat-copper', 'yard-main', 'company-alpha');
+      expect(alphaStock).toBe(1000);
+
+      // Beta stock should only be 2500 KG
+      const betaStock = calculateCurrentStock(movementsWithCompanies, 'mat-copper', 'yard-main', 'company-beta');
+      expect(betaStock).toBe(2500);
+
+      // 2. Strict FIFO Lot Allocation Company Isolation
+      const multiCompanyLots: InventoryLot[] = [
+        {
+          id: 'lot-alpha-1',
+          lotNumber: 'LOT-A1',
+          companyId: 'company-alpha',
+          materialId: 'mat-copper',
+          yardId: 'yard-main',
+          initialQuantity: 1000,
+          remainingQuantity: 1000,
+          unitCost: 450,
+          receivedAt: '2026-10-01T10:00:00Z',
+          isExhausted: false,
+        },
+        {
+          id: 'lot-beta-1',
+          lotNumber: 'LOT-B1',
+          companyId: 'company-beta',
+          materialId: 'mat-copper',
+          yardId: 'yard-main',
+          initialQuantity: 3000,
+          remainingQuantity: 3000,
+          unitCost: 440,
+          receivedAt: '2026-09-01T10:00:00Z', // older date, but different company!
+          isExhausted: false,
+        },
+        {
+          id: 'lot-orphan-1',
+          lotNumber: 'LOT-ORPHAN',
+          companyId: undefined as any,
+          materialId: 'mat-copper',
+          yardId: 'yard-main',
+          initialQuantity: 5000,
+          remainingQuantity: 5000,
+          unitCost: 400,
+          receivedAt: '2026-08-01T10:00:00Z', // oldest, but unassigned company!
+          isExhausted: false,
+        },
+      ];
+
+      // Requesting 1500 for company-alpha must fail with insufficient stock (only 1000 available in alpha)
+      expect(() => {
+        allocateLotsFifo(multiCompanyLots, 'mat-copper', 'yard-main', 1500, 'company-alpha');
+      }).toThrow('Insufficient stock available in yard. Requested: 1500 KG, Available: 1000 KG');
+
+      // Requesting 800 for company-alpha allocates strictly from LOT-A1
+      const allocAlpha = allocateLotsFifo(multiCompanyLots, 'mat-copper', 'yard-main', 800, 'company-alpha');
+      expect(allocAlpha.result.allocations.length).toBe(1);
+      expect(allocAlpha.result.allocations[0].lotId).toBe('lot-alpha-1');
+      expect(allocAlpha.result.totalCogs).toBe(360000); // 800 * 450
+
+      // 3. FIFO COGS Audit: Material & Yard consistency and duplicate movement detection
+      const validLotAlpha: InventoryLot = {
+        id: 'lot-alpha-1',
+        lotNumber: 'LOT-A1',
+        companyId: 'company-alpha',
+        materialId: 'mat-copper',
+        yardId: 'yard-main',
+        initialQuantity: 1000,
+        remainingQuantity: 200,
+        unitCost: 450,
+        receivedAt: '2026-10-01T10:00:00Z',
+        isExhausted: false,
+      };
+
+      const validMovementAlpha: StockMovement = {
+        id: 'mov-alpha-disp-1',
+        companyId: 'company-alpha',
+        materialId: 'mat-copper',
+        yardId: 'yard-main',
+        lotId: 'lot-alpha-1',
+        movementType: 'SALES_DISPATCH',
+        quantity: -800,
+        unitCost: 450,
+        totalCost: 360000,
+        transactionRef: 'DISP-001',
+        createdAt: '2026-10-05T10:00:00Z',
+        createdBy: 'Admin',
+      };
+
+      // Valid case passes
+      const validCogsAudit = verifyFifoCogsIntegrity([validMovementAlpha], [validLotAlpha], { companyId: 'company-alpha' });
+      expect(validCogsAudit.isValid).toBe(true);
+      expect(validCogsAudit.verifiedCogs).toBe(360000);
+
+      // Material mismatch detection
+      const mismatchedMaterialMovement: StockMovement = {
+        ...validMovementAlpha,
+        id: 'mov-mismatched-mat',
+        materialId: 'mat-aluminum', // mismatch!
+      };
+      const matMismatchAudit = verifyFifoCogsIntegrity([mismatchedMaterialMovement], [validLotAlpha], { companyId: 'company-alpha' });
+      expect(matMismatchAudit.isValid).toBe(false);
+      expect(matMismatchAudit.discrepancies.some((d) => d.includes('Material mismatch'))).toBe(true);
+
+      // Yard mismatch detection
+      const mismatchedYardMovement: StockMovement = {
+        ...validMovementAlpha,
+        id: 'mov-mismatched-yard',
+        yardId: 'yard-branch', // mismatch!
+      };
+      const yardMismatchAudit = verifyFifoCogsIntegrity([mismatchedYardMovement], [validLotAlpha], { companyId: 'company-alpha' });
+      expect(yardMismatchAudit.isValid).toBe(false);
+      expect(yardMismatchAudit.discrepancies.some((d) => d.includes('Yard mismatch'))).toBe(true);
+
+      // Duplicate movement detection
+      const dupAudit = verifyFifoCogsIntegrity(
+        [validMovementAlpha, { ...validMovementAlpha }], // exact duplicate ID
+        [validLotAlpha],
+        { companyId: 'company-alpha' }
+      );
+      expect(dupAudit.isValid).toBe(false);
+      expect(dupAudit.discrepancies.some((d) => d.includes('Duplicate stock movement'))).toBe(true);
+
+      // Sales dispatch positive quantity violation
+      const positiveDispatchMovement: StockMovement = {
+        ...validMovementAlpha,
+        id: 'mov-pos-dispatch',
+        quantity: 800, // positive! outward must be negative
+      };
+      const posDispatchAudit = verifyFifoCogsIntegrity([positiveDispatchMovement], [validLotAlpha], { companyId: 'company-alpha' });
+      expect(posDispatchAudit.isValid).toBe(false);
+      expect(posDispatchAudit.discrepancies.some((d) => d.includes('non-negative quantity'))).toBe(true);
+
+      // Invalid negative lot remaining quantity
+      const negativeLot: InventoryLot = {
+        ...validLotAlpha,
+        id: 'lot-neg-bal',
+        remainingQuantity: -50,
+      };
+      const negLotAudit = verifyFifoCogsIntegrity([validMovementAlpha], [negativeLot], { companyId: 'company-alpha' });
+      expect(negLotAudit.isValid).toBe(false);
+      expect(negLotAudit.discrepancies.some((d) => d.includes('negative remaining quantity'))).toBe(true);
+
+      // 4. Sequential Row-by-Row Advance Recovery Verification
+      // Simulate sequential recovery across two open advances: Adv1 = ₹500, Adv2 = ₹1000, Recovery = ₹800
+      // Adv1 should be fully recovered (remaining = 0), Adv2 should be partially recovered (remaining = ₹700)
+      const openAdvances = [
+        { id: 'adv-01', advanceDate: '2026-09-01', amount: 500, recoveredAmount: 0, remainingBalance: 500, status: 'OPEN' },
+        { id: 'adv-02', advanceDate: '2026-09-15', amount: 1000, recoveredAmount: 0, remainingBalance: 1000, status: 'OPEN' },
+      ];
+      let recoveryNeeded = 800;
+      for (const adv of openAdvances) {
+        if (recoveryNeeded <= 0) break;
+        const deduct = Math.min(adv.remainingBalance, recoveryNeeded);
+        adv.recoveredAmount += deduct;
+        adv.remainingBalance -= deduct;
+        adv.status = adv.remainingBalance <= 0.001 ? 'FULLY_RECOVERED' : 'PARTIALLY_RECOVERED';
+        recoveryNeeded -= deduct;
+      }
+
+      expect(openAdvances[0].remainingBalance).toBe(0);
+      expect(openAdvances[0].recoveredAmount).toBe(500);
+      expect(openAdvances[0].status).toBe('FULLY_RECOVERED');
+      expect(openAdvances[1].remainingBalance).toBe(700);
+      expect(openAdvances[1].recoveredAmount).toBe(300);
+      expect(openAdvances[1].status).toBe('PARTIALLY_RECOVERED');
+      expect(recoveryNeeded).toBe(0);
+
+      // 5. Full Reconciliation Engine with Discrepancy Reporting & Corrective Actions
+      const reconResultWithDiscrepancy = verifyFinancialReconciliation({
+        journalEntries: [
+          {
+            id: 'jv-bad',
+            companyId: 'company-alpha',
+            entryNo: 'JV-ERR-1',
+            entryDate: '2026-10-15',
+            sourceType: 'EXPENSE',
+            sourceId: 'exp-1',
+            narration: 'Unbalanced entry',
+            totalDebit: 10000,
+            totalCredit: 8000,
+            isPosted: true,
+            lines: [
+              { id: 'l1', accountCode: '5010', accountName: 'Expense', debit: 10000, credit: 0 },
+              { id: 'l2', accountCode: '1010', accountName: 'Cash', debit: 0, credit: 8000 },
+            ],
+            createdAt: '2026-10-15T10:00:00Z',
+            createdBy: 'Admin',
+          },
+        ],
+        dailyLabourEntries: [
+          {
+            id: 'dl-err-1',
+            companyId: 'company-alpha',
+            workDate: '2026-10-15',
+            workerNameOrGroup: 'Cutting Team',
+            workerCount: 5,
+            workingDays: 1,
+            dailyRate: 600,
+            overtimeAmount: 0,
+            additionalCharges: 0,
+            totalLabourCost: 3000,
+            advanceAmount: 500,
+            amountPaid: 1000,
+            remainingBalance: 2000, // Error: 3000 - 500 - 1000 = 1500, not 2000!
+            paymentMode: 'CASH',
+            createdAt: '2026-10-15T10:00:00Z',
+            createdBy: 'Admin',
+          },
+        ],
+        employeeAdvances: [
+          {
+            id: 'adv-err-1',
+            companyId: 'company-alpha',
+            employeeId: 'emp-1',
+            employeeName: 'K. Kumar',
+            advanceDate: '2026-10-01',
+            amount: 5000,
+            recoveredAmount: 2000,
+            remainingBalance: 4000, // Error: 5000 - 2000 = 3000, not 4000!
+            status: 'PARTIALLY_RECOVERED',
+            paymentMode: 'CASH',
+            accountId: 'acc-cash',
+            createdAt: '2026-10-01T10:00:00Z',
+            createdBy: 'Admin',
+          },
+        ],
+      });
+
+      expect(reconResultWithDiscrepancy.isBalanced).toBe(false);
+      expect(reconResultWithDiscrepancy.discrepancies.length).toBe(4);
+      expect(reconResultWithDiscrepancy.correctiveActions.length).toBe(4);
+      expect(reconResultWithDiscrepancy.correctiveActions[0]).toContain('Post adjusting journal');
+      expect(reconResultWithDiscrepancy.correctiveActions[1]).toContain('Audit individual journal lines');
+      expect(reconResultWithDiscrepancy.correctiveActions[2]).toContain('Recalculate remaining_balance');
+      expect(reconResultWithDiscrepancy.correctiveActions[3]).toContain('Update advance balance');
     });
   });
 });

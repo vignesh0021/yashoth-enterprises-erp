@@ -13,7 +13,8 @@ import type {
   ContractorPayment,
   DailyLabourEntry,
   LabourPayment,
-  MonthlySalaryRecord
+  MonthlySalaryRecord,
+  EmployeeAdvance
 } from '../../src/types/index.ts';
 import { roundTo2 } from '../../src/utils/calculations.ts';
 
@@ -709,6 +710,7 @@ export interface FinancialReconciliationParams {
   dailyLabourEntries?: DailyLabourEntry[];
   labourPayments?: LabourPayment[];
   salaryRecords?: MonthlySalaryRecord[];
+  employeeAdvances?: EmployeeAdvance[];
   accountTransactions?: AccountTransaction[];
   accounts?: CashBankAccount[];
 }
@@ -718,6 +720,7 @@ export interface FinancialReconciliationResult {
   totalDebits: number;
   totalCredits: number;
   discrepancies: string[];
+  correctiveActions: string[];
   reconciledSections: {
     journalsBalanced: boolean;
     contractorPaymentsAgreed: boolean;
@@ -736,6 +739,7 @@ export function verifyFinancialReconciliation(
   params: FinancialReconciliationParams
 ): FinancialReconciliationResult {
   const discrepancies: string[] = [];
+  const correctiveActions: string[] = [];
   let totalDebits = 0;
   let totalCredits = 0;
 
@@ -750,6 +754,7 @@ export function verifyFinancialReconciliation(
     if (Math.abs(d - c) > 0.01) {
       journalsBalanced = false;
       discrepancies.push(`Journal entry ${je.entryNo} (${je.id}) is out of balance: Dr ₹${d} != Cr ₹${c}.`);
+      correctiveActions.push(`Post adjusting journal or re-balance debit/credit lines for entry ${je.entryNo}.`);
     }
 
     if (je.lines && je.lines.length > 0) {
@@ -758,58 +763,71 @@ export function verifyFinancialReconciliation(
       if (Math.abs(lineDebits - lineCredits) > 0.01) {
         journalsBalanced = false;
         discrepancies.push(`Journal entry ${je.entryNo} lines out of balance: lines Dr ₹${lineDebits} != Cr ₹${lineCredits}.`);
+        correctiveActions.push(`Audit individual journal lines for ${je.entryNo} to ensure total debit matches credit.`);
       }
     }
   }
 
   // 2. Contractor payments and work balance reconciliation
   let contractorPaymentsAgreed = true;
-  if (params.contractorWorkEntries && params.contractorPayments) {
+  if (params.contractorWorkEntries) {
     const paymentMap = new Map<string, number>();
-    for (const cp of params.contractorPayments) {
-      const wId = cp.contractorWorkId;
-      if (wId) {
-        paymentMap.set(wId, roundTo2((paymentMap.get(wId) || 0) + cp.amount));
+    if (params.contractorPayments) {
+      for (const cp of params.contractorPayments) {
+        const wId = cp.contractorWorkId;
+        if (wId) {
+          paymentMap.set(wId, roundTo2((paymentMap.get(wId) || 0) + cp.amount));
+        }
       }
     }
 
     for (const w of params.contractorWorkEntries) {
       if (w.status === 'REVERSED') continue;
-      const historyPaid = paymentMap.get(w.id) || 0;
       const workRecordedPaid = roundTo2((w.previousPayments || 0) + (w.currentPayment || 0));
-      if (historyPaid > 0 && Math.abs(historyPaid - workRecordedPaid) > 0.01) {
-        contractorPaymentsAgreed = false;
-        discrepancies.push(`Contractor work ${w.id} (${w.contractorName}) payment mismatch: recorded ₹${workRecordedPaid} vs payment history ₹${historyPaid}.`);
+      if (params.contractorPayments) {
+        const historyPaid = paymentMap.get(w.id) || 0;
+        if (historyPaid > 0 && Math.abs(historyPaid - workRecordedPaid) > 0.01) {
+          contractorPaymentsAgreed = false;
+          discrepancies.push(`Contractor work ${w.id} (${w.contractorName}) payment mismatch: recorded ₹${workRecordedPaid} vs payment history ₹${historyPaid}.`);
+          correctiveActions.push(`Reconcile contractor payment history for work entry ${w.id} with contractor_payments table.`);
+        }
       }
 
       const expectedBal = roundTo2(w.totalContractAmount - (w.advancePaid || 0) - workRecordedPaid);
       if (Math.abs(w.remainingBalance - expectedBal) > 0.01) {
         contractorPaymentsAgreed = false;
         discrepancies.push(`Contractor work ${w.id} balance mismatch: recorded ₹${w.remainingBalance} vs calculated ₹${expectedBal}.`);
+        correctiveActions.push(`Update remaining_balance on contractor work ${w.id} to ₹${expectedBal}.`);
       }
     }
   }
 
   // 3. Daily labour reconciliation
   let dailyLabourAgreed = true;
-  if (params.dailyLabourEntries && params.labourPayments) {
+  if (params.dailyLabourEntries) {
     const labourPayMap = new Map<string, number>();
-    for (const lp of params.labourPayments) {
-      labourPayMap.set(lp.dailyLabourId, roundTo2((labourPayMap.get(lp.dailyLabourId) || 0) + lp.amount));
+    if (params.labourPayments) {
+      for (const lp of params.labourPayments) {
+        labourPayMap.set(lp.dailyLabourId, roundTo2((labourPayMap.get(lp.dailyLabourId) || 0) + lp.amount));
+      }
     }
 
     for (const dl of params.dailyLabourEntries) {
       if (dl.status === 'REVERSED') continue;
-      const historyPaid = labourPayMap.get(dl.id) || 0;
-      if (historyPaid > 0 && Math.abs(historyPaid - dl.amountPaid) > 0.01) {
-        dailyLabourAgreed = false;
-        discrepancies.push(`Daily labour ${dl.id} (${dl.workerNameOrGroup}) payment mismatch: recorded ₹${dl.amountPaid} vs payment history ₹${historyPaid}.`);
+      if (params.labourPayments) {
+        const historyPaid = labourPayMap.get(dl.id) || 0;
+        if (historyPaid > 0 && Math.abs(historyPaid - dl.amountPaid) > 0.01) {
+          dailyLabourAgreed = false;
+          discrepancies.push(`Daily labour ${dl.id} (${dl.workerNameOrGroup}) payment mismatch: recorded ₹${dl.amountPaid} vs payment history ₹${historyPaid}.`);
+          correctiveActions.push(`Audit labour payments history for daily labour entry ${dl.id}.`);
+        }
       }
 
       const expectedBal = roundTo2(dl.totalLabourCost - (dl.advanceAmount || 0) - dl.amountPaid);
       if (Math.abs(dl.remainingBalance - expectedBal) > 0.01) {
         dailyLabourAgreed = false;
         discrepancies.push(`Daily labour ${dl.id} balance mismatch: recorded ₹${dl.remainingBalance} vs calculated ₹${expectedBal}.`);
+        correctiveActions.push(`Recalculate remaining_balance for daily labour entry ${dl.id} to ₹${expectedBal}.`);
       }
     }
   }
@@ -823,6 +841,18 @@ export function verifyFinancialReconciliation(
       if (Math.abs(sr.remainingBalance - expectedBal) > 0.01) {
         salaryAdvancesAgreed = false;
         discrepancies.push(`Salary record ${sr.id} (${sr.employeeName}) balance mismatch: recorded ₹${sr.remainingBalance} vs calculated ₹${expectedBal}.`);
+        correctiveActions.push(`Adjust salary record ${sr.id} remaining balance to ₹${expectedBal}.`);
+      }
+    }
+  }
+
+  if (params.employeeAdvances) {
+    for (const adv of params.employeeAdvances) {
+      const expectedRem = roundTo2(adv.amount - adv.recoveredAmount);
+      if (Math.abs(adv.remainingBalance - expectedRem) > 0.01) {
+        salaryAdvancesAgreed = false;
+        discrepancies.push(`Employee advance ${adv.id} (${adv.employeeName}) balance mismatch: recorded ₹${adv.remainingBalance} vs calculated ₹${expectedRem}.`);
+        correctiveActions.push(`Update advance balance for employee ${adv.employeeName} (${adv.id}) to ₹${expectedRem}.`);
       }
     }
   }
@@ -836,6 +866,7 @@ export function verifyFinancialReconciliation(
       if (isNaN(calculatedBal)) {
         accountTransactionsAgreed = false;
         discrepancies.push(`Account ${acc.accountName} (${acc.accountCode}) calculated ledger balance is NaN.`);
+        correctiveActions.push(`Investigate corrupt or missing transaction amounts for account ${acc.id}.`);
       }
     }
   }
@@ -846,6 +877,7 @@ export function verifyFinancialReconciliation(
     totalDebits,
     totalCredits,
     discrepancies,
+    correctiveActions,
     reconciledSections: {
       journalsBalanced,
       contractorPaymentsAgreed,

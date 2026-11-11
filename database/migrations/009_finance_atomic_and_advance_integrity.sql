@@ -182,7 +182,12 @@ DECLARE
     v_account_code VARCHAR(50);
     v_account_name VARCHAR(255);
 BEGIN
-    -- 1. Authorization check: Enforce authenticated caller is active member of company
+    -- 1. Authorization check: Caller must be authenticated
+    IF auth_current_user_id() IS NULL AND auth_current_role() NOT IN ('service_role') THEN
+        RAISE EXCEPTION 'Unauthenticated: Caller must be authenticated';
+    END IF;
+
+    -- Enforce authenticated caller is active member of company
     IF NOT auth_is_company_member(p_company_id) THEN
         RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
     END IF;
@@ -193,11 +198,15 @@ BEGIN
         RAISE EXCEPTION 'Contractor % does not belong to company %', p_contractor_id, p_company_id;
     END IF;
 
-    -- 3. If account_id provided, verify cash/bank account belongs to the same company
+    -- 3. If account_id provided, verify cash/bank account belongs to the same company, is active, and matches payment mode
     IF p_account_id IS NOT NULL THEN
-        PERFORM 1 FROM cash_bank_accounts WHERE id = p_account_id AND company_id = p_company_id;
+        PERFORM 1 FROM cash_bank_accounts 
+        WHERE id = p_account_id 
+          AND company_id = p_company_id
+          AND is_active = true
+          AND account_type = UPPER(p_payment_mode);
         IF NOT FOUND THEN
-            RAISE EXCEPTION 'Cash/bank account % does not belong to company %', p_account_id, p_company_id;
+            RAISE EXCEPTION 'Cash/bank account % does not belong to company %, is inactive, or does not match payment mode %', p_account_id, p_company_id, p_payment_mode;
         END IF;
     END IF;
 
@@ -324,7 +333,12 @@ DECLARE
     v_account_code VARCHAR(50);
     v_account_name VARCHAR(255);
 BEGIN
-    -- 1. Authorization check: Enforce authenticated caller is active member of company
+    -- 1. Authorization check: Caller must be authenticated
+    IF auth_current_user_id() IS NULL AND auth_current_role() NOT IN ('service_role') THEN
+        RAISE EXCEPTION 'Unauthenticated: Caller must be authenticated';
+    END IF;
+
+    -- Enforce authenticated caller is active member of company
     IF NOT auth_is_company_member(p_company_id) THEN
         RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
     END IF;
@@ -338,11 +352,15 @@ BEGIN
         END IF;
     END IF;
 
-    -- 3. If account_id provided, verify cash/bank account belongs to the same company
+    -- 3. If account_id provided, verify cash/bank account belongs to the same company, is active, and matches payment mode
     IF p_account_id IS NOT NULL THEN
-        PERFORM 1 FROM cash_bank_accounts WHERE id = p_account_id AND company_id = p_company_id;
+        PERFORM 1 FROM cash_bank_accounts 
+        WHERE id = p_account_id 
+          AND company_id = p_company_id
+          AND is_active = true
+          AND account_type = UPPER(p_payment_mode);
         IF NOT FOUND THEN
-            RAISE EXCEPTION 'Cash/bank account % does not belong to company %', p_account_id, p_company_id;
+            RAISE EXCEPTION 'Cash/bank account % does not belong to company %, is inactive, or does not match payment mode %', p_account_id, p_company_id, p_payment_mode;
         END IF;
     END IF;
 
@@ -449,7 +467,12 @@ DECLARE
     v_account_code VARCHAR(50);
     v_account_name VARCHAR(255);
 BEGIN
-    -- 1. Authorization check: Enforce authenticated caller is active member of company
+    -- 1. Authorization check: Caller must be authenticated
+    IF auth_current_user_id() IS NULL AND auth_current_role() NOT IN ('service_role') THEN
+        RAISE EXCEPTION 'Unauthenticated: Caller must be authenticated';
+    END IF;
+
+    -- Enforce authenticated caller is active member of company
     IF NOT auth_is_company_member(p_company_id) THEN
         RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
     END IF;
@@ -468,11 +491,15 @@ BEGIN
         RAISE EXCEPTION 'Employee % does not belong to company %', v_record.employee_id, p_company_id;
     END IF;
 
-    -- 4. If account_id provided, verify cash/bank account belongs to the same company
+    -- 4. If account_id provided, verify cash/bank account belongs to the same company, is active, and matches payment mode
     IF p_account_id IS NOT NULL THEN
-        PERFORM 1 FROM cash_bank_accounts WHERE id = p_account_id AND company_id = p_company_id;
+        PERFORM 1 FROM cash_bank_accounts 
+        WHERE id = p_account_id 
+          AND company_id = p_company_id
+          AND is_active = true
+          AND account_type = UPPER(p_payment_mode);
         IF NOT FOUND THEN
-            RAISE EXCEPTION 'Cash/bank account % does not belong to company %', p_account_id, p_company_id;
+            RAISE EXCEPTION 'Cash/bank account % does not belong to company %, is inactive, or does not match payment mode %', p_account_id, p_company_id, p_payment_mode;
         END IF;
     END IF;
 
@@ -566,16 +593,25 @@ DECLARE
     v_account_code VARCHAR(50);
     v_account_name VARCHAR(255);
 BEGIN
-    -- 1. Authorization check: Enforce authenticated caller is active member of company
+    -- 1. Authorization check: Caller must be authenticated
+    IF auth_current_user_id() IS NULL AND auth_current_role() NOT IN ('service_role') THEN
+        RAISE EXCEPTION 'Unauthenticated: Caller must be authenticated';
+    END IF;
+
+    -- Enforce authenticated caller is active member of company
     IF NOT auth_is_company_member(p_company_id) THEN
         RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
     END IF;
 
-    -- 2. If account_id provided, verify cash/bank account belongs to the same company
+    -- 2. If account_id provided, verify cash/bank account belongs to the same company, is active, and matches payment mode
     IF p_account_id IS NOT NULL THEN
-        PERFORM 1 FROM cash_bank_accounts WHERE id = p_account_id AND company_id = p_company_id;
+        PERFORM 1 FROM cash_bank_accounts 
+        WHERE id = p_account_id 
+          AND company_id = p_company_id
+          AND is_active = true
+          AND account_type = UPPER(p_payment_mode);
         IF NOT FOUND THEN
-            RAISE EXCEPTION 'Cash/bank account % does not belong to company %', p_account_id, p_company_id;
+            RAISE EXCEPTION 'Cash/bank account % does not belong to company %, is inactive, or does not match payment mode %', p_account_id, p_company_id, p_payment_mode;
         END IF;
     END IF;
 
@@ -697,7 +733,12 @@ DECLARE
     v_account_code VARCHAR(50);
     v_account_name VARCHAR(255);
 BEGIN
-    -- 1. Authorization check: Enforce authenticated caller is active member of company
+    -- 1. Authorization check: Caller must be authenticated
+    IF auth_current_user_id() IS NULL AND auth_current_role() NOT IN ('service_role') THEN
+        RAISE EXCEPTION 'Unauthenticated: Caller must be authenticated';
+    END IF;
+
+    -- Enforce authenticated caller is active member of company
     IF NOT auth_is_company_member(p_company_id) THEN
         RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
     END IF;
@@ -708,11 +749,15 @@ BEGIN
         RAISE EXCEPTION 'Employee % does not belong to company %', p_employee_id, p_company_id;
     END IF;
 
-    -- 3. If account_id provided and payment is made, verify cash/bank account belongs to company
+    -- 3. If account_id provided and payment is made, verify cash/bank account belongs to company, is active, and matches payment mode
     IF p_account_id IS NOT NULL AND COALESCE(p_amount_paid, 0) > 0 THEN
-        PERFORM 1 FROM cash_bank_accounts WHERE id = p_account_id AND company_id = p_company_id;
+        PERFORM 1 FROM cash_bank_accounts 
+        WHERE id = p_account_id 
+          AND company_id = p_company_id
+          AND is_active = true
+          AND account_type = UPPER(p_payment_mode);
         IF NOT FOUND THEN
-            RAISE EXCEPTION 'Cash/bank account % does not belong to company %', p_account_id, p_company_id;
+            RAISE EXCEPTION 'Cash/bank account % does not belong to company %, is inactive, or does not match payment mode %', p_account_id, p_company_id, p_payment_mode;
         END IF;
     END IF;
 
@@ -730,6 +775,17 @@ BEGIN
 
     IF p_gross_salary < 0 THEN
         RAISE EXCEPTION 'Gross salary cannot be negative';
+    END IF;
+
+    -- Validate Net Salary formula: gross + allowances - deductions - advance_recovery = net_salary_payable
+    IF ROUND(p_gross_salary + COALESCE(p_allowances, 0) - COALESCE(p_deductions, 0) - COALESCE(p_advance_recovery, 0), 2) <> ROUND(p_net_salary_payable, 2) THEN
+        RAISE EXCEPTION 'Net salary payable (₹%) does not match gross (₹%) + allowances (₹%) - deductions (₹%) - advance recovery (₹%) = ₹%',
+            p_net_salary_payable, p_gross_salary, COALESCE(p_allowances, 0), COALESCE(p_deductions, 0), COALESCE(p_advance_recovery, 0),
+            ROUND(p_gross_salary + COALESCE(p_allowances, 0) - COALESCE(p_deductions, 0) - COALESCE(p_advance_recovery, 0), 2);
+    END IF;
+
+    IF COALESCE(p_amount_paid, 0) > p_net_salary_payable THEN
+        RAISE EXCEPTION 'Amount paid (₹%) cannot exceed net salary payable (₹%)', p_amount_paid, p_net_salary_payable;
     END IF;
 
     -- Check if salary already accrued for this month
@@ -762,17 +818,36 @@ BEGIN
         v_status, p_notes, p_actor
     ) RETURNING id INTO v_record_id;
 
-    -- 2. Recover advances if applicable
+    -- 2. Recover advances sequentially row-by-row if applicable
     IF COALESCE(p_advance_recovery, 0) > 0 THEN
+        DECLARE
+            v_rem_rec NUMERIC(12, 2) := p_advance_recovery;
+            v_adv RECORD;
+            v_deduct NUMERIC(12, 2);
+        BEGIN
+            FOR v_adv IN 
+                SELECT id, remaining_balance, recovered_amount 
+                FROM employee_advances 
+                WHERE employee_id = p_employee_id 
+                  AND company_id = p_company_id 
+                  AND status IN ('OPEN', 'PARTIALLY_RECOVERED')
+                ORDER BY advance_date ASC, id ASC
+                FOR UPDATE
+            LOOP
+                EXIT WHEN v_rem_rec <= 0;
+                v_deduct := LEAST(v_adv.remaining_balance, v_rem_rec);
+                UPDATE employee_advances
+                SET recovered_amount = recovered_amount + v_deduct,
+                    remaining_balance = remaining_balance - v_deduct,
+                    status = CASE WHEN (remaining_balance - v_deduct) <= 0.001 THEN 'FULLY_RECOVERED' ELSE 'PARTIALLY_RECOVERED' END
+                WHERE id = v_adv.id;
+                v_rem_rec := v_rem_rec - v_deduct;
+            END LOOP;
+        END;
+
         UPDATE employees
         SET current_advance_balance = GREATEST(0, COALESCE(current_advance_balance, 0) - p_advance_recovery)
         WHERE id = p_employee_id;
-
-        UPDATE employee_advances
-        SET recovered_amount = recovered_amount + LEAST(remaining_balance, p_advance_recovery),
-            remaining_balance = GREATEST(0, remaining_balance - p_advance_recovery),
-            status = CASE WHEN remaining_balance - p_advance_recovery <= 0.01 THEN 'FULLY_RECOVERED' ELSE 'PARTIALLY_RECOVERED' END
-        WHERE employee_id = p_employee_id AND company_id = p_company_id AND status != 'FULLY_RECOVERED';
     END IF;
 
     -- 3. Post Accrual Journal: Dr 5050, Cr 1060 (adv), Cr 2120 (ded), Cr 2100 (net payable)
@@ -910,16 +985,25 @@ DECLARE
     v_account_code VARCHAR(50);
     v_account_name VARCHAR(255);
 BEGIN
-    -- 1. Authorization check: Enforce authenticated caller is active member of company
+    -- 1. Authorization check: Caller must be authenticated
+    IF auth_current_user_id() IS NULL AND auth_current_role() NOT IN ('service_role') THEN
+        RAISE EXCEPTION 'Unauthenticated: Caller must be authenticated';
+    END IF;
+
+    -- Enforce authenticated caller is active member of company
     IF NOT auth_is_company_member(p_company_id) THEN
         RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
     END IF;
 
-    -- 2. If account_id provided and payment is made, verify cash/bank account belongs to company
+    -- 2. If account_id provided and payment is made, verify cash/bank account belongs to company, is active, and matches payment mode
     IF p_account_id IS NOT NULL AND COALESCE(p_amount_paid, 0) > 0 THEN
-        PERFORM 1 FROM cash_bank_accounts WHERE id = p_account_id AND company_id = p_company_id;
+        PERFORM 1 FROM cash_bank_accounts 
+        WHERE id = p_account_id 
+          AND company_id = p_company_id
+          AND is_active = true
+          AND account_type = UPPER(p_payment_mode);
         IF NOT FOUND THEN
-            RAISE EXCEPTION 'Cash/bank account % does not belong to company %', p_account_id, p_company_id;
+            RAISE EXCEPTION 'Cash/bank account % does not belong to company %, is inactive, or does not match payment mode %', p_account_id, p_company_id, p_payment_mode;
         END IF;
     END IF;
 
@@ -1100,7 +1184,12 @@ DECLARE
     v_status VARCHAR(30);
     v_payable_amount NUMERIC(12, 2);
 BEGIN
-    -- 1. Authorization check: Enforce authenticated caller is active member of company
+    -- 1. Authorization check: Caller must be authenticated
+    IF auth_current_user_id() IS NULL AND auth_current_role() NOT IN ('service_role') THEN
+        RAISE EXCEPTION 'Unauthenticated: Caller must be authenticated';
+    END IF;
+
+    -- Enforce authenticated caller is active member of company
     IF NOT auth_is_company_member(p_company_id) THEN
         RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
     END IF;
@@ -1111,11 +1200,15 @@ BEGIN
         RAISE EXCEPTION 'Contractor % does not belong to company %', p_contractor_id, p_company_id;
     END IF;
 
-    -- 3. If account_id provided and payment is made, verify cash/bank account belongs to company
+    -- 3. If account_id provided and payment is made, verify cash/bank account belongs to company, is active, and matches payment mode
     IF p_account_id IS NOT NULL AND COALESCE(p_current_payment, 0) > 0 THEN
-        PERFORM 1 FROM cash_bank_accounts WHERE id = p_account_id AND company_id = p_company_id;
+        PERFORM 1 FROM cash_bank_accounts 
+        WHERE id = p_account_id 
+          AND company_id = p_company_id
+          AND is_active = true
+          AND account_type = UPPER(p_payment_mode);
         IF NOT FOUND THEN
-            RAISE EXCEPTION 'Cash/bank account % does not belong to company %', p_account_id, p_company_id;
+            RAISE EXCEPTION 'Cash/bank account % does not belong to company %, is inactive, or does not match payment mode %', p_account_id, p_company_id, p_payment_mode;
         END IF;
     END IF;
 
@@ -1270,6 +1363,16 @@ $$;
 -- ----------------------------------------------------------------------------
 -- 14. Explicit RPC Function Permissions
 -- ----------------------------------------------------------------------------
+-- Revoke execution from public and anon
+REVOKE ALL ON FUNCTION fn_post_contractor_payment_atomic FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION fn_post_labour_payment_atomic FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION fn_post_salary_disbursement_atomic FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION fn_issue_employee_advance_atomic FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION fn_post_salary_accrual_atomic FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION fn_post_daily_labour_accrual_atomic FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION fn_post_contractor_work_atomic FROM PUBLIC, anon;
+
+-- Grant execution strictly to authenticated users and service_role
 GRANT EXECUTE ON FUNCTION fn_post_contractor_payment_atomic TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION fn_post_labour_payment_atomic TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION fn_post_salary_disbursement_atomic TO authenticated, service_role;

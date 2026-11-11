@@ -31,7 +31,7 @@ export function calculateCurrentStock(
         (m) =>
           m.materialId === materialId &&
           (!yardId || m.yardId === yardId) &&
-          (!companyId || !(m as any).companyId || (m as any).companyId === companyId)
+          (!companyId ? true : (m as any).companyId === companyId)
       )
       .reduce((sum, m) => sum + m.quantity, 0)
   );
@@ -58,7 +58,7 @@ export function allocateLotsFifo(
       (lot) =>
         lot.materialId === materialId &&
         lot.yardId === yardId &&
-        (!companyId || !(lot as any).companyId || (lot as any).companyId === companyId) &&
+        (!companyId ? true : (lot as any).companyId === companyId) &&
         !lot.isExhausted &&
         lot.remainingQuantity > 0
     )
@@ -157,10 +157,29 @@ export function verifyFifoCogsIntegrity(
 
   const lotMap = new Map(targetLots.map((l) => [l.id, l]));
 
-  // 1. Check companyId presence on lots
+  // 1. Check companyId and valid non-negative quantities on lots
   for (const l of targetLots) {
     if (!l.companyId) {
       discrepancies.push(`Inventory lot ${l.id} (${l.lotNumber}) is missing companyId.`);
+    }
+    if (l.remainingQuantity < 0) {
+      discrepancies.push(`Inventory lot ${l.id} (${l.lotNumber}) has negative remaining quantity: ${l.remainingQuantity}.`);
+    }
+    if (l.initialQuantity <= 0) {
+      discrepancies.push(`Inventory lot ${l.id} (${l.lotNumber}) has invalid non-positive initial quantity: ${l.initialQuantity}.`);
+    }
+  }
+
+  // 2. Check for duplicate stock movements and ensure sales dispatch movements are negative
+  const seenAllMovementIds = new Set<string>();
+  for (const m of movements) {
+    if (seenAllMovementIds.has(m.id)) {
+      discrepancies.push(`Duplicate stock movement ${m.id} (${m.transactionRef}) detected.`);
+    }
+    seenAllMovementIds.add(m.id);
+
+    if (m.movementType === 'SALES_DISPATCH' && m.quantity >= 0) {
+      discrepancies.push(`Sales dispatch movement ${m.id} (${m.transactionRef}) has non-negative quantity ${m.quantity}. Outward dispatches must have negative quantity.`);
     }
   }
 
@@ -190,12 +209,12 @@ export function verifyFifoCogsIntegrity(
     const qty = Math.abs(m.quantity);
     totalAllocatedQuantity = roundTo3(totalAllocatedQuantity + qty);
 
-    // 2. Validate companyId on movement
+    // Validate companyId on movement
     if (!m.companyId) {
       discrepancies.push(`Stock movement ${m.id} (${m.transactionRef}) is missing companyId.`);
     }
 
-    // 3. Validate lot link
+    // Validate lot link
     if (!m.lotId) {
       discrepancies.push(`Stock movement ${m.id} (${m.transactionRef}) has no linked FIFO lot.`);
       continue;
@@ -207,20 +226,32 @@ export function verifyFifoCogsIntegrity(
       continue;
     }
 
-    // 4. Reject cross-company lot references
+    // Material and yard consistency check
+    if (m.materialId !== lot.materialId) {
+      discrepancies.push(
+        `Material mismatch in movement ${m.id}: movement material ${m.materialId} does not match lot material ${lot.materialId}.`
+      );
+    }
+    if (m.yardId !== lot.yardId) {
+      discrepancies.push(
+        `Yard mismatch in movement ${m.id}: movement yard ${m.yardId} does not match lot yard ${lot.yardId}.`
+      );
+    }
+
+    // Reject cross-company lot references
     if (m.companyId && lot.companyId && m.companyId !== lot.companyId) {
       discrepancies.push(
         `Cross-company lot reference in movement ${m.id}: movement belongs to company ${m.companyId} but lot belongs to company ${lot.companyId}.`
       );
     }
 
-    // 5. Validate unitCost
+    // Validate unitCost
     if (m.unitCost <= 0) {
       discrepancies.push(`Stock movement ${m.id} from Lot ${lot.lotNumber} has invalid unitCost ₹${m.unitCost}.`);
       continue;
     }
 
-    // 6. Validate movement totalCost against quantity * historical unitCost (NOT against mutable lot.unitCost)
+    // Validate movement totalCost against quantity * historical unitCost (NOT against mutable lot.unitCost)
     const expectedCost = roundTo2(qty * m.unitCost);
     if (Math.abs(Math.abs(m.totalCost) - expectedCost) > 0.01) {
       discrepancies.push(

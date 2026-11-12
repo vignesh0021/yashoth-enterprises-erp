@@ -144,13 +144,9 @@ export const BackupManagerView: React.FC = () => {
       });
 
       if (result.success) {
-        if (result.error) {
+        if (exportDestination === 'GOOGLE_DRIVE') {
           setExportSuccessMessage(
-            `Backup generated & downloaded locally: ${result.filename}. (Notice: ${result.error})`
-          );
-        } else if (exportDestination === 'GOOGLE_DRIVE') {
-          setExportSuccessMessage(
-            `Backup generated successfully! File: ${result.filename}. Opened in Android "Save to Drive" / Share sheet & saved to device Downloads.`
+            `Backup successfully confirmed & uploaded to Google Drive! File: ${result.filename} (SHA-256: ${result.checksum.slice(0, 16)}...)`
           );
         } else {
           setExportSuccessMessage(

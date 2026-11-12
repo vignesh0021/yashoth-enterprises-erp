@@ -3310,16 +3310,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
 
       // Handle Google Drive destination
-      let driveNotice: string | undefined;
       if (options?.destination === 'GOOGLE_DRIVE') {
         const mimeType = options?.isEncrypted ? 'application/octet-stream' : 'application/json';
         const uploadRes = await googleDriveService.uploadBackupFile(backupResult.filename, backupResult.rawJson, mimeType);
         if (!uploadRes.success) {
-          if (uploadRes.error && uploadRes.error.includes('downloaded to device local storage')) {
-            driveNotice = uploadRes.error;
-          } else {
-            throw new Error(uploadRes.error || 'Failed to upload backup to Google Drive');
-          }
+          throw new Error(uploadRes.error || 'Google Drive backup failed: remote confirmation not received.');
         }
       }
 
@@ -3362,7 +3357,6 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         filename: backupResult.filename,
         checksum: backupResult.checksum,
         rawJson: backupResult.rawJson,
-        error: driveNotice,
       };
     } catch (err: any) {
       return {

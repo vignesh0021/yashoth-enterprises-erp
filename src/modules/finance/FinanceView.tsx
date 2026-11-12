@@ -681,17 +681,17 @@ export const FinanceView: React.FC = () => {
           </h1>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2.5">
           <button
             onClick={() => setIsContraModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-4 py-2.5 min-h-[44px] bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer select-none"
           >
             <ArrowLeftRight className="w-3.5 h-3.5 text-red-400" />
             <span>Cash ⇄ Bank (பண மாற்றம்)</span>
           </button>
           <button
             onClick={handleOpenAddExpense}
-            className="flex items-center gap-1.5 px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-4 py-2.5 min-h-[44px] bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all cursor-pointer select-none"
           >
             <Plus className="w-4 h-4" />
             <span>+ New Expense (+ செலவு)</span>

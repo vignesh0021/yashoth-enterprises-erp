@@ -145,10 +145,10 @@ export const WeighmentView: React.FC = () => {
 
         <button
           onClick={handleOpenAdd}
-          className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all cursor-pointer"
+          className="flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all cursor-pointer select-none"
         >
           <Plus className="w-4 h-4" />
-          <span>Record Weighment Slip</span>
+          <span>Record Weighment Slip (எடை ரசீது பதிவு)</span>
         </button>
       </div>
 
@@ -266,112 +266,112 @@ export const WeighmentView: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Weighing Method</label>
+              <label className="font-bold text-slate-700 block mb-1.5 text-xs">Weighing Method (எடை முறை)</label>
               <select
                 value={method}
                 onChange={(e) => setMethod(e.target.value as any)}
-                className="w-full p-2 border border-slate-200 rounded-lg bg-white"
+                className="w-full min-h-[48px] px-3.5 py-2.5 border border-slate-200 rounded-xl bg-white text-slate-900 font-semibold text-sm focus:border-red-600 focus:ring-2 focus:ring-red-600/20"
               >
-                <option value="WEIGHBRIDGE_SLIP">Weighbridge Slip Entry</option>
-                <option value="MANUAL_SCALE">Manual Scale Reading</option>
-                <option value="HARDWARE_LINK">Hardware Serial Port (Direct)</option>
+                <option value="WEIGHBRIDGE_SLIP">Weighbridge Slip Entry (வேபிரிட்ஜ் ரசீது)</option>
+                <option value="MANUAL_SCALE">Manual Scale Reading (கைமுறை எடை)</option>
+                <option value="HARDWARE_LINK">Hardware Serial Port (நேரடி இணைப்பு)</option>
               </select>
             </div>
 
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Weighbridge Slip Ref #</label>
+              <label className="font-bold text-slate-700 block mb-1.5 text-xs">Weighbridge Slip Ref # (ரசீது எண்)</label>
               <input
                 type="text"
                 value={slipRef}
                 onChange={(e) => setSlipRef(e.target.value)}
-                className="w-full p-2 border border-slate-200 rounded-lg font-mono font-bold"
+                className="w-full min-h-[48px] px-3.5 py-2.5 border border-slate-200 rounded-xl font-mono font-bold text-base bg-white text-slate-900 focus:border-red-600 focus:ring-2 focus:ring-red-600/20"
                 placeholder="e.g. WB-2026-9901"
               />
             </div>
 
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Vehicle Registration #</label>
+              <label className="font-bold text-slate-700 block mb-1.5 text-xs">Vehicle Registration # (வண்டி எண்)</label>
               <input
                 type="text"
                 value={vehicleReg}
                 onChange={(e) => setVehicleReg(e.target.value)}
-                className="w-full p-2 border border-slate-200 rounded-lg font-mono uppercase font-bold"
+                className="w-full min-h-[48px] px-3.5 py-2.5 border border-slate-200 rounded-xl font-mono uppercase font-bold text-base bg-white text-slate-900 focus:border-red-600 focus:ring-2 focus:ring-red-600/20"
                 placeholder="e.g. TN 18 BY 0420"
               />
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-200">
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Gross Weight (Loaded) KG *</label>
+              <label className="font-bold text-slate-700 block mb-1.5 text-xs">Gross Weight (Loaded) KG * (மொத்த எடை)</label>
               <input
                 type="number"
                 value={grossWeight}
                 onChange={(e) => setGrossWeight(parseFloat(e.target.value) || 0)}
-                className="w-full p-2 border border-slate-200 rounded-lg font-mono font-bold text-sm"
+                className="w-full min-h-[48px] px-3.5 py-2.5 border border-slate-200 rounded-xl font-mono font-bold text-base bg-white text-slate-900 focus:border-red-600"
                 required
               />
             </div>
 
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Tare Weight (Empty) KG *</label>
+              <label className="font-bold text-slate-700 block mb-1.5 text-xs">Tare Weight (Empty) KG * (வெற்று எடை)</label>
               <input
                 type="number"
                 value={tareWeight}
                 onChange={(e) => setTareWeight(parseFloat(e.target.value) || 0)}
-                className="w-full p-2 border border-slate-200 rounded-lg font-mono font-bold text-sm"
+                className="w-full min-h-[48px] px-3.5 py-2.5 border border-slate-200 rounded-xl font-mono font-bold text-base bg-white text-slate-900 focus:border-red-600"
                 required
               />
             </div>
 
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Approved Deductions (Dirt/Water) KG</label>
+              <label className="font-bold text-slate-700 block mb-1.5 text-xs">Approved Deductions KG (கழிவு எடை)</label>
               <input
                 type="number"
                 value={deductions}
                 onChange={(e) => setDeductions(parseFloat(e.target.value) || 0)}
-                className="w-full p-2 border border-slate-200 rounded-lg font-mono text-rose-600 font-bold text-sm"
+                className="w-full min-h-[48px] px-3.5 py-2.5 border border-slate-200 rounded-xl font-mono text-rose-600 font-bold text-base bg-white focus:border-red-600"
               />
             </div>
           </div>
 
           {/* Mathematical verification card */}
-          <div className="p-4 bg-slate-900 text-white rounded-xl grid grid-cols-2 gap-4">
+          <div className="p-4 bg-slate-900 text-white rounded-2xl grid grid-cols-2 gap-4 border border-slate-800">
             <div>
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Gross - Tare = Net Weight</span>
-              <span className="text-xl font-mono font-black">{formatWeight(netWeight)}</span>
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-bold">Gross - Tare = Net Weight (நிகர எடை)</span>
+              <span className="text-2xl font-mono font-black tabular-nums">{formatWeight(netWeight)}</span>
             </div>
             <div>
-              <span className="text-[10px] text-red-400 uppercase tracking-wider block">Net - Deductions = Payable Weight</span>
-              <span className="text-xl font-mono font-black text-red-400">{formatWeight(payableWeight)}</span>
+              <span className="text-[10px] text-red-400 uppercase tracking-wider block font-bold">Net - Deductions = Payable (கொள்முதல் எடை)</span>
+              <span className="text-2xl font-mono font-black text-red-400 tabular-nums">{formatWeight(payableWeight)}</span>
             </div>
           </div>
 
           <div>
-            <label className="font-bold text-slate-700 block mb-1">Inspector / Yard Remarks</label>
+            <label className="font-bold text-slate-700 block mb-1.5 text-xs">Inspector / Yard Remarks (குறிப்புகள்)</label>
             <input
               type="text"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="w-full p-2 border border-slate-200 rounded-lg"
-              placeholder="e.g. Moisture detected in borings, 100kg deducted with supplier agreement"
+              className="w-full min-h-[48px] px-3.5 py-2.5 border border-slate-200 rounded-xl text-slate-900 text-sm bg-white focus:border-red-600"
+              placeholder="e.g. Gummidipoondi weighbridge slip verified"
             />
           </div>
 
-          <div className="flex justify-end gap-3 pt-3 border-t border-slate-100">
+          <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
             <button
               type="button"
               onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2 border border-slate-200 rounded-lg text-slate-700 cursor-pointer"
+              className="px-5 py-3 min-h-[48px] border border-slate-200 rounded-xl text-slate-700 font-semibold cursor-pointer hover:bg-slate-100 active:scale-[0.98] transition-all"
             >
-              Cancel
+              Cancel (ரத்து)
             </button>
             <button
               type="submit"
               disabled={!!errorMsg}
-              className="px-5 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-lg font-bold shadow-md shadow-red-600/20 cursor-pointer"
+              className="px-6 py-3 min-h-[48px] bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white rounded-xl font-bold shadow-md shadow-red-600/20 cursor-pointer active:scale-[0.98] transition-all"
             >
-              {editingWeighment ? 'Save Changes' : 'Confirm & Save Weighment'}
+              {editingWeighment ? 'Save Changes (சேமிக்க)' : 'Confirm & Save Weighment (உறுதிப்படுத்தி சேமிக்க)'}
             </button>
           </div>
         </form>

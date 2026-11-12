@@ -346,7 +346,7 @@ interface ERPContextType {
     isEncrypted?: boolean;
     password?: string;
     destination?: BackupDestination;
-  }) => Promise<{ success: boolean; filename: string; checksum: string; error?: string }>;
+  }) => Promise<{ success: boolean; filename: string; checksum: string; error?: string; rawJson?: string }>;
   previewRestore: (
     fileContent: string,
     password?: string
@@ -3196,7 +3196,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     isEncrypted?: boolean;
     password?: string;
     destination?: BackupDestination;
-  }): Promise<{ success: boolean; filename: string; checksum: string; error?: string }> => {
+  }): Promise<{ success: boolean; filename: string; checksum: string; error?: string; rawJson?: string }> => {
     try {
       enforceAuthorization(currentUser, 'settings:backup');
       const currentState = getCurrentDatabasePayload();
@@ -3263,6 +3263,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         success: true,
         filename: backupResult.filename,
         checksum: backupResult.checksum,
+        rawJson: backupResult.rawJson,
         error: driveNotice,
       };
     } catch (err: any) {

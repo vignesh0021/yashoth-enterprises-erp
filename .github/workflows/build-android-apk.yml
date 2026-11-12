@@ -2,7 +2,7 @@ name: Build Yashoth Enterprises ERP Android APK
 
 on:
   push:
-    branches: [master, main]
+    branches: [master, main, fix/finance-accounting-integrity]
   workflow_dispatch:
 
 permissions:

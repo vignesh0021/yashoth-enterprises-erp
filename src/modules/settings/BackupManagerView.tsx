@@ -26,7 +26,9 @@ import {
   KeyRound,
   HardDrive,
   Check,
-  AlertCircle
+  AlertCircle,
+  Mail,
+  Send
 } from 'lucide-react';
 
 export const BackupManagerView: React.FC = () => {
@@ -162,6 +164,36 @@ export const BackupManagerView: React.FC = () => {
       }
     } catch (err: any) {
       setExportErrorMessage(err.message || 'Error occurred during backup creation.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Handle Instant Email Dispatch to Official Proprietor Account
+  const handleInstantEmailBackup = async () => {
+    setExportErrorMessage(null);
+    setExportSuccessMessage(null);
+    setIsExporting(true);
+    try {
+      const result = await createBackup({
+        companyScoped: exportScope === 'COMPANY',
+        isEncrypted: false,
+        destination: 'LOCAL_FILE',
+      });
+      if (result.success && result.rawJson) {
+        googleDriveService.sendBackupViaEmail(
+          result.filename,
+          result.rawJson,
+          `Yashoth Enterprises ERP Automated System Backup Archive.\nSHA-256 Checksum: ${result.checksum}\nCompany: ${activeCompany.companyName} (${activeCompany.code})`
+        );
+        setExportSuccessMessage(
+          `Backup archive generated & prepared for Gmail dispatch to ${googleDriveService.getConnectedEmail()}. Check Gmail compose!`
+        );
+      } else {
+        setExportErrorMessage(result.error || 'Failed to prepare email backup.');
+      }
+    } catch (err: any) {
+      setExportErrorMessage(err.message || 'Error occurred during email backup preparation.');
     } finally {
       setIsExporting(false);
     }
@@ -493,25 +525,40 @@ export const BackupManagerView: React.FC = () => {
               )}
             </div>
 
-            {/* Action Button */}
-            <div className="pt-2">
+            {/* Action Buttons */}
+            <div className="pt-2 space-y-2.5">
               <button
                 type="button"
                 disabled={isExporting}
                 onClick={handleGenerateBackup}
-                className="w-full flex items-center justify-center gap-2 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold shadow-sm disabled:opacity-50"
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 min-h-[48px] bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white rounded-xl font-bold shadow-md shadow-red-600/20 disabled:opacity-50 cursor-pointer transition-all"
               >
                 {isExporting ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Encrypting & Generating Archive...</span>
+                    <span>காப்பகம் உருவாக்கப்படுகிறது (Generating Archive)...</span>
+                  </>
+                ) : exportDestination === 'GOOGLE_DRIVE' ? (
+                  <>
+                    <Cloud className="w-5 h-5 text-white" />
+                    <span>Save to Google Drive / Android Share Sheet (கூகிள் டிரைவில் சேமிக்க)</span>
                   </>
                 ) : (
                   <>
-                    <Download className="w-4 h-4" />
-                    <span>Download {encryptBackup ? 'Encrypted (.yebak)' : 'JSON'} Backup Snapshot</span>
+                    <Download className="w-5 h-5" />
+                    <span>Download {encryptBackup ? 'Encrypted (.yebak)' : 'JSON'} Backup to Device (பதிவிறக்கம்)</span>
                   </>
                 )}
+              </button>
+
+              <button
+                type="button"
+                disabled={isExporting}
+                onClick={handleInstantEmailBackup}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 min-h-[44px] bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white rounded-xl font-semibold border border-slate-700 cursor-pointer transition-all text-xs"
+              >
+                <Mail className="w-4 h-4 text-amber-400" />
+                <span>1-Tap Email Backup to yashothenterprises44@gmail.com (மின்னஞ்சலுக்கு அனுப்ப)</span>
               </button>
             </div>
           </div>

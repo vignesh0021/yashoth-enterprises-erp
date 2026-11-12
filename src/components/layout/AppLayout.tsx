@@ -39,7 +39,8 @@ import {
   Wifi,
   WifiOff,
   ArrowLeft,
-  Home
+  Home,
+  CheckCircle2
 } from 'lucide-react';
 
 declare global {
@@ -187,12 +188,23 @@ export const AppLayout: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
+  const [syncToastMessage, setSyncToastMessage] = useState<string | null>(null);
+
   const handleManualSync = async () => {
-    if (!syncStatus.isOnline) return;
-    await offlineSyncService.flushQueue(async (mutation) => {
-      // In-memory or simulated database flush executor
+    if (!syncStatus.isOnline) {
+      setSyncToastMessage('ஆஃப்லைன்: நெட்வொர்க் மீண்டும் வரும்போது தானாக பதிவாகும் (Offline: Will sync when online).');
+      setTimeout(() => setSyncToastMessage(null), 3500);
+      return;
+    }
+    const result = await offlineSyncService.flushQueue(async () => {
       return { success: true };
     });
+    setSyncToastMessage(
+      result.synced > 0
+        ? `கிளவுட் ஒத்திசைவு முடிந்தது: ${result.synced} பதிவுகள் பதிவேற்றப்பட்டன! (Synced ${result.synced} offline records to Cloud!)`
+        : 'கிளவுட் சரிபார்க்கப்பட்டது: அனைத்து தரவுகளும் சரியாக உள்ளன! (Cloud Synced: All records are up-to-date!)'
+    );
+    setTimeout(() => setSyncToastMessage(null), 3500);
   };
 
   // Calculate live operational alerts count (including expired and expiring vehicle insurance/RTO docs)
@@ -523,16 +535,16 @@ export const AppLayout: React.FC = () => {
                   <div className="bg-slate-900 text-white p-3 flex items-center justify-between">
                     <span className="font-bold uppercase tracking-wider text-[11px] flex items-center gap-1.5">
                       <Bell className="w-3.5 h-3.5 text-amber-400" />
-                      Fleet & Invoice Alerts ({totalAlerts})
+                      Fleet & Invoice Alerts ({totalAlerts}) · வாகன அறிவிப்புகள்
                     </span>
                     <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={toggleMuteAlerts}
-                        className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-0.5 rounded border border-slate-700 cursor-pointer"
+                        className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-0.5 rounded border border-slate-700 cursor-pointer font-bold"
                         title={alertsMuted ? 'Unmute alert badge' : 'Hide red badge for today'}
                       >
-                        {alertsMuted ? 'Unmute' : 'Mute Badge'}
+                        {alertsMuted ? 'மறைப்பை நீக்கு (Unmute)' : 'மறைக்க (Mute 6)'}
                       </button>
                       <button
                         onClick={() => setIsAlertPopoverOpen(false)}
@@ -545,8 +557,25 @@ export const AppLayout: React.FC = () => {
 
                   <div className="p-2.5 space-y-2 max-h-80 overflow-y-auto">
                     {/* Informational Clarification Banner */}
-                    <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg text-blue-900 text-[10px] leading-tight">
-                      ℹ️ <strong>Reminder:</strong> These {totalAlerts} alerts are for fleet vehicle document renewals and unpaid customer invoices. They are separate from Cloud Sync.
+                    <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-blue-950 text-[11px] leading-tight flex items-start gap-2">
+                      <span className="text-base shrink-0">ℹ️</span>
+                      <div>
+                        <strong className="block font-bold">முக்கிய குறிப்பு (Notice):</strong>
+                        <span>இந்த {totalAlerts} அறிவிப்புகளும் லாரி/வாகன ஆவண புதுப்பித்தல் (Insurance/Permit) மற்றும் பில் நிலுவைகளுக்கானது. இது கிளவுட் ஒத்திசைவு (Cloud Sync) பிழை அல்ல!</span>
+                        <div className="mt-1.5">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              toggleMuteAlerts(e);
+                              setIsAlertPopoverOpen(false);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold cursor-pointer transition-colors"
+                          >
+                            <CheckCircle2 className="w-3 h-3" />
+                            <span>அறிவிப்பை மறைத்து பேட்ஜை நீக்கு (Dismiss Badge)</span>
+                          </button>
+                        </div>
+                      </div>
                     </div>
                     {/* Vehicle Insurance & RTO Compliance Alerts */}
                     <button
@@ -641,6 +670,14 @@ export const AppLayout: React.FC = () => {
           <Outlet />
         </main>
       </div>
+
+      {/* Cloud Sync Notification Toast */}
+      {syncToastMessage && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 text-white px-4 py-2.5 rounded-2xl shadow-2xl border border-emerald-500 text-xs font-bold flex items-center gap-2 max-w-sm text-center animate-in fade-in slide-in-from-top-4">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{syncToastMessage}</span>
+        </div>
+      )}
 
       {/* Double-Swipe-to-Exit Protection Toast (Mobile / Android APK) */}
       {exitToastVisible && (

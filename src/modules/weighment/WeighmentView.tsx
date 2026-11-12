@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useERP } from '../../context/ERPContext.tsx';
+import { useLanguage } from '../../context/LanguageContext.tsx';
 import { Weighment, WeighingMethod } from '../../types/index.ts';
 import { StatusBadge } from '../../components/common/StatusBadge.tsx';
 import { Modal } from '../../components/common/Modal.tsx';
@@ -19,6 +20,7 @@ import {
 
 export const WeighmentView: React.FC = () => {
   const { weighments, recordWeighment, updateWeighment, deleteWeighment, currentUser } = useERP();
+  const { t, language } = useLanguage();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingWeighment, setEditingWeighment] = useState<Weighment | null>(null);
@@ -136,10 +138,10 @@ export const WeighmentView: React.FC = () => {
         <div>
           <h1 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
             <Scale className="w-6 h-6 text-red-600" />
-            <span>Weighment Engine & Slip Register</span>
+            <span>{t('weigh.title', 'Weighment Engine & Slip Register')}</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Full CRUD operations for recording gate weighments, deducting tare, checking duplicate slip numbers, and calculating payable weights.
+            {t('weigh.subtitle', 'Full CRUD operations for recording gate weighments, deducting tare, checking duplicate slip numbers, and calculating payable weights.')}
           </p>
         </div>
 
@@ -148,7 +150,7 @@ export const WeighmentView: React.FC = () => {
           className="flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all cursor-pointer select-none"
         >
           <Plus className="w-4 h-4" />
-          <span>Record Weighment Slip (எடை ரசீது பதிவு)</span>
+          <span>{t('weigh.record_slip', 'Record Weighment Slip')}</span>
         </button>
       </div>
 
@@ -176,24 +178,24 @@ export const WeighmentView: React.FC = () => {
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
-                <th className="py-3 px-4">Weighment #</th>
-                <th className="py-3 px-4">Time</th>
-                <th className="py-3 px-4">Method & Slip</th>
-                <th className="py-3 px-4">Vehicle Reg</th>
-                <th className="py-3 px-4 text-right">Gross (KG)</th>
-                <th className="py-3 px-4 text-right">Tare (KG)</th>
-                <th className="py-3 px-4 text-right">Net (KG)</th>
-                <th className="py-3 px-4 text-right">Deductions</th>
-                <th className="py-3 px-4 text-right">Payable (KG)</th>
-                <th className="py-3 px-4 text-center">Status</th>
-                <th className="py-3 px-4 text-right">Actions</th>
+                <th className="py-3 px-4">{t('weigh.slip_number', 'Weighment #')}</th>
+                <th className="py-3 px-4">{t('weigh.time', 'Time')}</th>
+                <th className="py-3 px-4">{t('weigh.method', 'Method & Slip')}</th>
+                <th className="py-3 px-4">{t('weigh.vehicle_reg', 'Vehicle Reg')}</th>
+                <th className="py-3 px-4 text-right">{t('weigh.gross_weight', 'Gross (KG)')}</th>
+                <th className="py-3 px-4 text-right">{t('weigh.tare_weight', 'Tare (KG)')}</th>
+                <th className="py-3 px-4 text-right">{t('weigh.net_weight', 'Net (KG)')}</th>
+                <th className="py-3 px-4 text-right">{t('weigh.deductions', 'Deductions')}</th>
+                <th className="py-3 px-4 text-right">{t('weigh.payable_weight', 'Payable (KG)')}</th>
+                <th className="py-3 px-4 text-center">{t('weigh.status', 'Status')}</th>
+                <th className="py-3 px-4 text-right">{t('weigh.actions', 'Actions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {weighments.length === 0 ? (
                 <tr>
                   <td colSpan={11} className="py-12 text-center text-slate-400 italic">
-                    No weighment records entered. Click "Record Weighment Slip" to register truck weight.
+                    {t('weigh.no_records', 'No weighment records entered. Click "Record Weighment Slip" to register truck weight.')}
                   </td>
                 </tr>
               ) : (
@@ -220,17 +222,19 @@ export const WeighmentView: React.FC = () => {
                       <div className="flex items-center justify-end gap-1.5">
                         <button
                           onClick={() => handleOpenEdit(w)}
-                          className="p-1 rounded text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
-                          title="Edit Weighment Slip"
+                          className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 active:scale-95 transition-all cursor-pointer"
+                          title={t('action.edit', 'Edit Weighment Slip')}
+                          aria-label={t('action.edit', 'Edit Weighment Slip')}
                         >
-                          <Edit3 className="w-3.5 h-3.5" />
+                          <Edit3 className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDelete(w)}
-                          className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                          title="Delete Weighment Slip"
+                          className="min-h-[44px] min-w-[44px] flex items-center justify-center p-2 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 active:scale-95 transition-all cursor-pointer"
+                          title={t('action.delete', 'Delete Weighment Slip')}
+                          aria-label={t('action.delete', 'Delete Weighment Slip')}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
                     </td>

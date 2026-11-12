@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useERP } from '../../context/ERPContext.tsx';
+import { useLanguage } from '../../context/LanguageContext.tsx';
+import { LanguageToggle } from '../../components/common/LanguageToggle.tsx';
 import { Modal } from '../../components/common/Modal.tsx';
 import { 
   Settings, 
@@ -16,6 +18,7 @@ import {
 import { BackupManagerView } from './BackupManagerView.tsx';
 
 export const SettingsView: React.FC = () => {
+  const { t, language } = useLanguage();
   const { 
     company, 
     updateCompanySettings, 
@@ -111,29 +114,31 @@ export const SettingsView: React.FC = () => {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-black text-slate-900 tracking-tight">System Settings & Data Migration</h1>
+        <h1 className="text-xl font-black text-slate-900 tracking-tight">{t('settings.title', 'System Settings & Data Migration')}</h1>
         <p className="text-xs text-slate-500 mt-0.5">
-          Configure company profile, invoice numbering, RBAC security roles, and migrate legacy Excel registers safely.
+          {language === 'ta' 
+            ? 'நிறுவன சுயவிவரம், ஜிஎஸ்டி பில் முன்னொட்டு, பயனர் அனுமதிகள் மற்றும் தரவு காப்பகம்.'
+            : 'Configure company profile, invoice numbering, RBAC security roles, and migrate legacy Excel registers safely.'}
         </p>
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-2 text-xs font-semibold">
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2 text-xs font-semibold overflow-x-auto">
         {[
-          { id: 'PROFILE', label: 'Company & Tax Profile', icon: Building },
-          { id: 'ROLES', label: 'Role-Based Access Control', icon: Shield },
-          { id: 'MIGRATION', label: 'Data Migration Wizard', icon: Upload },
-          { id: 'BACKUP', label: 'Backup & Restore', icon: Database },
+          { id: 'PROFILE', label: language === 'ta' ? 'நிறுவன சுயவிவரம்' : 'Company & Tax Profile', icon: Building },
+          { id: 'ROLES', label: language === 'ta' ? 'பயனர் அனுமதிகள்' : 'Role-Based Access Control', icon: Shield },
+          { id: 'MIGRATION', label: language === 'ta' ? 'எக்செல் இறக்குமதி' : 'Data Migration Wizard', icon: Upload },
+          { id: 'BACKUP', label: language === 'ta' ? 'பேக்கப் & ரீஸ்டோர்' : 'Backup & Restore', icon: Database },
         ].map((tab) => {
           const Icon = tab.icon;
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all ${
+              className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[44px] rounded-xl transition-all cursor-pointer font-bold ${
                 activeTab === tab.id
                   ? 'bg-red-600 text-white shadow-sm'
-                  : 'text-slate-600 hover:bg-slate-100'
+                  : 'text-slate-600 hover:bg-slate-100 bg-white border border-slate-200'
               }`}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -145,9 +150,26 @@ export const SettingsView: React.FC = () => {
 
       {/* Profile Tab */}
       {activeTab === 'PROFILE' && (
-        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm max-w-4xl">
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm max-w-4xl space-y-6">
+          {/* 1-Tap Bilingual Language Switcher Card */}
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <span className="font-bold text-sm text-slate-900 block">
+                {language === 'ta' ? 'செயலியின் மொழி (Application Language)' : 'Application Language (செயலி மொழி)'}
+              </span>
+              <span className="text-xs text-slate-600 block mt-0.5">
+                {language === 'ta'
+                  ? '1-அழுத்தத்தில் தமிழ் மற்றும் ஆங்கில மொழி மாற்றத்தை இயக்கலாம்.'
+                  : '1-tap switch between English and Tamil across all screens, tables, and reports.'}
+              </span>
+            </div>
+            <div className="shrink-0 flex items-center gap-2">
+              <LanguageToggle className="min-h-[44px]" />
+            </div>
+          </div>
+
           {profileSuccess && (
-            <div className="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+            <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
               <CheckCircle2 className="w-4 h-4 text-emerald-600" />
               <span>Company and invoice letterhead settings updated successfully!</span>
             </div>

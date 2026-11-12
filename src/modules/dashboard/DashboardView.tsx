@@ -40,8 +40,10 @@ import {
   UserCheck,
   PhoneCall
 } from 'lucide-react';
+import { useLanguage } from '../../context/LanguageContext.tsx';
 
 export const DashboardView: React.FC = () => {
+  const { t, language } = useLanguage();
   const { 
     company, 
     purchases, 
@@ -339,7 +341,7 @@ export const DashboardView: React.FC = () => {
             title="Push data to shared Cloud Hub so all 3 members see identical data with zero lag"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-blue-200 ${isSyncingCloud ? 'animate-spin' : ''}`} />
-            <span>Sync Cloud (3 Members)</span>
+            <span>{language === 'ta' ? 'கிளவுட் ஒத்திசைவு (3 நபர்கள்)' : 'Sync Cloud (3 Members)'}</span>
           </button>
 
           <a
@@ -350,7 +352,7 @@ export const DashboardView: React.FC = () => {
             title="Open Official National E-Way Bill Portal"
           >
             <ExternalLink className="w-3.5 h-3.5 text-emerald-200" />
-            <span>e-Way Bill Portal</span>
+            <span>{language === 'ta' ? 'ஈ-வே பில் தளம்' : 'e-Way Bill Portal'}</span>
           </a>
 
           <button
@@ -359,7 +361,7 @@ export const DashboardView: React.FC = () => {
             title={`Send Daily Executive Report to ${officialEmail}`}
           >
             <Mail className="w-3.5 h-3.5 text-indigo-200" />
-            <span>Email Report</span>
+            <span>{language === 'ta' ? 'அறிக்கை மின்னஞ்சல்' : 'Email Report'}</span>
           </button>
         </div>
       </div>
@@ -376,7 +378,7 @@ export const DashboardView: React.FC = () => {
             <div className="flex items-center justify-between pb-1 border-b border-slate-100">
               <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
                 <Wallet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span>1. Cashflow</span>
+                <span>{language === 'ta' ? '1. ரொக்கம் & நிதி (Cashflow)' : '1. Cashflow'}</span>
               </span>
               <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800">
                 Live
@@ -384,7 +386,7 @@ export const DashboardView: React.FC = () => {
             </div>
 
             <div className="mt-1.5">
-              <span className="text-[9px] text-slate-400 uppercase font-bold block">Reconciled Funds</span>
+              <span className="text-[9px] text-slate-400 uppercase font-bold block">{language === 'ta' ? 'நிகர நிதி இருப்பு' : 'Reconciled Funds'}</span>
               <p className="text-sm sm:text-lg font-black text-slate-900 font-mono mt-0.5 truncate">
                 {formatINR(totalReconciledFunds)}
               </p>
@@ -392,18 +394,18 @@ export const DashboardView: React.FC = () => {
 
             <div className="mt-1.5 grid grid-cols-2 gap-1 text-[9px] font-medium">
               <div className="bg-emerald-50/60 p-1 rounded-lg border border-emerald-100">
-                <span className="text-emerald-700 block font-semibold truncate">Inflow</span>
+                <span className="text-emerald-700 block font-semibold truncate">{language === 'ta' ? 'வரவு' : 'Inflow'}</span>
                 <span className="font-mono font-bold text-emerald-900 truncate block">{formatINR(todaySalesVal)}</span>
               </div>
               <div className="bg-rose-50/60 p-1 rounded-lg border border-rose-100">
-                <span className="text-rose-700 block font-semibold truncate">Outflow</span>
+                <span className="text-rose-700 block font-semibold truncate">{language === 'ta' ? 'செலவு' : 'Outflow'}</span>
                 <span className="font-mono font-bold text-rose-900 truncate block">{formatINR(todayPurchaseVal + todayExpensesVal)}</span>
               </div>
             </div>
           </div>
 
           <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[9px] sm:text-[10px] font-bold text-indigo-600 group-hover:text-indigo-800">
-            <span>Ledger</span>
+            <span>{language === 'ta' ? 'பேரேடு காண்க' : 'Ledger'}</span>
             <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
           </div>
         </div>
@@ -417,15 +419,15 @@ export const DashboardView: React.FC = () => {
             <div className="flex items-center justify-between pb-1 border-b border-slate-100">
               <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
                 <Users className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                <span>2. Staff & Wages</span>
+                <span>{language === 'ta' ? '2. பணியாளர் & கூலி' : '2. Staff & Wages'}</span>
               </span>
               <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-blue-100 text-blue-800">
-                {presentCount}/{activeEmployees.length} Present
+                {presentCount}/{activeEmployees.length} {language === 'ta' ? 'வருகை' : 'Present'}
               </span>
             </div>
 
             <div className="mt-1.5">
-              <span className="text-[9px] text-slate-400 uppercase font-bold block">Active Workforce</span>
+              <span className="text-[9px] text-slate-400 uppercase font-bold block">{language === 'ta' ? 'பணியாளர்கள்' : 'Active Workforce'}</span>
               <p className="text-sm sm:text-lg font-black text-slate-900 mt-0.5 truncate">
                 {activeEmployees.length} Staff <span className="text-[11px] font-normal text-slate-500">({presentCount} OK)</span>
               </p>
@@ -433,18 +435,18 @@ export const DashboardView: React.FC = () => {
 
             <div className="mt-1.5 grid grid-cols-2 gap-1 text-[9px] font-medium">
               <div className="bg-blue-50/60 p-1 rounded-lg border border-blue-100">
-                <span className="text-blue-700 block font-semibold truncate">Today Wages</span>
+                <span className="text-blue-700 block font-semibold truncate">{language === 'ta' ? 'இன்றைய கூலி' : 'Today Wages'}</span>
                 <span className="font-mono font-bold text-blue-900 truncate block">{formatINR(todayDailyWages)}</span>
               </div>
               <div className="bg-amber-50/60 p-1 rounded-lg border border-amber-100">
-                <span className="text-amber-700 block font-semibold truncate">Shifts</span>
+                <span className="text-amber-700 block font-semibold truncate">{language === 'ta' ? 'ஷிப்ட்' : 'Shifts'}</span>
                 <span className="font-bold text-amber-900 truncate block">{doubleShiftCount > 0 ? `${doubleShiftCount} Double` : 'Regular'}</span>
               </div>
             </div>
           </div>
 
           <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[9px] sm:text-[10px] font-bold text-blue-600 group-hover:text-blue-800">
-            <span>Mark attendance</span>
+            <span>{language === 'ta' ? 'வருகை பதிவு' : 'Mark attendance'}</span>
             <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
           </div>
         </div>
@@ -460,17 +462,17 @@ export const DashboardView: React.FC = () => {
             <div className="flex items-center justify-between pb-1 border-b border-slate-100">
               <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
                 <Truck className="w-3.5 h-3.5 text-red-600 shrink-0" />
-                <span>3. Fleet & RTO</span>
+                <span>{language === 'ta' ? '3. லாரிகள் & RTO' : '3. Fleet & RTO'}</span>
               </span>
               <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
                 urgentVehicleAlerts.length > 0 ? 'bg-rose-100 text-rose-800 animate-pulse' : 'bg-emerald-100 text-emerald-800'
               }`}>
-                {urgentVehicleAlerts.length > 0 ? `${urgentVehicleAlerts.length} Alerts` : 'Compliant'}
+                {urgentVehicleAlerts.length > 0 ? `${urgentVehicleAlerts.length} ${language === 'ta' ? 'எச்சரிக்கை' : 'Alerts'}` : (language === 'ta' ? 'சரிபார்க்கப்பட்டது' : 'Compliant')}
               </span>
             </div>
 
             <div className="mt-1.5">
-              <span className="text-[9px] text-slate-400 uppercase font-bold block">Active Fleet</span>
+              <span className="text-[9px] text-slate-400 uppercase font-bold block">{language === 'ta' ? 'மொத்த வாகனங்கள்' : 'Active Fleet'}</span>
               <p className="text-sm sm:text-lg font-black text-slate-900 mt-0.5 truncate">
                 {vehicles.length} Vehicles <span className="text-[11px] font-normal text-slate-500">({fleetCompliance.fullyCompliantVehicles} OK)</span>
               </p>
@@ -492,7 +494,7 @@ export const DashboardView: React.FC = () => {
           </div>
 
           <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[9px] sm:text-[10px] font-bold text-red-600 group-hover:text-red-800">
-            <span>RTO papers</span>
+            <span>{language === 'ta' ? 'ஆவணங்கள் காண்க' : 'RTO papers'}</span>
             <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
           </div>
         </div>
@@ -506,10 +508,10 @@ export const DashboardView: React.FC = () => {
             <div className="flex items-center justify-between pb-1 border-b border-slate-100">
               <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
                 <CheckSquare className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                <span>4. Tasks & Notes</span>
+                <span>{language === 'ta' ? '4. பணிகள் & குறிப்புகள்' : '4. Tasks & Notes'}</span>
               </span>
               <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900">
-                {pendingTasks.length} Pending
+                {pendingTasks.length} {language === 'ta' ? 'நிலுவை' : 'Pending'}
               </span>
             </div>
 
@@ -523,24 +525,24 @@ export const DashboardView: React.FC = () => {
                 </div>
               ))}
               {pendingTasks.length === 0 && (
-                <p className="text-[10px] text-slate-400 italic">No pending tasks today</p>
+                <p className="text-[10px] text-slate-400 italic">{language === 'ta' ? 'இன்று நிலுவை பணிகள் இல்லை' : 'No pending tasks today'}</p>
               )}
             </div>
 
             <div className="mt-1.5 flex items-center gap-1 text-[9px]">
               <span className="bg-slate-100 px-1.5 py-0.5 rounded font-semibold text-slate-600 truncate">
-                📝 {workNotes.length} Yard Notes
+                📝 {workNotes.length} {language === 'ta' ? 'குறிப்புகள்' : 'Yard Notes'}
               </span>
               {highPriorityPending.length > 0 && (
                 <span className="bg-red-50 text-red-700 border border-red-200 px-1 py-0.5 rounded font-bold shrink-0">
-                  {highPriorityPending.length} Urgent
+                  {highPriorityPending.length} {language === 'ta' ? 'முக்கியம்' : 'Urgent'}
                 </span>
               )}
             </div>
           </div>
 
           <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[9px] sm:text-[10px] font-bold text-amber-700 group-hover:text-amber-900">
-            <span>Check tasks</span>
+            <span>{language === 'ta' ? 'பணிகள் சரிபார்க்க' : 'Check tasks'}</span>
             <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
           </div>
         </div>
@@ -554,7 +556,7 @@ export const DashboardView: React.FC = () => {
             <div className="flex items-center justify-between pb-1 border-b border-slate-100">
               <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
                 <FileText className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                <span>5. Quotes & POs</span>
+                <span>{language === 'ta' ? '5. கொட்டேஷன் & ஆணைகள்' : '5. Quotes & POs'}</span>
               </span>
               <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-100 text-indigo-800">
                 A4
@@ -563,12 +565,12 @@ export const DashboardView: React.FC = () => {
 
             <div className="mt-1.5 grid grid-cols-2 gap-1 text-[9px]">
               <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100">
-                <span className="text-slate-400 block uppercase font-bold text-[8px]">Quotations</span>
+                <span className="text-slate-400 block uppercase font-bold text-[8px]">{language === 'ta' ? 'விலைப்புள்ளி' : 'Quotations'}</span>
                 <span className="text-sm font-black text-slate-900 font-mono block mt-0.5">{quotationDocs.length}</span>
                 <span className="text-[8px] text-amber-700 font-semibold">Live</span>
               </div>
               <div className="bg-slate-50 p-1.5 rounded-lg border border-slate-100">
-                <span className="text-slate-400 block uppercase font-bold text-[8px]">POs</span>
+                <span className="text-slate-400 block uppercase font-bold text-[8px]">{language === 'ta' ? 'ஆணைகள் (PO)' : 'POs'}</span>
                 <span className="text-sm font-black text-slate-900 font-mono block mt-0.5">{poDocs.length}</span>
                 <span className="text-[8px] text-indigo-700 font-semibold">{uploadedPoDocs.length} Upld</span>
               </div>
@@ -576,7 +578,7 @@ export const DashboardView: React.FC = () => {
           </div>
 
           <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[9px] sm:text-[10px] font-bold text-indigo-600 group-hover:text-indigo-800">
-            <span>View POs</span>
+            <span>{language === 'ta' ? 'ஆவணங்கள் காண்க' : 'View POs'}</span>
             <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
           </div>
         </div>
@@ -590,7 +592,7 @@ export const DashboardView: React.FC = () => {
             <div className="flex items-center justify-between pb-1 border-b border-slate-100">
               <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
                 <ExternalLink className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span>6. e-Way Bill</span>
+                <span>{language === 'ta' ? '6. ஈ-வே பில்' : '6. e-Way Bill'}</span>
               </span>
               <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800">
                 NIC
@@ -598,9 +600,9 @@ export const DashboardView: React.FC = () => {
             </div>
 
             <div className="mt-1.5">
-              <span className="text-[9px] text-slate-400 uppercase font-bold block">Active Dispatches</span>
+              <span className="text-[9px] text-slate-400 uppercase font-bold block">{language === 'ta' ? 'அனுப்புதல்கள்' : 'Active Dispatches'}</span>
               <p className="text-sm sm:text-lg font-black text-slate-900 font-mono mt-0.5 truncate">
-                {activeEwayInvoices.length} Dispatches
+                {activeEwayInvoices.length} {language === 'ta' ? 'அனுப்பல்கள்' : 'Dispatches'}
               </p>
             </div>
 
@@ -611,7 +613,7 @@ export const DashboardView: React.FC = () => {
           </div>
 
           <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[9px] sm:text-[10px] font-bold text-emerald-700 group-hover:text-emerald-900">
-            <span>NIC portal</span>
+            <span>{language === 'ta' ? 'NIC தளம்' : 'NIC portal'}</span>
             <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
           </div>
         </div>
@@ -625,7 +627,7 @@ export const DashboardView: React.FC = () => {
             <div className="flex items-center justify-between pb-1 border-b border-slate-100">
               <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
                 <Boxes className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                <span>7. Scrap Stock</span>
+                <span>{language === 'ta' ? '7. இரும்பு கையிருப்பு' : '7. Scrap Stock'}</span>
               </span>
               <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800">
                 {materials.length} Items
@@ -633,20 +635,20 @@ export const DashboardView: React.FC = () => {
             </div>
 
             <div className="mt-1.5">
-              <span className="text-[9px] text-slate-400 uppercase font-bold block">Physical Stock</span>
+              <span className="text-[9px] text-slate-400 uppercase font-bold block">{language === 'ta' ? 'கையிருப்பு எடை' : 'Physical Stock'}</span>
               <p className="text-sm sm:text-lg font-black text-slate-900 font-mono mt-0.5 truncate">
                 {totalStockTons.toFixed(3)} <span className="text-[11px] font-bold text-slate-600">Tons</span>
               </p>
             </div>
 
             <div className="mt-1.5 flex items-center justify-between text-[9px]">
-              <span className="text-slate-500 font-semibold">Valuation:</span>
+              <span className="text-slate-500 font-semibold">{language === 'ta' ? 'மதிப்பு:' : 'Valuation:'}</span>
               <span className="font-mono font-black text-slate-900 truncate">{formatINR(stockValuation)}</span>
             </div>
           </div>
 
           <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[9px] sm:text-[10px] font-bold text-amber-700 group-hover:text-amber-900">
-            <span>Material stock</span>
+            <span>{language === 'ta' ? 'சரக்கு விவரம்' : 'Material stock'}</span>
             <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
           </div>
         </div>
@@ -660,28 +662,28 @@ export const DashboardView: React.FC = () => {
             <div className="flex items-center justify-between pb-1 border-b border-slate-100">
               <span className="text-[10px] sm:text-xs font-black uppercase tracking-wider text-slate-700 flex items-center gap-1">
                 <Scale className="w-3.5 h-3.5 text-teal-600 shrink-0" />
-                <span>8. Weighbridge</span>
+                <span>{language === 'ta' ? '8. எடை மேடை' : '8. Weighbridge'}</span>
               </span>
               <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-teal-100 text-teal-800">
-                {todayWeighments.length} Today
+                {todayWeighments.length} {language === 'ta' ? 'இன்று' : 'Today'}
               </span>
             </div>
 
             <div className="mt-1.5">
-              <span className="text-[9px] text-slate-400 uppercase font-bold block">Net Material Weighed</span>
+              <span className="text-[9px] text-slate-400 uppercase font-bold block">{language === 'ta' ? 'நிகர எடை தூக்கம்' : 'Net Material Weighed'}</span>
               <p className="text-sm sm:text-lg font-black text-slate-900 font-mono mt-0.5 truncate">
                 {todayNetWeightTons.toFixed(3)} <span className="text-[11px] font-bold text-slate-600">Tons</span>
               </p>
             </div>
 
             <div className="mt-1.5 flex items-center justify-between text-[9px]">
-              <span className="text-slate-500 font-semibold">Yard Trucks:</span>
-              <span className="font-bold text-teal-900">{pendingGrossWeighments.length} Gross Done</span>
+              <span className="text-slate-500 font-semibold">{language === 'ta' ? 'லாரிகள்:' : 'Yard Trucks:'}</span>
+              <span className="font-bold text-teal-900">{pendingGrossWeighments.length} {language === 'ta' ? 'வெற்று எடைக்கு தயார்' : 'Gross Done'}</span>
             </div>
           </div>
 
           <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[9px] sm:text-[10px] font-bold text-teal-700 group-hover:text-teal-900">
-            <span>Open weigh slips</span>
+            <span>{language === 'ta' ? 'எடை ரசீதுகள்' : 'Open weigh slips'}</span>
             <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
           </div>
         </div>

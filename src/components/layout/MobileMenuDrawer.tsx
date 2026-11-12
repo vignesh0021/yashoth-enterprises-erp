@@ -27,7 +27,9 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext.tsx';
+import { useLanguage } from '../../context/LanguageContext.tsx';
 import { CompanySwitcher } from '../company/CompanySwitcher.tsx';
+import { LanguageToggle } from '../common/LanguageToggle.tsx';
 import type { SyncStatus } from '../../services/offlineSyncService.ts';
 
 interface MobileMenuDrawerProps {
@@ -44,39 +46,40 @@ export const MobileMenuDrawer: React.FC<MobileMenuDrawerProps> = ({
   onManualSync,
 }) => {
   const { currentUser, company, logout } = useERP();
+  const { t, language } = useLanguage();
 
   if (!isOpen) return null;
 
   const modules = [
     {
-      category: 'Operations & Yard',
+      category: language === 'ta' ? 'யார்டு மற்றும் செயல்பாடுகள்' : 'Operations & Yard',
       items: [
-        { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-        { name: 'Weighment Entry', path: '/weighment', icon: Scale },
-        { name: 'Inward Purchases', path: '/purchases', icon: ShoppingCart },
-        { name: 'Collections & Site Jobs', path: '/collections', icon: Truck },
-        { name: 'Inventory & Lots (FIFO)', path: '/inventory', icon: Boxes },
-        { name: 'Material Grades & HSN', path: '/inventory?tab=MATERIALS', icon: Layers },
-        { name: 'Sales & Outbound Dispatch', path: '/sales', icon: Send },
+        { name: t('nav.dashboard', 'Dashboard'), path: '/', icon: LayoutDashboard },
+        { name: t('nav.weighment', 'Weighment Entry'), path: '/weighment', icon: Scale },
+        { name: t('nav.purchases', 'Inward Purchases'), path: '/purchases', icon: ShoppingCart },
+        { name: t('nav.collections', 'Collections & Site Jobs'), path: '/collections', icon: Truck },
+        { name: t('nav.inventory', 'Inventory & Lots (FIFO)'), path: '/inventory', icon: Boxes },
+        { name: t('nav.materials', 'Material Grades & HSN'), path: '/inventory?tab=MATERIALS', icon: Layers },
+        { name: t('nav.sales', 'Sales & Outbound Dispatch'), path: '/sales', icon: Send },
       ],
     },
     {
-      category: 'Accounting & Commercial',
+      category: language === 'ta' ? 'கணக்குகள் மற்றும் வர்த்தகம்' : 'Accounting & Commercial',
       items: [
-        { name: 'GST Tax Invoices', path: '/invoices', icon: FileText },
-        { name: 'Commercial Docs (DN/CN/Quote)', path: '/documents', icon: FileCheck2 },
-        { name: 'Suppliers & Customers', path: '/parties', icon: Users },
-        { name: 'Payments & Ledgers', path: '/payments', icon: CreditCard },
-        { name: 'Cash, Bank & Expenses', path: '/finance', icon: Wallet },
+        { name: t('nav.invoices', 'GST Tax Invoices'), path: '/invoices', icon: FileText },
+        { name: t('nav.documents', 'Commercial Docs (DN/CN/Quote)'), path: '/documents', icon: FileCheck2 },
+        { name: t('nav.parties', 'Suppliers & Customers'), path: '/parties', icon: Users },
+        { name: t('nav.payments', 'Payments & Ledgers'), path: '/payments', icon: CreditCard },
+        { name: t('nav.finance', 'Cash, Bank & Expenses'), path: '/finance', icon: Wallet },
       ],
     },
     {
-      category: 'Fleet, HR & Admin',
+      category: language === 'ta' ? 'வாகனங்கள் & பணியாளர்கள்' : 'Fleet, HR & Admin',
       items: [
-        { name: 'Vehicles & Compliance', path: '/vehicles', icon: Car },
-        { name: 'Employees & Attendance', path: '/employees', icon: UserCheck },
-        { name: 'Financial Statements & Excel', path: '/reports', icon: BarChart3 },
-        { name: 'Backup & Restore Manager', path: '/settings', icon: Database },
+        { name: t('nav.vehicles', 'Vehicles & Compliance'), path: '/vehicles', icon: Car },
+        { name: t('nav.employees', 'Employees & Attendance'), path: '/employees', icon: UserCheck },
+        { name: t('nav.reports', 'Financial Statements & Excel'), path: '/reports', icon: BarChart3 },
+        { name: t('nav.settings', 'Backup & Restore Manager'), path: '/settings', icon: Database },
       ],
     },
   ];
@@ -126,6 +129,14 @@ export const MobileMenuDrawer: React.FC<MobileMenuDrawerProps> = ({
           <CompanySwitcher />
         </div>
 
+        {/* 1-Tap Language Toggle inside mobile drawer */}
+        <div className="px-4 py-2.5 bg-slate-800/40 border-b border-slate-800 flex items-center justify-between">
+          <span className="text-[10px] text-slate-400 uppercase font-black tracking-wider">
+            {language === 'ta' ? 'மொழி (Language)' : 'App Language'}
+          </span>
+          <LanguageToggle />
+        </div>
+
         {/* Offline Sync Status Banner */}
         <div className="p-3 border-b border-slate-800 bg-slate-950/40">
           <div className="flex items-center justify-between gap-2">
@@ -133,12 +144,12 @@ export const MobileMenuDrawer: React.FC<MobileMenuDrawerProps> = ({
               {syncStatus.isOnline ? (
                 <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-bold">
                   <Wifi className="w-4 h-4 text-emerald-500 shrink-0" />
-                  <span>Online</span>
+                  <span>{t('status.online', 'Online')}</span>
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 text-xs text-amber-400 font-bold">
                   <WifiOff className="w-4 h-4 text-amber-500 shrink-0" />
-                  <span>Offline Mode</span>
+                  <span>{t('status.offline', 'Offline Mode')}</span>
                 </div>
               )}
               {syncStatus.pendingCount > 0 && (
@@ -151,7 +162,7 @@ export const MobileMenuDrawer: React.FC<MobileMenuDrawerProps> = ({
             <button
               onClick={onManualSync}
               disabled={syncStatus.isSyncing || !syncStatus.isOnline}
-              className={`p-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all ${
+              className={`p-1.5 rounded-lg text-xs font-bold flex items-center gap-1 min-h-[36px] transition-all cursor-pointer ${
                 syncStatus.isSyncing
                   ? 'text-slate-500 animate-spin'
                   : 'bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40'
@@ -186,10 +197,10 @@ export const MobileMenuDrawer: React.FC<MobileMenuDrawerProps> = ({
                       onClick={onClose}
                       end={item.path === '/'}
                       className={({ isActive }) =>
-                        `flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                        `flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold min-h-[48px] transition-all ${
                           isActive
                             ? 'bg-red-600 text-white font-bold shadow-md shadow-red-600/20'
-                            : 'text-slate-300 hover:text-white hover:bg-slate-800/80 active:scale-98'
+                            : 'text-slate-300 hover:text-white hover:bg-slate-800/80 active:scale-[0.98]'
                         }`
                       }
                     >

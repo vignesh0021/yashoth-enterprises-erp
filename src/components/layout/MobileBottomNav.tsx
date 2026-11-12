@@ -10,6 +10,7 @@ import {
   CloudOff
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext.tsx';
+import { useLanguage } from '../../context/LanguageContext.tsx';
 import type { SyncStatus } from '../../services/offlineSyncService.ts';
 
 interface MobileBottomNavProps {
@@ -19,6 +20,7 @@ interface MobileBottomNavProps {
 
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ onOpenMenu, syncStatus }) => {
   const { purchases, invoices, commercialDocuments } = useERP();
+  const { t, language } = useLanguage();
 
   const pendingPurchases = purchases.filter((p) => p.status === 'SUBMITTED' || p.status === 'VERIFIED').length;
   const unpaidInvoices = invoices.filter((i) => i.paymentStatus === 'UNPAID').length;
@@ -26,16 +28,16 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ onOpenMenu, sy
   const pendingOffline = syncStatus?.pendingCount || 0;
 
   const navItems = [
-    { label: 'Home', path: '/', icon: LayoutDashboard },
-    { label: 'Weighment', path: '/weighment', icon: Scale },
+    { label: t('nav.home', 'Home'), path: '/', icon: LayoutDashboard },
+    { label: t('nav.weighment', 'Weighment'), path: '/weighment', icon: Scale },
     { 
-      label: 'Quotes/Docs', 
+      label: language === 'ta' ? 'ஆவணங்கள்' : 'Quotes/Docs', 
       path: '/documents', 
       icon: FileCheck2,
       badge: quoteCount > 0 ? quoteCount : undefined
     },
     { 
-      label: 'Sales', 
+      label: t('nav.sales', 'Sales'), 
       path: '/sales', 
       icon: Send, 
       badge: unpaidInvoices > 0 ? unpaidInvoices : undefined 
@@ -102,7 +104,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ onOpenMenu, sy
               <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
             )}
           </div>
-          <span className="text-[10px] tracking-tight mt-0.5 block">Menu</span>
+          <span className="text-[10px] tracking-tight mt-0.5 block">{t('nav.menu', 'Menu')}</span>
         </button>
       </div>
     </nav>

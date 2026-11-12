@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useERP } from '../../context/ERPContext.tsx';
+import { useLanguage } from '../../context/LanguageContext.tsx';
 import { 
   CashBankAccount, 
   Expense, 
@@ -53,6 +54,7 @@ import {
 } from 'lucide-react';
 
 export const FinanceView: React.FC = () => {
+  const { t, language } = useLanguage();
   const { 
     accounts, 
     accountTransactions, 
@@ -684,17 +686,17 @@ export const FinanceView: React.FC = () => {
         <div className="flex flex-wrap items-center gap-2.5">
           <button
             onClick={() => setIsContraModalOpen(true)}
-            className="flex items-center gap-1.5 px-4 py-2.5 min-h-[44px] bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer select-none"
+            className="flex items-center gap-1.5 px-4 py-2.5 min-h-[48px] bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer select-none"
           >
             <ArrowLeftRight className="w-3.5 h-3.5 text-red-400" />
-            <span>Cash ⇄ Bank (பண மாற்றம்)</span>
+            <span>{language === 'ta' ? 'ரொக்கம் ⇄ வங்கி மாற்றம்' : 'Cash ⇄ Bank (Transfer)'}</span>
           </button>
           <button
             onClick={handleOpenAddExpense}
-            className="flex items-center gap-1.5 px-4 py-2.5 min-h-[44px] bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all cursor-pointer select-none"
+            className="flex items-center gap-1.5 px-4 py-2.5 min-h-[48px] bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all cursor-pointer select-none"
           >
             <Plus className="w-4 h-4" />
-            <span>+ New Expense (+ செலவு)</span>
+            <span>{language === 'ta' ? '+ புதிய செலவு பதிவு' : '+ New Expense'}</span>
           </button>
         </div>
       </div>
@@ -720,14 +722,14 @@ export const FinanceView: React.FC = () => {
       {/* Navigation Tabs (Tamil & English) */}
       <div className="flex items-center gap-1 overflow-x-auto pb-1 border-b border-slate-200 scrollbar-none">
         {[
-          { key: 'DASHBOARD', label: 'Cockpit', tamil: 'கண்ணோட்டம்', icon: Calculator },
-          { key: 'EXPENSES', label: 'Daily Expenses', tamil: 'செலவு', icon: Receipt },
-          { key: 'SALARY', label: 'Staff Salary', tamil: 'சம்பளம்', icon: Users },
-          { key: 'DAILY_LABOUR', label: 'Daily Labour', tamil: 'தினக்கூலி', icon: Briefcase },
-          { key: 'CONTRACTORS', label: 'Contractors', tamil: 'ஒப்பந்ததாரர்', icon: Users },
-          { key: 'CASH_BANK', label: 'Cash & Bank', tamil: 'ரொக்கம் & வங்கி', icon: Coins },
-          { key: 'DAILY_CLOSING', label: 'Daily Closing', tamil: 'கணக்கு முடிப்பு', icon: ShieldCheck },
-          { key: 'REPORTS', label: 'Reports (11)', tamil: 'அறிக்கைகள்', icon: FileText },
+          { key: 'DASHBOARD', label: language === 'ta' ? 'கண்ணோட்டம்' : 'Cockpit', sub: language === 'ta' ? 'Cockpit' : 'கண்ணோட்டம்', icon: Calculator },
+          { key: 'EXPENSES', label: language === 'ta' ? 'தினசரி செலவு' : 'Daily Expenses', sub: language === 'ta' ? 'Expenses' : 'செலவு', icon: Receipt },
+          { key: 'SALARY', label: language === 'ta' ? 'பணியாளர் சம்பளம்' : 'Staff Salary', sub: language === 'ta' ? 'Salary' : 'சம்பளம்', icon: Users },
+          { key: 'DAILY_LABOUR', label: language === 'ta' ? 'தினக்கூலி' : 'Daily Labour', sub: language === 'ta' ? 'Labour' : 'தினக்கூலி', icon: Briefcase },
+          { key: 'CONTRACTORS', label: language === 'ta' ? 'ஒப்பந்ததாரர்' : 'Contractors', sub: language === 'ta' ? 'Contractors' : 'ஒப்பந்ததாரர்', icon: Users },
+          { key: 'CASH_BANK', label: language === 'ta' ? 'ரொக்கம் & வங்கி' : 'Cash & Bank', sub: language === 'ta' ? 'Cash/Bank' : 'ரொக்கம் & வங்கி', icon: Coins },
+          { key: 'DAILY_CLOSING', label: language === 'ta' ? 'கணக்கு முடிப்பு' : 'Daily Closing', sub: language === 'ta' ? 'Closing' : 'கணக்கு முடிப்பு', icon: ShieldCheck },
+          { key: 'REPORTS', label: language === 'ta' ? 'நிதி அறிக்கைகள் (11)' : 'Reports (11)', sub: language === 'ta' ? 'Reports' : 'அறிக்கைகள்', icon: FileText },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.key;
@@ -735,7 +737,7 @@ export const FinanceView: React.FC = () => {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key as TabType)}
-              className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3.5 py-2.5 min-h-[44px] rounded-xl text-xs font-bold whitespace-nowrap active:scale-[0.98] transition-all cursor-pointer ${
                 isActive
                   ? 'bg-red-600 text-white shadow-sm'
                   : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
@@ -743,7 +745,7 @@ export const FinanceView: React.FC = () => {
             >
               <Icon className="w-3.5 h-3.5" />
               <span>{tab.label}</span>
-              <span className={`text-[10px] ${isActive ? 'text-red-100' : 'text-slate-400'}`}>({tab.tamil})</span>
+              <span className={`text-[10px] ${isActive ? 'text-red-100' : 'text-slate-400'}`}>({tab.sub})</span>
             </button>
           );
         })}

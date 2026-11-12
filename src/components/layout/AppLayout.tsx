@@ -4,6 +4,8 @@ import { useERP } from '../../context/ERPContext.tsx';
 import { UserRole } from '../../types/index.ts';
 import { AuthModal } from '../auth/AuthModal.tsx';
 import { CompanySwitcher } from '../company/CompanySwitcher.tsx';
+import { LanguageToggle } from '../common/LanguageToggle.tsx';
+import { useLanguage } from '../../context/LanguageContext.tsx';
 import { MobileBottomNav } from './MobileBottomNav.tsx';
 import { MobileMenuDrawer } from './MobileMenuDrawer.tsx';
 import { offlineSyncService, type SyncStatus } from '../../services/offlineSyncService.ts';
@@ -67,6 +69,7 @@ export const AppLayout: React.FC = () => {
     invoices, 
     resetToDemoData 
   } = useERP();
+  const { t, language } = useLanguage();
   
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
@@ -241,22 +244,22 @@ export const AppLayout: React.FC = () => {
   };
 
   const navigationItems = [
-    { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-    { name: 'Purchases', path: '/purchases', icon: ShoppingCart, badge: pendingPurchasesCount > 0 ? pendingPurchasesCount : undefined },
-    { name: 'Collections', path: '/collections', icon: Truck },
-    { name: 'Weighment', path: '/weighment', icon: Scale },
-    { name: 'Materials & Scrap', path: '/inventory?tab=MATERIALS', icon: Layers },
-    { name: 'Inventory & Lots', path: '/inventory', icon: Boxes },
-    { name: 'Sales & Dispatch', path: '/sales', icon: Send },
-    { name: 'Invoices & Bills', path: '/invoices', icon: FileText, badge: unpaidInvoicesCount > 0 ? unpaidInvoicesCount : undefined },
-    { name: 'Commercial Docs', path: '/documents', icon: FileCheck2 },
-    { name: 'Suppliers & Customers', path: '/parties', icon: Users },
-    { name: 'Payments & Ledger', path: '/payments', icon: CreditCard },
-    { name: 'Funds & Expenses', path: '/finance', icon: Wallet },
-    { name: 'Vehicles & Docs', path: '/vehicles', icon: Car, badge: expiringDocsCount > 0 ? expiringDocsCount : undefined },
-    { name: 'Employees & Attendance', path: '/employees', icon: UserCheck },
-    { name: 'Reports & Register', path: '/reports', icon: BarChart3 },
-    { name: 'Settings & Audit', path: '/settings', icon: Settings },
+    { name: t('nav.dashboard', 'Dashboard'), path: '/', icon: LayoutDashboard },
+    { name: t('nav.purchases', 'Purchases'), path: '/purchases', icon: ShoppingCart, badge: pendingPurchasesCount > 0 ? pendingPurchasesCount : undefined },
+    { name: t('nav.collections', 'Collections'), path: '/collections', icon: Truck },
+    { name: t('nav.weighment', 'Weighment'), path: '/weighment', icon: Scale },
+    { name: t('nav.materials', 'Materials & Scrap'), path: '/inventory?tab=MATERIALS', icon: Layers },
+    { name: t('nav.inventory', 'Inventory & Lots'), path: '/inventory', icon: Boxes },
+    { name: t('nav.sales', 'Sales & Dispatch'), path: '/sales', icon: Send },
+    { name: t('nav.invoices', 'Invoices & Bills'), path: '/invoices', icon: FileText, badge: unpaidInvoicesCount > 0 ? unpaidInvoicesCount : undefined },
+    { name: t('nav.documents', 'Commercial Docs'), path: '/documents', icon: FileCheck2 },
+    { name: t('nav.parties', 'Suppliers & Customers'), path: '/parties', icon: Users },
+    { name: t('nav.payments', 'Payments & Ledger'), path: '/payments', icon: CreditCard },
+    { name: t('nav.finance', 'Funds & Expenses'), path: '/finance', icon: Wallet },
+    { name: t('nav.vehicles', 'Vehicles & Docs'), path: '/vehicles', icon: Car, badge: expiringDocsCount > 0 ? expiringDocsCount : undefined },
+    { name: t('nav.employees', 'Employees & Attendance'), path: '/employees', icon: UserCheck },
+    { name: t('nav.reports', 'Reports & Register'), path: '/reports', icon: BarChart3 },
+    { name: t('nav.settings', 'Settings & Audit'), path: '/settings', icon: Settings },
   ];
 
   const roleOptions: { label: string; role: UserRole }[] = [
@@ -406,7 +409,7 @@ export const AppLayout: React.FC = () => {
               <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search transactions, slips, parties, vehicles..."
+                placeholder={t('nav.search_placeholder', 'Search transactions, slips, parties, vehicles...')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-4 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all"
@@ -415,11 +418,14 @@ export const AppLayout: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1 sm:gap-3 shrink-0">
+            {/* 1-Tap Bilingual Switcher (English <-> Tamil) */}
+            <LanguageToggle />
+
             {/* Offline / Online Status Pill with Sync Trigger */}
             <button
               onClick={handleManualSync}
               disabled={syncStatus.isSyncing || !syncStatus.isOnline}
-              className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all cursor-pointer min-h-[32px] ${
+              className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-full text-[10px] font-bold border transition-all cursor-pointer min-h-[36px] ${
                 syncStatus.isOnline
                   ? 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
                   : 'bg-amber-50 text-amber-800 border-amber-300'
@@ -435,12 +441,12 @@ export const AppLayout: React.FC = () => {
               {syncStatus.isOnline ? (
                 <>
                   <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                  <span className="hidden sm:inline">Online</span>
+                  <span className="hidden sm:inline">{t('status.online', 'Online')}</span>
                 </>
               ) : (
                 <>
                   <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                  <span className="hidden sm:inline">Offline</span>
+                  <span className="hidden sm:inline">{t('status.offline', 'Offline')}</span>
                 </>
               )}
               {syncStatus.pendingCount > 0 && (
@@ -460,21 +466,21 @@ export const AppLayout: React.FC = () => {
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
               >
                 <Scale className="w-3.5 h-3.5 text-slate-600" />
-                <span>+ Weighment</span>
+                <span>+ {t('nav.weighment', 'Weighment')}</span>
               </button>
               <button
                 onClick={() => navigate('/purchases')}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>+ Purchase</span>
+                <span>+ {t('nav.purchases', 'Purchase')}</span>
               </button>
               <button
                 onClick={() => navigate('/sales')}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
               >
                 <Send className="w-3.5 h-3.5" />
-                <span>+ Dispatch</span>
+                <span>+ {t('nav.sales', 'Dispatch')}</span>
               </button>
             </div>
 

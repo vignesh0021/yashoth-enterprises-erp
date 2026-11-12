@@ -34,8 +34,8 @@
   }
 
   :where(input:not([type="checkbox"]):not([type="radio"]), textarea, select) {
-    background-color: #ffffff;
-    color: #0f172a;
+    background-color: #ffffff !important;
+    color: #0f172a !important;
   }
 
   input::placeholder, textarea::placeholder {

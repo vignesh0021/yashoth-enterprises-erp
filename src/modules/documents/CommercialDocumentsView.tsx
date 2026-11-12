@@ -25,8 +25,10 @@ import { Modal } from '../../components/common/Modal.tsx';
 import { QuotationRenderer } from '../../components/documents/QuotationRenderer.tsx';
 import { PurchaseOrderRenderer } from '../../components/documents/PurchaseOrderRenderer.tsx';
 import { UploadedDocument } from '../../types/index.ts';
+import { useLanguage } from '../../context/LanguageContext.tsx';
 
 export const CommercialDocumentsView: React.FC = () => {
+  const { t, language } = useLanguage();
   const { 
     commercialDocuments, 
     parties, 
@@ -374,22 +376,22 @@ export const CommercialDocumentsView: React.FC = () => {
           </p>
         </div>
 
-        {/* 1-Tap Action Buttons (Android-first 44px+ touch targets) */}
+        {/* 1-Tap Action Buttons (Android-first 48px touch targets) */}
         <div className="grid grid-cols-1 sm:flex sm:items-center gap-2 flex-wrap">
           <button
             onClick={() => openQuickBuilder('QUOTATION')}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[44px]"
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[48px]"
           >
             <Plus className="w-4 h-4" />
-            <span>+ Quick Quotation</span>
+            <span>{language === 'ta' ? '+ புதிய விலைப்புள்ளி (Quote)' : '+ Quick Quotation'}</span>
           </button>
 
           <button
             onClick={() => openQuickBuilder('PURCHASE_ORDER')}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[44px]"
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[48px]"
           >
             <ShoppingBag className="w-4 h-4" />
-            <span>+ Quick Purchase Order (PO)</span>
+            <span>{language === 'ta' ? '+ புதிய கொள்முதல் ஆணை (PO)' : '+ Quick Purchase Order (PO)'}</span>
           </button>
 
           <button
@@ -399,10 +401,10 @@ export const CommercialDocumentsView: React.FC = () => {
                 setSelectedDoc(imopDoc);
               }
             }}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[44px]"
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[48px]"
           >
             <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>Official IMOP Quotation (1000% Replica)</span>
+            <span>{language === 'ta' ? 'அதிகாரப்பூர்வ IMOP கொட்டேஷன்' : 'Official IMOP Quotation (1000% Replica)'}</span>
           </button>
 
           <button
@@ -412,26 +414,26 @@ export const CommercialDocumentsView: React.FC = () => {
                 setSelectedDoc(imopPo);
               }
             }}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[44px] border border-slate-700"
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[48px] border border-slate-700"
           >
             <ShieldCheck className="w-4 h-4 text-indigo-400" />
-            <span>Official IMOP PO (1000% Replica)</span>
+            <span>{language === 'ta' ? 'அதிகாரப்பூர்வ IMOP PO' : 'Official IMOP PO (1000% Replica)'}</span>
           </button>
 
           <button
             onClick={openUploadQuotation}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[44px]"
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-blue-700 hover:bg-blue-800 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[48px]"
           >
             <Upload className="w-4 h-4" />
-            <span>+ Upload Quotation</span>
+            <span>{language === 'ta' ? '+ கொட்டேஷன் பதிவேற்று' : '+ Upload Quotation'}</span>
           </button>
 
           <button
             onClick={openUploadPO}
-            className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[44px]"
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[48px]"
           >
             <Upload className="w-4 h-4" />
-            <span>+ Upload Previous PO</span>
+            <span>{language === 'ta' ? '+ முந்தைய PO பதிவேற்று' : '+ Upload Previous PO'}</span>
           </button>
         </div>
       </div>

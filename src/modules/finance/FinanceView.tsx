@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useSearchParams, useLocation } from 'react-router-dom';
 import { useERP } from '../../context/ERPContext.tsx';
 import { useLanguage } from '../../context/LanguageContext.tsx';
 import { 
@@ -96,7 +97,30 @@ export const FinanceView: React.FC = () => {
   } = useERP();
 
   type TabType = 'DASHBOARD' | 'EXPENSES' | 'SALARY' | 'DAILY_LABOUR' | 'CONTRACTORS' | 'CASH_BANK' | 'DAILY_CLOSING' | 'REPORTS';
-  const [activeTab, setActiveTab] = useState<TabType>('DASHBOARD');
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+
+  const resolveInitialTab = (): TabType => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'CASH_BANK' || location.pathname.includes('/accounts')) return 'CASH_BANK';
+    if (tabParam === 'EXPENSES') return 'EXPENSES';
+    if (tabParam === 'SALARY') return 'SALARY';
+    if (tabParam === 'DAILY_LABOUR') return 'DAILY_LABOUR';
+    if (tabParam === 'CONTRACTORS') return 'CONTRACTORS';
+    if (tabParam === 'DAILY_CLOSING') return 'DAILY_CLOSING';
+    if (tabParam === 'REPORTS') return 'REPORTS';
+    return 'DASHBOARD';
+  };
+
+  const [activeTab, setActiveTab] = useState<TabType>(resolveInitialTab);
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam === 'CASH_BANK' || location.pathname.includes('/accounts')) {
+      setActiveTab('CASH_BANK');
+    }
+  }, [searchParams, location.pathname]);
+
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const showFeedback = (type: 'success' | 'error', text: string) => {

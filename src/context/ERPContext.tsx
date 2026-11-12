@@ -2658,6 +2658,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setAccounts((prev) => [...prev, newAcc]);
     logAudit('CREATE_ACCOUNT', 'ACCOUNT', newAcc.id, null, newAcc);
+    if (dbRepository.isRemoteDatabaseAvailable()) {
+      dbRepository.saveAccount(newAcc).catch((e) => console.warn('Sync account to DB failed', e));
+    }
     return newAcc;
   };
 
@@ -2667,6 +2670,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const updated = { ...existing, ...updates };
     setAccounts((prev) => prev.map((a) => (a.id === id ? updated : a)));
     logAudit('UPDATE_ACCOUNT', 'ACCOUNT', id, existing, updated);
+    if (dbRepository.isRemoteDatabaseAvailable()) {
+      dbRepository.updateAccount(id, updates).catch((e) => console.warn('Sync update account to DB failed', e));
+    }
   };
 
   const deleteAccount = (id: string): { success: boolean; message?: string } => {
@@ -2675,10 +2681,16 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const hasTx = accountTransactions.some((tx) => tx.accountId === id);
     if (hasTx) {
       setAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, isActive: false } : a)));
+      if (dbRepository.isRemoteDatabaseAvailable()) {
+        dbRepository.updateAccount(id, { isActive: false }).catch((e) => console.warn('Sync deactivate account failed', e));
+      }
       return { success: true, message: `Account "${existing.accountName}" has financial history and was deactivated instead of permanently deleted.` };
     }
     setAccounts((prev) => prev.filter((a) => a.id !== id));
     logAudit('DELETE_ACCOUNT', 'ACCOUNT', id, existing, null);
+    if (dbRepository.isRemoteDatabaseAvailable()) {
+      dbRepository.deleteAccount(id).catch((e) => console.warn('Sync delete account failed', e));
+    }
     return { success: true, message: `Account "${existing.accountName}" deleted.` };
   };
 

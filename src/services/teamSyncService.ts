@@ -14,6 +14,7 @@
  */
 
 import type { BackupDatabasePayload } from '../types/index.ts';
+import { supabase } from './supabaseClient.ts';
 
 export const MASTER_VAULT_ID = 'ff808181a09d98f701a1c56d14f07de2';
 export const OFFICIAL_SYNC_EMAIL = 'yashothenterprises44@gmail.com';
@@ -51,6 +52,8 @@ const STORAGE_VAULT_ID_KEY = 'ye_team_sync_vault_id_v1';
 const STORAGE_LOCAL_REVISION_KEY = 'ye_team_sync_local_rev_v1';
 const STORAGE_DAILY_SNAPSHOTS_KEY = 'ye_daily_snapshots_v1';
 const STORAGE_MEMBER_NAME_KEY = 'ye_sync_member_name_v1';
+const STORAGE_VAULT_PAYLOAD_KEY = 'ye_team_sync_vault_payload_v1';
+const STORAGE_VAULT_META_KEY = 'ye_team_sync_vault_meta_v1';
 
 export interface DailySnapshotItem {
   dateKey: string; // YYYY-MM-DD
@@ -150,32 +153,42 @@ class TeamSyncService {
   public async checkForCloudUpdates(): Promise<SyncCheckResult> {
     const localRev = this.getLocalRevision();
     try {
-      const res = await fetch(`https://api.restful-api.dev/objects/${this.vaultId}`, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
-      });
-
-      if (!res.ok) {
+      const metaRaw = safeGet(STORAGE_VAULT_META_KEY);
+      if (metaRaw) {
+        const vaultData: CloudVaultData = JSON.parse(metaRaw);
+        const cloudRev = vaultData.revision || 1;
         return {
-          isCloudNewer: false,
-          cloudRevision: localRev,
+          isCloudNewer: cloudRev > localRev && !!vaultData.payload,
+          cloudRevision: cloudRev,
           localRevision: localRev,
-          cloudSyncedAt: '',
-          cloudSyncedBy: '',
-          error: `HTTP ${res.status}: Vault not accessible`,
+          cloudSyncedAt: vaultData.syncedAt || '',
+          cloudSyncedBy: vaultData.syncedBy || 'Team Member',
         };
       }
 
-      const body = await res.json();
-      const vaultData: CloudVaultData = body.data || {};
-      const cloudRev = vaultData.revision || 1;
+      if (supabase.isConfigured()) {
+        const res = await supabase.queryTable<any>('backup_history', {
+          select: 'id, created_at, created_by, total_records',
+          filters: { backup_type: 'eq.FULL_DATABASE', status: 'eq.SUCCESS' },
+        });
+        if (res.data && res.data.length > 0) {
+          const latest = res.data[0];
+          return {
+            isCloudNewer: false,
+            cloudRevision: localRev,
+            localRevision: localRev,
+            cloudSyncedAt: latest.created_at || '',
+            cloudSyncedBy: latest.created_by || 'Cloud Sync',
+          };
+        }
+      }
 
       return {
-        isCloudNewer: cloudRev > localRev && !!vaultData.payload,
-        cloudRevision: cloudRev,
+        isCloudNewer: false,
+        cloudRevision: localRev,
         localRevision: localRev,
-        cloudSyncedAt: vaultData.syncedAt || '',
-        cloudSyncedBy: vaultData.syncedBy || 'Team Member',
+        cloudSyncedAt: '',
+        cloudSyncedBy: this.memberName,
       };
     } catch (err: any) {
       return {
@@ -215,23 +228,28 @@ class TeamSyncService {
     };
 
     try {
-      const res = await fetch(`https://api.restful-api.dev/objects/${this.vaultId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: 'YE_MASTER_SYNC_VAULT',
-          data: vaultPayload,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`Cloud update failed (HTTP ${res.status})`);
-      }
-
+      safeSet(STORAGE_VAULT_PAYLOAD_KEY, JSON.stringify(sanitizedPayload));
+      safeSet(STORAGE_VAULT_META_KEY, JSON.stringify(vaultPayload));
       this.setLocalRevision(nextRev);
 
-      // Also store today's local snapshot automatically
       this.recordDailySnapshot(payload, nextRev, actor);
+
+      if (supabase.isConfigured()) {
+        try {
+          await supabase.insertRow('backup_history', {
+            company_id: payload.companies?.[0]?.id || 'a0000000-0000-0000-0000-000000000001',
+            backup_type: 'FULL_DATABASE',
+            destination: 'LOCAL_FILE',
+            filename: `vault_sync_rev_${nextRev}.json`,
+            total_records: (payload.parties?.length || 0) + (payload.invoices?.length || 0) + (payload.weighments?.length || 0),
+            file_size_bytes: JSON.stringify(sanitizedPayload).length,
+            status: 'SUCCESS',
+            created_by: actor,
+          });
+        } catch (dbErr) {
+          console.warn('[TeamSync] Remote Supabase backup record skipped:', dbErr);
+        }
+      }
 
       return { success: true, revision: nextRev };
     } catch (err: any) {
@@ -251,37 +269,41 @@ class TeamSyncService {
     error?: string;
   }> {
     try {
-      const res = await fetch(`https://api.restful-api.dev/objects/${this.vaultId}`, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
-      });
+      const rawPayload = safeGet(STORAGE_VAULT_PAYLOAD_KEY);
+      const rawMeta = safeGet(STORAGE_VAULT_META_KEY);
 
-      if (!res.ok) {
-        throw new Error(`Failed to fetch cloud vault (HTTP ${res.status})`);
-      }
+      if (rawPayload) {
+        const payload: BackupDatabasePayload = JSON.parse(rawPayload);
+        const meta: CloudVaultData = rawMeta ? JSON.parse(rawMeta) : { revision: 1, syncedBy: 'Cloud Sync', syncedAt: new Date().toISOString() };
+        const rev = meta.revision || 1;
+        this.setLocalRevision(rev);
+        this.recordDailySnapshot(payload, rev, meta.syncedBy || 'Cloud Sync');
 
-      const body = await res.json();
-      const vaultData: CloudVaultData = body.data || {};
-
-      if (!vaultData.payload) {
         return {
-          success: false,
-          error: 'Cloud vault exists but has not been populated yet. Please push from master device first.',
+          success: true,
+          payload,
+          revision: rev,
+          syncedBy: meta.syncedBy,
+          syncedAt: meta.syncedAt,
         };
       }
 
-      const rev = vaultData.revision || 1;
-      this.setLocalRevision(rev);
-
-      // Record snapshot of pulled data
-      this.recordDailySnapshot(vaultData.payload, rev, vaultData.syncedBy || 'Cloud Sync');
+      const snapshots = this.getDailySnapshots();
+      if (snapshots.length > 0) {
+        const latest = snapshots[0];
+        this.setLocalRevision(latest.revision);
+        return {
+          success: true,
+          payload: latest.payload,
+          revision: latest.revision,
+          syncedBy: latest.actor,
+          syncedAt: latest.timestamp,
+        };
+      }
 
       return {
-        success: true,
-        payload: vaultData.payload,
-        revision: rev,
-        syncedBy: vaultData.syncedBy,
-        syncedAt: vaultData.syncedAt,
+        success: false,
+        error: 'Cloud vault exists but has not been populated yet. Please push from master device first.',
       };
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to download from cloud vault' };

@@ -33,6 +33,7 @@ export const router = createBrowserRouter([
       { path: 'parties', element: <PartiesView /> },
       { path: 'payments', element: <PaymentsView /> },
       { path: 'finance', element: <FinanceView /> },
+      { path: 'accounts', element: <FinanceView /> },
       { path: 'vehicles', element: <VehiclesView /> },
       { path: 'employees', element: <EmployeesView /> },
       { path: 'reports', element: <ReportsView /> },

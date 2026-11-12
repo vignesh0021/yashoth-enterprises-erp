@@ -11,6 +11,7 @@
 import { supabase } from './supabaseClient.ts';
 import type {
   Party,
+  CashBankAccount,
   Material,
   Yard,
   Vehicle,
@@ -65,6 +66,36 @@ export class DatabaseRepository {
     if (!this.isRemoteDatabaseAvailable()) return null;
     const res = await supabase.insertRow<Party>('parties', party, authToken);
     return res.data;
+  }
+
+  // --------------------------------------------------------------------------
+  // Cash & Bank Accounts Master
+  // --------------------------------------------------------------------------
+  public async fetchAccounts(companyId: string, authToken?: string): Promise<CashBankAccount[] | null> {
+    if (!this.isRemoteDatabaseAvailable()) return null;
+    const res = await supabase.queryTable<CashBankAccount>('cash_bank_accounts', {
+      filters: { company_id: `eq.${companyId}` },
+      authToken,
+    });
+    return res.data;
+  }
+
+  public async saveAccount(account: CashBankAccount, authToken?: string): Promise<CashBankAccount | null> {
+    if (!this.isRemoteDatabaseAvailable()) return null;
+    const res = await supabase.insertRow<CashBankAccount>('cash_bank_accounts', account, authToken);
+    return res.data;
+  }
+
+  public async updateAccount(id: string, updates: Partial<CashBankAccount>, authToken?: string): Promise<CashBankAccount | null> {
+    if (!this.isRemoteDatabaseAvailable()) return null;
+    const res = await supabase.updateRow<CashBankAccount>('cash_bank_accounts', { id: `eq.${id}` }, updates, authToken);
+    return res.data;
+  }
+
+  public async deleteAccount(id: string, authToken?: string): Promise<boolean> {
+    if (!this.isRemoteDatabaseAvailable()) return false;
+    const res = await supabase.updateRow<CashBankAccount>('cash_bank_accounts', { id: `eq.${id}` }, { isActive: false }, authToken);
+    return !res.error;
   }
 
   // --------------------------------------------------------------------------

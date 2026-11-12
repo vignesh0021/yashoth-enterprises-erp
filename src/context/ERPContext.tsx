@@ -3212,17 +3212,25 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
 
       // Handle Google Drive destination
+      let driveNotice: string | undefined;
       if (options?.destination === 'GOOGLE_DRIVE') {
         const mimeType = options?.isEncrypted ? 'application/octet-stream' : 'application/json';
         const uploadRes = await googleDriveService.uploadBackupFile(backupResult.filename, backupResult.rawJson, mimeType);
         if (!uploadRes.success) {
-          throw new Error(uploadRes.error || 'Failed to upload backup to Google Drive');
+          if (uploadRes.error && uploadRes.error.includes('downloaded to device local storage')) {
+            driveNotice = uploadRes.error;
+          } else {
+            throw new Error(uploadRes.error || 'Failed to upload backup to Google Drive');
+          }
         }
       }
 
       // Download file to client device if running in browser
       if (typeof window !== 'undefined' && typeof document !== 'undefined' && options?.destination !== 'GOOGLE_DRIVE') {
         const mimeType = options?.isEncrypted ? 'application/octet-stream' : 'application/json';
+        if ((window as any).AndroidNative && typeof (window as any).AndroidNative.saveFileToDownloads === 'function') {
+          (window as any).AndroidNative.saveFileToDownloads(backupResult.filename, backupResult.rawJson, mimeType);
+        }
         const blob = new Blob([backupResult.rawJson], { type: mimeType });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -3243,13 +3251,19 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'SYSTEM_BACKUP',
         backupResult.historyItem.id,
         null,
-        { filename: backupResult.filename, checksum: backupResult.checksum, records: backupResult.historyItem.totalRecords }
+        {
+          filename: backupResult.filename,
+          checksum: backupResult.checksum,
+          records: backupResult.historyItem.totalRecords,
+          destination: options?.destination || 'LOCAL_FILE',
+        }
       );
 
       return {
         success: true,
         filename: backupResult.filename,
         checksum: backupResult.checksum,
+        error: driveNotice,
       };
     } catch (err: any) {
       return {

@@ -101,12 +101,14 @@ class GoogleDriveService {
     return this.userEmail || safeGetItem('ye_gmail_backup_account') || this.defaultOfficialEmail;
   }
 
-  public getStatus(): GoogleDriveStatus {
+  public getStatus(): GoogleDriveStatus & { isNativeAndroid: boolean } {
     const email = this.getConnectedEmail();
+    const isNativeAndroid = typeof window !== 'undefined' && !!(window as any).AndroidNative;
     return {
-      isConnected: !!this.accessToken || !!email,
+      isConnected: !!this.accessToken || isNativeAndroid,
       userEmail: email,
       hasClientId: this.isConfigured(),
+      isNativeAndroid,
     };
   }
 
@@ -271,7 +273,27 @@ class GoogleDriveService {
     filename: string,
     content: string,
     mimeType: string = 'application/json'
-  ): Promise<{ success: boolean; fileId?: string; error?: string }> {
+  ): Promise<{ success: boolean; fileId?: string; error?: string; isNative?: boolean }> {
+    // 1. If running on Android with Native Bridge, trigger Android Native 1-Tap Save to Drive / Share sheet
+    if (
+      typeof window !== 'undefined' &&
+      (window as any).AndroidNative &&
+      typeof (window as any).AndroidNative.shareBackupFile === 'function'
+    ) {
+      try {
+        const shared = (window as any).AndroidNative.shareBackupFile(filename, content, mimeType);
+        if (shared) {
+          return {
+            success: true,
+            fileId: `native-drive-${Date.now()}`,
+            isNative: true,
+          };
+        }
+      } catch {
+        // fallback
+      }
+    }
+
     if (!this.accessToken) {
       // In mobile / standalone mode without Google OAuth token: save locally to device storage
       this.downloadBackupLocally(filename, content, mimeType);

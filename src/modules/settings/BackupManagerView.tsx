@@ -142,9 +142,19 @@ export const BackupManagerView: React.FC = () => {
       });
 
       if (result.success) {
-        setExportSuccessMessage(
-          `Backup generated successfully! File: ${result.filename} (SHA-256: ${result.checksum.slice(0, 16)}...)`
-        );
+        if (result.error) {
+          setExportSuccessMessage(
+            `Backup generated & downloaded locally: ${result.filename}. (Notice: ${result.error})`
+          );
+        } else if (exportDestination === 'GOOGLE_DRIVE') {
+          setExportSuccessMessage(
+            `Backup generated successfully! File: ${result.filename}. Opened in Android "Save to Drive" / Share sheet & saved to device Downloads.`
+          );
+        } else {
+          setExportSuccessMessage(
+            `Backup generated successfully! File: ${result.filename} (SHA-256: ${result.checksum.slice(0, 16)}...)`
+          );
+        }
         setPassword('');
         setConfirmPassword('');
       } else {
@@ -417,9 +427,11 @@ export const BackupManagerView: React.FC = () => {
                   <div>
                     <span className="font-bold text-slate-800 block flex items-center gap-1.5">
                       <Cloud className="w-3.5 h-3.5 text-blue-600" />
-                      Google Drive Cloud
+                      Google Drive Cloud (Save to Drive)
                     </span>
-                    <span className="text-[11px] text-slate-500">Upload to connected Google Drive account.</span>
+                    <span className="text-[11px] text-slate-500">
+                      Saves to device Downloads and opens Android 1-Tap "Save to Drive" with your account (yashothenterprises44@gmail.com).
+                    </span>
                   </div>
                 </label>
               </div>
@@ -836,10 +848,21 @@ export const BackupManagerView: React.FC = () => {
             <div>
               <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                 <Cloud className="w-4 h-4 text-blue-600" />
-                <span>Google Drive Cloud OAuth</span>
+                <span>Google Drive Cloud Integration</span>
               </h3>
               <p className="text-slate-500 mt-1">
-                Zero-secret client token OAuth flow. Connects directly to Google Identity Services with restricted drive.file scope.
+                Export encrypted or standard system backups directly to Google Drive via Android 1-Tap Save to Drive or Web OAuth.
+              </p>
+            </div>
+
+            {/* Android Native 1-Tap Notice */}
+            <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl space-y-2">
+              <div className="flex items-center gap-2 text-emerald-900 font-bold text-xs">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>Android Native 1-Tap Google Drive Active</span>
+              </div>
+              <p className="text-emerald-800 text-[11px] leading-relaxed">
+                When generating a backup with destination <strong>"Google Drive Cloud"</strong>, the ERP automatically saves the file to your phone's <strong>Downloads</strong> folder and opens Android's native <strong>"Save to Drive"</strong> window using your connected Google account (<strong className="underline">yashothenterprises44@gmail.com</strong>).
               </p>
             </div>
 

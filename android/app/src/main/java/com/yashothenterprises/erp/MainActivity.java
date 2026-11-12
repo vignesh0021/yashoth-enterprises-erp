@@ -1,15 +1,26 @@
 package com.yashothenterprises.erp;
 
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
 import android.print.PrintManager;
+import android.provider.MediaStore;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import androidx.activity.OnBackPressedCallback;
+import androidx.core.content.FileProvider;
 import com.getcapacitor.BridgeActivity;
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 
 public class MainActivity extends BridgeActivity {
 
@@ -98,6 +109,98 @@ public class MainActivity extends BridgeActivity {
                 } catch (Exception ignored) {
                 }
             });
+        }
+
+        @JavascriptInterface
+        public boolean shareBackupFile(String fileName, String content, String mimeType) {
+            final String safeName = (fileName != null && !fileName.trim().isEmpty())
+                ? fileName.trim()
+                : ("YE_Backup_" + System.currentTimeMillis() + ".json");
+            final String safeMime = (mimeType != null && !mimeType.trim().isEmpty())
+                ? mimeType.trim()
+                : "application/json";
+
+            try {
+                // Ensure cache dir exists
+                File cacheDir = new File(activity.getCacheDir(), "backups");
+                if (!cacheDir.exists()) {
+                    cacheDir.mkdirs();
+                }
+                File file = new File(cacheDir, safeName);
+                try (FileOutputStream fos = new FileOutputStream(file)) {
+                    fos.write((content != null ? content : "").getBytes(StandardCharsets.UTF_8));
+                    fos.flush();
+                }
+
+                // Also save to device Downloads folder so the file is permanently accessible
+                saveFileToDownloads(safeName, content, safeMime);
+
+                Uri fileUri = FileProvider.getUriForFile(
+                    activity,
+                    activity.getPackageName() + ".fileprovider",
+                    file
+                );
+
+                activity.runOnUiThread(() -> {
+                    try {
+                        Intent sendIntent = new Intent(Intent.ACTION_SEND);
+                        sendIntent.setType(safeMime);
+                        sendIntent.putExtra(Intent.EXTRA_STREAM, fileUri);
+                        sendIntent.putExtra(Intent.EXTRA_SUBJECT, "Yashoth Enterprises ERP Backup - " + safeName);
+                        sendIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        Intent chooser = Intent.createChooser(sendIntent, "Save to Google Drive / Share Backup");
+                        activity.startActivity(chooser);
+                    } catch (Exception e) {
+                        shareText(safeName, content);
+                    }
+                });
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        @JavascriptInterface
+        public boolean saveFileToDownloads(String fileName, String content, String mimeType) {
+            final String safeName = (fileName != null && !fileName.trim().isEmpty())
+                ? fileName.trim()
+                : ("YE_Backup_" + System.currentTimeMillis() + ".json");
+            final String safeMime = (mimeType != null && !mimeType.trim().isEmpty())
+                ? mimeType.trim()
+                : "application/json";
+
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.Downloads.DISPLAY_NAME, safeName);
+                    values.put(MediaStore.Downloads.MIME_TYPE, safeMime);
+                    values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+
+                    Uri uri = activity.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                    if (uri != null) {
+                        try (OutputStream os = activity.getContentResolver().openOutputStream(uri)) {
+                            if (os != null) {
+                                os.write((content != null ? content : "").getBytes(StandardCharsets.UTF_8));
+                                os.flush();
+                                return true;
+                            }
+                        }
+                    }
+                } else {
+                    File downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                    if (!downloadsDir.exists()) {
+                        downloadsDir.mkdirs();
+                    }
+                    File outFile = new File(downloadsDir, safeName);
+                    try (FileOutputStream fos = new FileOutputStream(outFile)) {
+                        fos.write((content != null ? content : "").getBytes(StandardCharsets.UTF_8));
+                        fos.flush();
+                        return true;
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+            return false;
         }
 
         @JavascriptInterface

@@ -48,6 +48,8 @@ declare global {
     AndroidNative?: {
       printPage?: (jobName: string) => void;
       shareText?: (title: string, text: string) => void;
+      shareBackupFile?: (fileName: string, content: string, mimeType: string) => boolean;
+      saveFileToDownloads?: (fileName: string, content: string, mimeType: string) => boolean;
       exitApp?: () => void;
     };
   }
@@ -204,6 +206,27 @@ export const AppLayout: React.FC = () => {
   const pendingPurchasesCount = purchases.filter((p) => p.status === 'SUBMITTED' || p.status === 'VERIFIED').length;
   const unpaidInvoicesCount = invoices.filter((i) => i.paymentStatus === 'UNPAID').length;
   const totalAlerts = expiringDocsCount + pendingPurchasesCount + (unpaidInvoicesCount > 0 ? 1 : 0);
+
+  const [alertsMuted, setAlertsMuted] = useState(() => {
+    try {
+      return typeof localStorage !== 'undefined' && localStorage.getItem('ye_alerts_muted_date') === todayStr;
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleMuteAlerts = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      if (alertsMuted) {
+        localStorage.removeItem('ye_alerts_muted_date');
+        setAlertsMuted(false);
+      } else {
+        localStorage.setItem('ye_alerts_muted_date', todayStr);
+        setAlertsMuted(true);
+      }
+    } catch {}
+  };
 
   const navigationItems = [
     { name: 'Dashboard', path: '/', icon: LayoutDashboard },
@@ -484,11 +507,11 @@ export const AppLayout: React.FC = () => {
               <button
                 onClick={() => setIsAlertPopoverOpen(!isAlertPopoverOpen)}
                 className="relative p-2 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer min-h-[42px] min-w-[42px] flex items-center justify-center"
-                title={`${totalAlerts} Operational & Fleet Alerts`}
+                title={`${totalAlerts} Operational & Fleet Document Alerts (Not Cloud Sync)`}
                 aria-label="Open Operational Alerts"
               >
                 <Bell className="w-4 h-4" />
-                {totalAlerts > 0 && (
+                {totalAlerts > 0 && !alertsMuted && (
                   <span className="absolute -top-0.5 -right-0.5 px-1.5 py-0.2 rounded-full bg-red-600 text-white text-[9px] font-black animate-pulse">
                     {totalAlerts}
                   </span>
@@ -500,17 +523,31 @@ export const AppLayout: React.FC = () => {
                   <div className="bg-slate-900 text-white p-3 flex items-center justify-between">
                     <span className="font-bold uppercase tracking-wider text-[11px] flex items-center gap-1.5">
                       <Bell className="w-3.5 h-3.5 text-amber-400" />
-                      Live Fleet & ERP Alert Center ({totalAlerts})
+                      Fleet & Invoice Alerts ({totalAlerts})
                     </span>
-                    <button
-                      onClick={() => setIsAlertPopoverOpen(false)}
-                      className="text-slate-400 hover:text-white font-bold text-sm px-1 cursor-pointer"
-                    >
-                      ×
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={toggleMuteAlerts}
+                        className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-0.5 rounded border border-slate-700 cursor-pointer"
+                        title={alertsMuted ? 'Unmute alert badge' : 'Hide red badge for today'}
+                      >
+                        {alertsMuted ? 'Unmute' : 'Mute Badge'}
+                      </button>
+                      <button
+                        onClick={() => setIsAlertPopoverOpen(false)}
+                        className="text-slate-400 hover:text-white font-bold text-sm px-1 cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </div>
                   </div>
 
                   <div className="p-2.5 space-y-2 max-h-80 overflow-y-auto">
+                    {/* Informational Clarification Banner */}
+                    <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg text-blue-900 text-[10px] leading-tight">
+                      ℹ️ <strong>Reminder:</strong> These {totalAlerts} alerts are for fleet vehicle document renewals and unpaid customer invoices. They are separate from Cloud Sync.
+                    </div>
                     {/* Vehicle Insurance & RTO Compliance Alerts */}
                     <button
                       onClick={() => {

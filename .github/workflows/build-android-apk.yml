@@ -70,6 +70,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.0-latest
+          target_commitish: ${{ github.sha }}
           name: "Yashoth Enterprises Scrap ERP — Android APK (Latest)"
           body: |
             ### Yashoth Enterprises Scrap ERP (`com.yashothenterprises.erp`)

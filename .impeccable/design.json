@@ -1,0 +1,248 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-12T05:00:00Z",
+  "title": "Design System: Yashoth Enterprises Scrap ERP",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Machinery Red",
+        "canonical": "oklch(55% 0.22 25)",
+        "tonalRamp": [
+          "#450a0a",
+          "#7f1d1d",
+          "#991b1b",
+          "#b91c1c",
+          "#dc2626",
+          "#ef4444",
+          "#f87171",
+          "#fef2f2"
+        ]
+      },
+      "neutral-text": {
+        "role": "neutral",
+        "displayName": "Industrial Slate Dark",
+        "canonical": "oklch(20% 0.03 260)",
+        "tonalRamp": [
+          "#020617",
+          "#0f172a",
+          "#1e293b",
+          "#334155",
+          "#64748b",
+          "#94a3b8",
+          "#cbd5e1",
+          "#f8fafc"
+        ]
+      },
+      "accent-emerald": {
+        "role": "tertiary",
+        "displayName": "Verified Emerald",
+        "canonical": "oklch(60% 0.16 160)",
+        "tonalRamp": [
+          "#064e3b",
+          "#065f46",
+          "#047857",
+          "#059669",
+          "#10b981",
+          "#34d399",
+          "#a7f3d0",
+          "#ecfdf5"
+        ]
+      },
+      "accent-amber": {
+        "role": "tertiary",
+        "displayName": "Pending Amber",
+        "canonical": "oklch(68% 0.17 65)",
+        "tonalRamp": [
+          "#78350f",
+          "#92400e",
+          "#b45309",
+          "#d97706",
+          "#f59e0b",
+          "#fbbf24",
+          "#fde68a",
+          "#fffbeb"
+        ]
+      },
+      "accent-blue": {
+        "role": "tertiary",
+        "displayName": "Logistics Blue",
+        "canonical": "oklch(55% 0.2 250)",
+        "tonalRamp": [
+          "#172554",
+          "#1e40af",
+          "#1d4ed8",
+          "#2563eb",
+          "#3b82f6",
+          "#60a5fa",
+          "#bfdbfe",
+          "#eff6ff"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Primary KPI totals and major weighment figures."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Module headings and register headers."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Card titles, table section headers, and document builder groups."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Standard table records, form inputs, and transactional notes."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Status badges, metadata timestamps, and table column titles."
+      }
+    },
+    "shadows": [
+      {
+        "name": "card-rest",
+        "value": "0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05)",
+        "purpose": "Rest state for cards and list items on slate canvas."
+      },
+      {
+        "name": "floating-dialog",
+        "value": "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)",
+        "purpose": "High-priority modals, full-screen document previews, and bottom sheets."
+      },
+      {
+        "name": "primary-glow",
+        "value": "0 4px 14px 0 rgba(220, 38, 38, 0.25)",
+        "purpose": "Subtle attention glow on primary call-to-action buttons."
+      }
+    ],
+    "motion": [
+      {
+        "name": "tap-press",
+        "value": "transform 100ms ease-out",
+        "purpose": "Tactile micro-scaling (scale 0.97) for immediate touch affirmation."
+      },
+      {
+        "name": "dialog-fade",
+        "value": "opacity 150ms cubic-bezier(0.16, 1, 0.3, 1), transform 150ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Snappy presentation for modal sheets and overlays."
+      }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px" },
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" },
+      { "name": "xl", "value": "1280px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Industrial Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "High-visibility primary action button with 48px touch target and tactile press feedback.",
+      "html": "<button class=\"ds-btn-primary\"><svg class=\"ds-btn-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\"><path d=\"M12 5v14M5 12h14\"/></svg>RECORD WEIGHMENT SLIP</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; min-width: 48px; padding: 12px 20px; background-color: #dc2626; color: #ffffff; font-family: Inter, system-ui, sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 0.02em; border: none; border-radius: 12px; box-shadow: 0 4px 14px rgba(220, 38, 38, 0.25); cursor: pointer; user-select: none; transition: background-color 150ms, transform 100ms; } .ds-btn-primary:hover { background-color: #b91c1c; } .ds-btn-primary:active { transform: scale(0.97); background-color: #991b1b; } .ds-btn-icon { width: 18px; height: 18px; stroke: currentColor; }"
+    },
+    {
+      "name": "Secondary Outlined Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Clean outlined button for secondary workflows like filters, print preview, or cancellation.",
+      "html": "<button class=\"ds-btn-secondary\"><svg class=\"ds-btn-icon\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z\"/></svg>Print A4 Slip</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; min-width: 48px; padding: 12px 18px; background-color: #ffffff; color: #0f172a; font-family: Inter, system-ui, sans-serif; font-size: 13px; font-weight: 600; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.04); cursor: pointer; user-select: none; transition: background-color 150ms, border-color 150ms, transform 100ms; } .ds-btn-secondary:hover { background-color: #f8fafc; border-color: #cbd5e1; } .ds-btn-secondary:active { transform: scale(0.97); background-color: #f1f5f9; } .ds-btn-icon { width: 18px; height: 18px; stroke: currentColor; }"
+    },
+    {
+      "name": "Sunlight-Hardened Text Field",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "16px text input enforcing light surface colors to resist Android dark mode and midday glare.",
+      "html": "<div class=\"ds-input-wrapper\"><label class=\"ds-input-label\">Vehicle Registration No.</label><input type=\"text\" class=\"ds-input-field\" placeholder=\"e.g. TN 18 BY 0420\" value=\"TN 18 BY 0420\" /></div>",
+      "css": ".ds-input-wrapper { display: flex; flex-direction: column; gap: 6px; width: 100%; font-family: Inter, system-ui, sans-serif; } .ds-input-label { font-size: 12px; font-weight: 700; color: #0f172a; letter-spacing: 0.01em; } .ds-input-field { min-height: 48px; padding: 12px 16px; background-color: #ffffff !important; color: #0f172a !important; font-family: Inter, system-ui, sans-serif; font-size: 16px; font-weight: 600; border: 1px solid #cbd5e1; border-radius: 12px; outline: none; box-shadow: inset 0 1px 2px rgba(0,0,0,0.03); transition: border-color 150ms, box-shadow 150ms; } .ds-input-field:focus { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15); } .ds-input-field::placeholder { color: #64748b; opacity: 1; }"
+    },
+    {
+      "name": "Status Badge Chip",
+      "kind": "chip",
+      "refersTo": "chip-status",
+      "description": "High-contrast status indicator pill for weighment verification, payment state, and sync tracking.",
+      "html": "<span class=\"ds-chip-verified\"><span class=\"ds-chip-dot\"></span>VERIFIED</span>",
+      "css": ".ds-chip-verified { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background-color: #ecfdf5; color: #059669; font-family: Inter, system-ui, sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 0.03em; border: 1px solid #a7f3d0; border-radius: 9999px; } .ds-chip-dot { width: 6px; height: 6px; border-radius: 9999px; background-color: #059669; }"
+    },
+    {
+      "name": "Weighment Data Card",
+      "kind": "card",
+      "refersTo": "card-surface",
+      "description": "Primary weighbridge card component presenting gross, tare, and payable weight in tabular numbers.",
+      "html": "<div class=\"ds-card-weighment\"><div class=\"ds-card-header\"><span class=\"ds-card-slipno\">WB-2026-9901</span><span class=\"ds-chip-verified\"><span class=\"ds-chip-dot\"></span>VERIFIED</span></div><div class=\"ds-card-vehicle\">TN 18 BY 0420 · Heavy Melting Steel (HMS-1)</div><div class=\"ds-weight-grid\"><div class=\"ds-weight-col\"><span class=\"ds-weight-label\">Gross</span><span class=\"ds-weight-val\">12,500 <span class=\"ds-unit\">KG</span></span></div><div class=\"ds-weight-col\"><span class=\"ds-weight-label\">Tare</span><span class=\"ds-weight-val\">4,500 <span class=\"ds-unit\">KG</span></span></div><div class=\"ds-weight-col ds-weight-payable\"><span class=\"ds-weight-label\">Payable</span><span class=\"ds-weight-val\">7,900 <span class=\"ds-unit\">KG</span></span></div></div></div>",
+      "css": ".ds-card-weighment { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); font-family: Inter, system-ui, sans-serif; } .ds-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; } .ds-card-slipno { font-size: 15px; font-weight: 800; color: #0f172a; } .ds-card-vehicle { font-size: 12px; color: #64748b; font-weight: 500; margin-bottom: 14px; } .ds-weight-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px; } .ds-weight-col { display: flex; flex-direction: column; } .ds-weight-label { font-size: 10px; text-transform: uppercase; font-weight: 700; color: #64748b; letter-spacing: 0.04em; } .ds-weight-val { font-size: 16px; font-weight: 800; color: #0f172a; font-feature-settings: 'tnum'; } .ds-weight-payable .ds-weight-val { color: #dc2626; } .ds-unit { font-size: 10px; font-weight: 600; color: #64748b; } .ds-chip-verified { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; background-color: #ecfdf5; color: #059669; font-size: 10px; font-weight: 700; border: 1px solid #a7f3d0; border-radius: 9999px; } .ds-chip-dot { width: 5px; height: 5px; border-radius: 9999px; background-color: #059669; }"
+    },
+    {
+      "name": "Bilingual Labour Metric Callout",
+      "kind": "custom",
+      "refersTo": "card-surface",
+      "description": "Shopfloor daily wage and advance callout pairing English terminology with authentic Tamil script.",
+      "html": "<div class=\"ds-bilingual-metric\"><div class=\"ds-metric-titles\"><span class=\"ds-title-en\">Net Wage Payable</span><span class=\"ds-title-ta\">நிகர ஊதியம்</span></div><div class=\"ds-metric-amount\">₹850.00</div><div class=\"ds-metric-sub\">Advance Recovered: ₹150.00</div></div>",
+      "css": ".ds-bilingual-metric { background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 4px; font-family: Inter, system-ui, sans-serif; } .ds-metric-titles { display: flex; align-items: baseline; gap: 8px; } .ds-title-en { font-size: 13px; font-weight: 700; color: #0f172a; } .ds-title-ta { font-size: 12px; font-weight: 600; color: #64748b; } .ds-metric-amount { font-size: 24px; font-weight: 900; color: #059669; font-feature-settings: 'tnum'; } .ds-metric-sub { font-size: 11px; font-weight: 600; color: #94a3b8; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Industrial Yard Ledger",
+    "overview": "Yashoth Enterprises Scrap ERP is an authoritative, high-cadence digital ledger purpose-built for the rugged operational reality of metal recycling yards, industrial demolition projects, and weighbridge weigh-stations. The visual atmosphere unites the precision of heavy industrial engineering with the clarity of statutory double-entry accounting. It abandons delicate SaaS minimalism in favor of bold, tactile, high-contrast surfaces that remain razor-sharp under bright outdoor sunlight and grease-smudged smartphone screens.\n\nThe system serves the proprietor, weighbridge operators, and accounting staff who make continuous commercial and material decisions in seconds: recording gross truck weights, evaluating scrap cuts (HMS-1, MS Boring, Copper, Aluminum), preparing official GST EWB-01 e-Way bills, issuing 1-tap quotations, and disbursing daily wage labor.",
+    "keyCharacteristics": [
+      "Yard-Hardened High Contrast: Heavy #0f172a ink on crisp #ffffff and #f8fafc surfaces guaranteed to resist midday solar washout and Android OS forced dark mode degradation.",
+      "Thumb-Driven 48px Ergonomics: Every interactive button, input field, and navigation tab honors a rigid ≥ 48px touch target requirement.",
+      "Tactile Active Feedback: Buttons depress slightly (scale(0.97)) on tap, providing mechanical affirmation without cumbersome animation lag.",
+      "Bilingual Typographic Harmony: Dense tabular numerals paired with crisp Latin typography and legible Tamil script (தமிழ்) for labour and wage clarity.",
+      "Zero-Lag Print Authority: Flawless CSS print stylesheets delivering pixel-perfect official A4 tax invoices and quotations with authentic letterhead, seals, and proprietor signatures."
+    ],
+    "rules": [
+      {
+        "name": "The Sunlight Contrast Rule",
+        "body": "Critical numerical data (Gross Weight, Tare Weight, Net Payable Weight, Rate per MT, and Total Invoice Value) must always render in #0f172a or #dc2626 over #ffffff or #f8fafc. Low-contrast grays (< 4.5:1) are strictly forbidden on financial and weight metrics.",
+        "section": "colors"
+      },
+      {
+        "name": "The Strict Light-Surface Rule",
+        "body": "Input fields, text areas, and select dropdowns must enforce color-scheme: light !important with a guaranteed #ffffff background and #0f172a text color so that external Android dark mode switches cannot invert form elements into unreadable low-contrast states.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tabular Number Rule",
+        "body": "All scrap weight quantities (KG, MT) and currency values (₹) must utilize monospace tabular figures (font-feature-settings: 'tnum') to maintain strict vertical column alignment across dense financial tables.",
+        "section": "typography"
+      },
+      {
+        "name": "The Bilingual Parity Rule",
+        "body": "When displaying Tamil alongside English in labour, wage, or cash vouchers, both scripts must share identical typographic optical weight and vertical alignment without awkward baseline clipping.",
+        "section": "typography"
+      },
+      {
+        "name": "The Thumb Zone Rule",
+        "body": "Primary operational actions (Record Slip, New Quote, Confirm Dispatch) must be placed in the lower half of the mobile viewport or pinned via floating sticky footers to allow effortless one-handed thumb interaction.",
+        "section": "layout"
+      },
+      {
+        "name": "The Flat-at-Rest Rule",
+        "body": "All cards, tables, and form sections rest flat against the canvas. Elevation is invoked strictly to lift interactive dialogs, mobile bottom navigation, and action buttons above the document flow.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do maintain a minimum 48px by 48px touch target for all clickable buttons, selects, and navigation items.",
+      "Do ensure all form controls specify color-scheme: light !important with white backgrounds to protect against Android dark mode washout.",
+      "Do format weights (MT, KG) and currency (₹) using tabular numerals and standard Indian numbering notation (₹1,25,000.00).",
+      "Do display clear bilingual labels (Tamil + English) on daily wage, advance recovery, and labour muster rolls.",
+      "Do provide immediate active tactile feedback (scale(0.97)) on all touch actions."
+    ],
+    "donts": [
+      "Don't use low-contrast text (e.g. light gray on white) for weighbridge readings, invoice values, or tax breakdowns.",
+      "Don't create touch targets smaller than 48px on mobile views.",
+      "Don't allow form input text to drop below 16px, which causes disruptive automatic zooming in mobile WebViews.",
+      "Don't introduce heavy backdrop blurs, floating shadows, or elaborate animations that introduce lag on budget Android hardware.",
+      "Don't obscure or crop official letterhead banners or proprietor seals on commercial documents."
+    ]
+  }
+}

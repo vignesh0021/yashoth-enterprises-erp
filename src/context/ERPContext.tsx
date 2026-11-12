@@ -136,6 +136,7 @@ import {
 } from '../../backend/business-rules/excelEngine.ts';
 import { googleDriveService } from '../services/googleDriveService.ts';
 import { dbRepository } from '../services/databaseRepository.ts';
+import { realtimeSyncService } from '../services/realtimeSyncService.ts';
 
 import { 
   INITIAL_COMPANY_SETTINGS, 
@@ -558,6 +559,91 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     backupHistory, restoreLogs, backupSchedule, dailyTasks, workNotes, uploadedDocuments,
     salaryRecords, employeeAdvances, dailyLabourEntries, labourPayments, contractors, contractorWorkEntries, contractorPayments, dailyCashClosings
   ]);
+
+  // Supabase Realtime Subscriptions for Multi-Device Live Synchronization
+  useEffect(() => {
+    realtimeSyncService.initializeCompanySync(activeCompanyId);
+
+    const unsubs = [
+      realtimeSyncService.onTableChange('cash_bank_accounts', (ev) => {
+        if (ev.eventType === 'INSERT' && ev.newRecord) {
+          setAccounts((prev) => {
+            if (prev.some((a) => a.id === ev.newRecord.id)) return prev;
+            return [...prev, ev.newRecord];
+          });
+        } else if (ev.eventType === 'UPDATE' && ev.newRecord) {
+          setAccounts((prev) => prev.map((a) => (a.id === ev.newRecord.id ? { ...a, ...ev.newRecord } : a)));
+        } else if (ev.eventType === 'DELETE' && ev.oldRecord && ev.oldRecord.id) {
+          const oldId = ev.oldRecord.id;
+          setAccounts((prev) => prev.filter((a) => a.id !== oldId));
+        }
+      }),
+
+      realtimeSyncService.onTableChange('parties', (ev) => {
+        if (ev.eventType === 'INSERT' && ev.newRecord) {
+          setParties((prev) => {
+            if (prev.some((p) => p.id === ev.newRecord.id)) return prev;
+            return [...prev, ev.newRecord];
+          });
+        } else if (ev.eventType === 'UPDATE' && ev.newRecord) {
+          setParties((prev) => prev.map((p) => (p.id === ev.newRecord.id ? { ...p, ...ev.newRecord } : p)));
+        } else if (ev.eventType === 'DELETE' && ev.oldRecord && ev.oldRecord.id) {
+          const oldId = ev.oldRecord.id;
+          setParties((prev) => prev.filter((p) => p.id !== oldId));
+        }
+      }),
+
+      realtimeSyncService.onTableChange('weighments', (ev) => {
+        if (ev.eventType === 'INSERT' && ev.newRecord) {
+          setWeighments((prev) => {
+            if (prev.some((w) => w.id === ev.newRecord.id)) return prev;
+            return [ev.newRecord, ...prev];
+          });
+        } else if (ev.eventType === 'UPDATE' && ev.newRecord) {
+          setWeighments((prev) => prev.map((w) => (w.id === ev.newRecord.id ? { ...w, ...ev.newRecord } : w)));
+        } else if (ev.eventType === 'DELETE' && ev.oldRecord && ev.oldRecord.id) {
+          const oldId = ev.oldRecord.id;
+          setWeighments((prev) => prev.filter((w) => w.id !== oldId));
+        }
+      }),
+
+      realtimeSyncService.onTableChange('payments', (ev) => {
+        if (ev.eventType === 'INSERT' && ev.newRecord) {
+          setPayments((prev) => {
+            if (prev.some((p) => p.id === ev.newRecord.id)) return prev;
+            return [ev.newRecord, ...prev];
+          });
+        } else if (ev.eventType === 'UPDATE' && ev.newRecord) {
+          setPayments((prev) => prev.map((p) => (p.id === ev.newRecord.id ? { ...p, ...ev.newRecord } : p)));
+        }
+      }),
+
+      realtimeSyncService.onTableChange('invoices', (ev) => {
+        if (ev.eventType === 'INSERT' && ev.newRecord) {
+          setInvoices((prev) => {
+            if (prev.some((i) => i.id === ev.newRecord.id)) return prev;
+            return [ev.newRecord, ...prev];
+          });
+        } else if (ev.eventType === 'UPDATE' && ev.newRecord) {
+          setInvoices((prev) => prev.map((i) => (i.id === ev.newRecord.id ? { ...i, ...ev.newRecord } : i)));
+        }
+      }),
+
+      realtimeSyncService.onTableChange('journal_entries', (ev) => {
+        if (ev.eventType === 'INSERT' && ev.newRecord) {
+          setJournalEntries((prev) => {
+            if (prev.some((j) => j.id === ev.newRecord.id)) return prev;
+            return [ev.newRecord, ...prev];
+          });
+        }
+      }),
+    ];
+
+    return () => {
+      unsubs.forEach((u) => u());
+      realtimeSyncService.cleanupSubscriptions();
+    };
+  }, [activeCompanyId]);
 
   const logAudit = (action: string, entityType: string, entityId: string, oldState?: any, newState?: any) => {
     const entry: AuditLog = {

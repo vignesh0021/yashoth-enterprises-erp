@@ -1,6 +1,8 @@
 // Supabase Client Wrapper for Yasoth Enterprises ERP
-// Safely communicates with Supabase Auth & REST endpoints using public anonymous keys only.
+// Safely communicates with Supabase Auth, PostgREST & Realtime WebSockets using public anonymous keys.
 // NEVER uses or exposes the Supabase Service-Role key in frontend code.
+
+import { createClient, SupabaseClient as SupabaseJsClient } from '@supabase/supabase-js';
 
 export interface SupabaseConfig {
   supabaseUrl: string;
@@ -12,15 +14,70 @@ const DEFAULT_CONFIG: SupabaseConfig = {
   supabaseAnonKey: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY) || '',
 };
 
-class SupabaseClient {
+class SupabaseClientWrapper {
   private config: SupabaseConfig;
+  private jsClient: SupabaseJsClient | null = null;
 
   constructor(config: SupabaseConfig = DEFAULT_CONFIG) {
     this.config = config;
+    this.initJsClient();
+  }
+
+  private initJsClient(): void {
+    if (this.config.supabaseUrl && this.config.supabaseAnonKey) {
+      try {
+        this.jsClient = createClient(this.config.supabaseUrl, this.config.supabaseAnonKey, {
+          auth: {
+            persistSession: true,
+            autoRefreshToken: true,
+            detectSessionInUrl: true,
+          },
+          realtime: {
+            params: {
+              eventsPerSecond: 10,
+            },
+          },
+        });
+      } catch (err) {
+        console.warn('[SupabaseClientWrapper] Failed to initialize official Supabase JS client:', err);
+        this.jsClient = null;
+      }
+    } else {
+      this.jsClient = null;
+    }
   }
 
   public isConfigured(): boolean {
     return Boolean(this.config.supabaseUrl && this.config.supabaseAnonKey);
+  }
+
+  public get client(): SupabaseJsClient | null {
+    return this.jsClient;
+  }
+
+  public get auth() {
+    return this.jsClient?.auth ?? null;
+  }
+
+  public channel(name: string) {
+    if (this.jsClient) {
+      return this.jsClient.channel(name);
+    }
+    return null;
+  }
+
+  public removeChannel(channel: any) {
+    if (this.jsClient && channel) {
+      return this.jsClient.removeChannel(channel);
+    }
+    return Promise.resolve('ok');
+  }
+
+  public from(table: string) {
+    if (!this.jsClient) {
+      throw new Error(`Cannot query ${table}: Supabase URL or Anon Key not configured.`);
+    }
+    return this.jsClient.from(table);
   }
 
   public getHeaders(): HeadersInit {
@@ -32,9 +89,17 @@ class SupabaseClient {
   }
 
   // Supabase Auth: Sign In with Email & Password
-  public async signInWithPassword(email: string, password: string):Promise<{ session: any; error: Error | null }> {
+  public async signInWithPassword(email: string, password: string): Promise<{ session: any; error: Error | null }> {
     if (!this.isConfigured()) {
       return { session: null, error: new Error('Supabase URL or Anon Key not configured.') };
+    }
+
+    if (this.jsClient) {
+      const { data, error } = await this.jsClient.auth.signInWithPassword({ email, password });
+      if (error) {
+        return { session: null, error: new Error(error.message) };
+      }
+      return { session: data.session, error: null };
     }
 
     try {
@@ -60,6 +125,18 @@ class SupabaseClient {
       return { user: null, error: new Error('Supabase URL or Anon Key not configured.') };
     }
 
+    if (this.jsClient) {
+      const { data, error } = await this.jsClient.auth.signUp({
+        email,
+        password,
+        options: { data: metadata },
+      });
+      if (error) {
+        return { user: null, error: new Error(error.message) };
+      }
+      return { user: data.user, error: null };
+    }
+
     try {
       const res = await fetch(`${this.config.supabaseUrl}/auth/v1/signup`, {
         method: 'POST',
@@ -83,6 +160,14 @@ class SupabaseClient {
       return { error: new Error('Supabase URL or Anon Key not configured.') };
     }
 
+    if (this.jsClient) {
+      const { error } = await this.jsClient.auth.resetPasswordForEmail(email);
+      if (error) {
+        return { error: new Error(error.message) };
+      }
+      return { error: null };
+    }
+
     try {
       const res = await fetch(`${this.config.supabaseUrl}/auth/v1/recover`, {
         method: 'POST',
@@ -101,7 +186,7 @@ class SupabaseClient {
   }
 
   // --------------------------------------------------------------------------
-  // PostgREST Authoritative PostgreSQL Database API (Uses Public Anon Key + Bearer JWT)
+  // PostgREST Authoritative PostgreSQL Database API
   // --------------------------------------------------------------------------
 
   public getDbHeaders(authToken?: string): HeadersInit {
@@ -249,5 +334,4 @@ class SupabaseClient {
   }
 }
 
-export const supabase = new SupabaseClient();
-
+export const supabase = new SupabaseClientWrapper();

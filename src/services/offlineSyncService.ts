@@ -70,6 +70,8 @@ class OfflineSyncService {
   private isOnline: boolean = typeof navigator !== 'undefined' ? navigator.onLine : true;
   private isSyncing: boolean = false;
   private statusListeners: Set<(status: SyncStatus) => void> = new Set();
+  private memoryQueue: OfflineMutation[] = [];
+  private memoryConflicts: ConflictLog[] = [];
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -363,51 +365,59 @@ class OfflineSyncService {
   // PERSISTENCE HELPERS
   // --------------------------------------------------------------------------
   private loadQueue(): OfflineMutation[] {
-    if (typeof localStorage === 'undefined') return [];
     try {
-      const raw = localStorage.getItem(STORAGE_QUEUE_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem(STORAGE_QUEUE_KEY);
+        if (raw) return JSON.parse(raw);
+      }
+    } catch {}
+    return this.memoryQueue;
   }
 
   private saveQueue(queue: OfflineMutation[]): void {
-    if (typeof localStorage === 'undefined') return;
+    const filtered = queue.filter((m, idx, arr) => m.status !== 'SYNCED' || arr.length - idx < 50);
+    this.memoryQueue = filtered;
     try {
-      // Keep synced items up to 50 for audit/history, clean rest
-      const filtered = queue.filter((m, idx, arr) => m.status !== 'SYNCED' || arr.length - idx < 50);
-      localStorage.setItem(STORAGE_QUEUE_KEY, JSON.stringify(filtered));
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(STORAGE_QUEUE_KEY, JSON.stringify(filtered));
+      }
     } catch (e) {
       console.warn('[OfflineSyncService] Failed to save queue to localStorage:', e);
     }
   }
 
   private loadConflicts(): ConflictLog[] {
-    if (typeof localStorage === 'undefined') return [];
     try {
-      const raw = localStorage.getItem(STORAGE_CONFLICTS_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem(STORAGE_CONFLICTS_KEY);
+        if (raw) return JSON.parse(raw);
+      }
+    } catch {}
+    return this.memoryConflicts;
   }
 
   private saveConflicts(conflicts: ConflictLog[]): void {
-    if (typeof localStorage === 'undefined') return;
+    const trimmed = conflicts.slice(0, 100);
+    this.memoryConflicts = trimmed;
     try {
-      localStorage.setItem(STORAGE_CONFLICTS_KEY, JSON.stringify(conflicts.slice(0, 100)));
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(STORAGE_CONFLICTS_KEY, JSON.stringify(trimmed));
+      }
     } catch (e) {
       console.warn('[OfflineSyncService] Failed to save conflicts to localStorage:', e);
     }
   }
 
   public clearAllDataForTesting(): void {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem(STORAGE_QUEUE_KEY);
-      localStorage.removeItem(STORAGE_CONFLICTS_KEY);
-      localStorage.removeItem(STORAGE_LAST_SYNC_KEY);
-    }
+    this.memoryQueue = [];
+    this.memoryConflicts = [];
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(STORAGE_QUEUE_KEY);
+        localStorage.removeItem(STORAGE_CONFLICTS_KEY);
+        localStorage.removeItem(STORAGE_LAST_SYNC_KEY);
+      }
+    } catch {}
   }
 }
 

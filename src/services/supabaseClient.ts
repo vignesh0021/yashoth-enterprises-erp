@@ -305,6 +305,37 @@ class SupabaseClientWrapper {
     }
   }
 
+  public async deleteRow(
+    table: string,
+    matchFilter: Record<string, string>,
+    authToken?: string
+  ): Promise<{ success: boolean; error: Error | null }> {
+    if (!this.isConfigured()) {
+      return { success: false, error: new Error('Supabase is not configured.') };
+    }
+
+    try {
+      const url = new URL(`${this.config.supabaseUrl}/rest/v1/${table}`);
+      Object.entries(matchFilter).forEach(([k, v]) => {
+        url.searchParams.set(k, v);
+      });
+
+      const res = await fetch(url.toString(), {
+        method: 'DELETE',
+        headers: this.getDbHeaders(authToken),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        return { success: false, error: new Error(errJson.message || `HTTP ${res.status}: Failed to delete from ${table}`) };
+      }
+
+      return { success: true, error: null };
+    } catch (err: any) {
+      return { success: false, error: err };
+    }
+  }
+
   public async executeRpc<T = any>(
     functionName: string,
     params: Record<string, any> = {},

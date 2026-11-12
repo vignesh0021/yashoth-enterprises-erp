@@ -274,24 +274,23 @@ class GoogleDriveService {
     content: string,
     mimeType: string = 'application/json'
   ): Promise<{ success: boolean; fileId?: string; error?: string; isNative?: boolean }> {
-    // 1. If running on Android with Native Bridge, trigger Android Native 1-Tap Save to Drive / Share sheet
+    // 1. If running on Android with Native Bridge without Google OAuth token, forward to Android Share Sheet
     if (
       typeof window !== 'undefined' &&
       (window as any).AndroidNative &&
-      typeof (window as any).AndroidNative.shareBackupFile === 'function'
+      typeof (window as any).AndroidNative.shareBackupFile === 'function' &&
+      !this.accessToken
     ) {
       try {
-        const shared = (window as any).AndroidNative.shareBackupFile(filename, content, mimeType);
-        if (shared) {
-          return {
-            success: true,
-            fileId: `native-drive-${Date.now()}`,
-            isNative: true,
-          };
-        }
+        (window as any).AndroidNative.shareBackupFile(filename, content, mimeType);
       } catch {
         // fallback
       }
+      return {
+        success: false,
+        error: 'Google Drive is not authenticated. Backup was forwarded to Android Share Sheet for external export instead.',
+        isNative: true,
+      };
     }
 
     if (!this.accessToken) {

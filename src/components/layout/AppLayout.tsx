@@ -9,6 +9,7 @@ import { useLanguage } from '../../context/LanguageContext.tsx';
 import { MobileBottomNav } from './MobileBottomNav.tsx';
 import { MobileMenuDrawer } from './MobileMenuDrawer.tsx';
 import { offlineSyncService, type SyncStatus } from '../../services/offlineSyncService.ts';
+import { dbRepository } from '../../services/databaseRepository.ts';
 import { 
   LayoutDashboard, 
   ShoppingCart, 
@@ -199,14 +200,83 @@ export const AppLayout: React.FC = () => {
       setTimeout(() => setSyncToastMessage(null), 3500);
       return;
     }
-    const result = await offlineSyncService.flushQueue(async () => {
-      return { success: true };
+
+    if (!dbRepository.isRemoteDatabaseAvailable()) {
+      setSyncToastMessage('கிளவுட் தரவுத்தளம் இன்னும் இணைக்கப்படவில்லை (Supabase not configured. Records preserved in local offline queue).');
+      setTimeout(() => setSyncToastMessage(null), 3500);
+      return;
+    }
+
+    const result = await offlineSyncService.flushQueue(async (mutation) => {
+      try {
+        switch (mutation.entityType) {
+          case 'WEIGHMENT':
+            if (mutation.action === 'CREATE') {
+              const res = await dbRepository.saveWeighment(mutation.payload);
+              return { success: !!res };
+            } else if (mutation.action === 'UPDATE') {
+              const res = await dbRepository.updateWeighment(mutation.entityId, mutation.payload);
+              return { success: !!res };
+            } else if (mutation.action === 'DELETE') {
+              const ok = await dbRepository.deleteWeighment(mutation.entityId);
+              return { success: ok };
+            }
+            break;
+          case 'PURCHASE':
+            if (mutation.action === 'CREATE') {
+              const res = await dbRepository.savePurchase(mutation.payload);
+              return { success: !!res };
+            } else if (mutation.action === 'UPDATE') {
+              const res = await dbRepository.updatePurchase(mutation.entityId, mutation.payload);
+              return { success: !!res };
+            }
+            break;
+          case 'INVOICE':
+            if (mutation.action === 'CREATE') {
+              const res = await dbRepository.saveInvoice(mutation.payload);
+              return { success: !!res };
+            } else if (mutation.action === 'UPDATE') {
+              const res = await dbRepository.updateInvoice(mutation.entityId, mutation.payload);
+              return { success: !!res };
+            }
+            break;
+          case 'PAYMENT':
+            if (mutation.action === 'CREATE') {
+              const res = await dbRepository.savePayment(mutation.payload);
+              return { success: !!res };
+            }
+            break;
+          case 'EXPENSE':
+            if (mutation.action === 'CREATE') {
+              const res = await dbRepository.saveExpense(mutation.payload);
+              return { success: !!res };
+            } else if (mutation.action === 'UPDATE') {
+              const res = await dbRepository.updateExpense(mutation.entityId, mutation.payload);
+              return { success: !!res };
+            }
+            break;
+          case 'PARTY':
+            if (mutation.action === 'CREATE') {
+              const res = await dbRepository.saveParty(mutation.payload);
+              return { success: !!res };
+            }
+            break;
+          default:
+            return { success: false, error: `Unsupported entity type: ${mutation.entityType}` };
+        }
+        return { success: true };
+      } catch (err: any) {
+        return { success: false, error: err?.message || 'Remote persistence failed' };
+      }
     });
-    setSyncToastMessage(
-      result.synced > 0
-        ? `கிளவுட் ஒத்திசைவு முடிந்தது: ${result.synced} பதிவுகள் பதிவேற்றப்பட்டன! (Synced ${result.synced} offline records to Cloud!)`
-        : 'கிளவுட் சரிபார்க்கப்பட்டது: அனைத்து தரவுகளும் சரியாக உள்ளன! (Cloud Synced: All records are up-to-date!)'
-    );
+
+    if (result.failed > 0) {
+      setSyncToastMessage(`ஒத்திசைவு பிழை: ${result.failed} பதிவுகள் தோல்வியடைந்தன (${result.failed} failed, ${result.synced} synced).`);
+    } else if (result.synced > 0) {
+      setSyncToastMessage(`கிளவுட் ஒத்திசைவு முடிந்தது: ${result.synced} பதிவுகள் பதிவேற்றப்பட்டன! (Synced ${result.synced} offline records to Supabase!)`);
+    } else {
+      setSyncToastMessage('கிளவுட் சரிபார்க்கப்பட்டது: அனைத்து தரவுகளும் சரியாக உள்ளன! (Cloud Synced: All records are up-to-date!)');
+    }
     setTimeout(() => setSyncToastMessage(null), 3500);
   };
 

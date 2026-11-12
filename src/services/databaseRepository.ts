@@ -131,6 +131,18 @@ export class DatabaseRepository {
     return res.data;
   }
 
+  public async savePurchase(purchase: PurchaseHeader, authToken?: string): Promise<PurchaseHeader | null> {
+    if (!this.isRemoteDatabaseAvailable()) return null;
+    const res = await supabase.insertRow<PurchaseHeader>('purchase_headers', purchase, authToken);
+    return res.data;
+  }
+
+  public async updatePurchase(id: string, updates: Partial<PurchaseHeader>, authToken?: string): Promise<PurchaseHeader | null> {
+    if (!this.isRemoteDatabaseAvailable()) return null;
+    const res = await supabase.updateRow<PurchaseHeader>('purchase_headers', { id: `eq.${id}` }, updates, authToken);
+    return res.data;
+  }
+
   public async fetchWeighments(companyId: string, authToken?: string): Promise<Weighment[] | null> {
     if (!this.isRemoteDatabaseAvailable()) return null;
     const res = await supabase.queryTable<Weighment>('weighments', {
@@ -140,8 +152,26 @@ export class DatabaseRepository {
     return res.data;
   }
 
+  public async saveWeighment(weighment: Weighment, authToken?: string): Promise<Weighment | null> {
+    if (!this.isRemoteDatabaseAvailable()) return null;
+    const res = await supabase.insertRow<Weighment>('weighments', weighment, authToken);
+    return res.data;
+  }
+
+  public async updateWeighment(id: string, updates: Partial<Weighment>, authToken?: string): Promise<Weighment | null> {
+    if (!this.isRemoteDatabaseAvailable()) return null;
+    const res = await supabase.updateRow<Weighment>('weighments', { id: `eq.${id}` }, updates, authToken);
+    return res.data;
+  }
+
+  public async deleteWeighment(id: string, authToken?: string): Promise<boolean> {
+    if (!this.isRemoteDatabaseAvailable()) return false;
+    const res = await supabase.deleteRow('weighments', { id: `eq.${id}` }, authToken);
+    return !res.error;
+  }
+
   // --------------------------------------------------------------------------
-  // Invoices & Commercial Documents
+  // Invoices, Commercial Documents & Payments
   // --------------------------------------------------------------------------
   public async fetchInvoices(companyId: string, authToken?: string): Promise<Invoice[] | null> {
     if (!this.isRemoteDatabaseAvailable()) return null;
@@ -152,12 +182,45 @@ export class DatabaseRepository {
     return res.data;
   }
 
+  public async saveInvoice(invoice: Invoice, authToken?: string): Promise<Invoice | null> {
+    if (!this.isRemoteDatabaseAvailable()) return null;
+    const res = await supabase.insertRow<Invoice>('invoices', invoice, authToken);
+    return res.data;
+  }
+
+  public async updateInvoice(id: string, updates: Partial<Invoice>, authToken?: string): Promise<Invoice | null> {
+    if (!this.isRemoteDatabaseAvailable()) return null;
+    const res = await supabase.updateRow<Invoice>('invoices', { id: `eq.${id}` }, updates, authToken);
+    return res.data;
+  }
+
   public async fetchCommercialDocuments(companyId: string, authToken?: string): Promise<CommercialDocument[] | null> {
     if (!this.isRemoteDatabaseAvailable()) return null;
     const res = await supabase.queryTable<CommercialDocument>('commercial_documents', {
       filters: { company_id: `eq.${companyId}` },
       authToken,
     });
+    return res.data;
+  }
+
+  public async saveCommercialDocument(doc: CommercialDocument, authToken?: string): Promise<CommercialDocument | null> {
+    if (!this.isRemoteDatabaseAvailable()) return null;
+    const res = await supabase.insertRow<CommercialDocument>('commercial_documents', doc, authToken);
+    return res.data;
+  }
+
+  public async fetchPayments(companyId: string, authToken?: string): Promise<Payment[] | null> {
+    if (!this.isRemoteDatabaseAvailable()) return null;
+    const res = await supabase.queryTable<Payment>('payments', {
+      filters: { company_id: `eq.${companyId}` },
+      authToken,
+    });
+    return res.data;
+  }
+
+  public async savePayment(payment: Payment, authToken?: string): Promise<Payment | null> {
+    if (!this.isRemoteDatabaseAvailable()) return null;
+    const res = await supabase.insertRow<Payment>('payments', payment, authToken);
     return res.data;
   }
 

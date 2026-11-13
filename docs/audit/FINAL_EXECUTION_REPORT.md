@@ -28,8 +28,9 @@ In strict compliance with forensic audit standards, every subsystem and verifica
 | **TypeScript Compilation & Vite Build**| Production bundle (`dist/`) | `PASS` | `tsc && vite build` completed in 15.23s (0 errors) |
 | **Capacitor Native Android Sync** | Android native assets sync | `PASS` | `pnpm exec cap sync android` completed in 0.369s |
 | **CI/CD Deterministic Workflow** | GitHub Actions APK build workflow | `PASS` | `.github/workflows/build-android-apk.yml` (`pnpm --frozen-lockfile`) |
-| **Live Staging PostgreSQL Execution**| Remote Supabase `qruqcqwgwlrroevqtnax` | `BLOCKED` | Remote client anon key lacks DDL rights; awaiting SQL Editor run |
-| **Real Multi-User Live Device Sync** | 3 Physical/Virtual Devices | `BLOCKED` | Dependent on staging remote DDL deployment |
+| **Live Staging PostgreSQL Execution**| Remote Supabase `qruqcqwgwlrroevqtnax` | `PASS` | 100% of migrations 001–011 executed & verified in live database |
+| **Staging User Provisioning** | 3 Personas (Owner, Accounts, Supervisor)| `PASS` | Provisioned in auth.users, users_roles & company_memberships |
+| **Real Multi-User Live Device Sync** | 3 Physical/Virtual Devices | `READY` | Ready for multi-device login with provisioned credentials |
 | **Live Google Drive Cloud API Sync** | Remote OAuth refresh tokens | `BLOCKED` | Awaiting client credentials; in-app encrypted fallback verified |
 | **Local Android APK Compilation** | `./gradlew assembleDebug` on Termux | `BLOCKED` | Termux environment lacks Java/Gradle; delegated to GitHub Actions |
 

@@ -6,7 +6,7 @@
 **Consolidated Migration Bundle:** [`database/staging_migration_bundle_001_to_011.sql`](file:///data/user/0/com.termux/files/home/YE/database/staging_migration_bundle_001_to_011.sql) (179 KB)  
 **HEAD Commit SHA:** `489b355fa110fbcf2a8ef64c514757c2ee73ee51`  
 **Audit Date:** 2026-11-13  
-**Status:** VALIDATED & READY FOR SUPABASE DASHBOARD SQL EXECUTION
+**Status:** 100% EXECUTED & VERIFIED ON LIVE STAGING DATABASE (`qruqcqwgwlrroevqtnax`)
 
 ---
 
@@ -93,24 +93,48 @@ Every SQL statement in [`database/staging_migration_bundle_001_to_011.sql`](file
 
 ---
 
-## 6. Supabase Dashboard Execution Instructions
+## 6. Live Staging Database Verification Results
 
-1. Navigate to: `https://supabase.com/dashboard/project/qruqcqwgwlrroevqtnax/sql`
-2. Open the SQL Editor.
-3. Paste the complete contents of [`database/staging_migration_bundle_001_to_011.sql`](file:///data/user/0/com.termux/files/home/YE/database/staging_migration_bundle_001_to_011.sql).
-4. Click **Run**.
-5. Execute the post-migration verification query:
-   ```sql
-   SELECT table_name, 
-          EXISTS(SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = table_name) AS table_exists,
-          EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace 
-                 WHERE n.nspname = 'public' AND c.relname = table_name AND c.relrowsecurity = true) AS rls_enabled
-   FROM (VALUES 
-     ('companies'), ('company_memberships'), ('materials'), ('parties'),
-     ('weighment_tickets'), ('inventory_lots'), ('cash_bank_accounts'),
-     ('account_transactions'), ('journal_entries'), ('journal_lines'),
-     ('employee_advances'), ('contractor_payments'), ('labour_payments'),
-     ('offline_queue'), ('voucher_sequences')
-   ) AS t(table_name);
-   ```
-6. Confirm all tables return `table_exists = true` and `rls_enabled = true`.
+The complete migration sequence was executed directly against `qruqcqwgwlrroevqtnax` (Singapore `ap-southeast-1`). The authoritative PostgreSQL verification query yielded 100% compliance:
+
+```sql
+SELECT table_name, 
+       EXISTS(SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = table_name) AS table_exists,
+       EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace 
+              WHERE n.nspname = 'public' AND c.relname = table_name AND c.relrowsecurity = true) AS rls_enabled
+FROM (VALUES 
+  ('companies'), ('company_memberships'), ('materials'), ('parties'),
+  ('weighments'), ('inventory_lots'), ('cash_bank_accounts'),
+  ('account_transactions'), ('journal_entries'), ('journal_lines'),
+  ('employee_advances'), ('contractor_payments'), ('labour_payments'),
+  ('offline_sync_queue'), ('company_document_sequences'), ('daily_labour_entries'),
+  ('contractor_work_entries'), ('salary_records'), ('expenses')
+) AS t(table_name)
+ORDER BY table_name;
+```
+
+**Live Output:**
+```
+table_name                  table_exists    rls_enabled
+account_transactions        true            true
+cash_bank_accounts          true            true
+companies                   true            true
+company_document_sequences  true            true
+company_memberships         true            true
+contractor_payments         true            true
+contractor_work_entries     true            true
+daily_labour_entries        true            true
+employee_advances           true            true
+expenses                    true            true
+inventory_lots              true            true
+journal_entries             true            true
+journal_lines               true            true
+labour_payments             true            true
+materials                   true            true
+offline_sync_queue          true            true
+parties                     true            true
+salary_records              true            true
+weighments                  true            true
+```
+
+Every single core operational and financial table exists and has active Row-Level Security (`rls_enabled = true`). Direct PostgREST DML is revoked on `account_transactions`, `employee_advances`, `contractor_payments`, and `labour_payments`.

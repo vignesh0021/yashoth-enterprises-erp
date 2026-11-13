@@ -107,6 +107,8 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
+DECLARE
+    v_has_tx BOOLEAN;
 BEGIN
     -- 1. Authorization check: Caller must be authenticated
     IF auth_current_user_id() IS NULL AND auth_current_role() NOT IN ('service_role') THEN
@@ -129,6 +131,33 @@ BEGIN
         END IF;
     END IF;
 
+    -- 4. P0 Integrity: Prevent ordinary account editing from overwriting authoritative financial balances
+    IF NEW.current_balance IS DISTINCT FROM OLD.current_balance THEN
+        IF auth_current_role() NOT IN ('service_role') THEN
+            RAISE EXCEPTION 'Forbidden: Direct modification of current_balance is prohibited. Balances are derived from authoritative transactions and financial vouchers.';
+        END IF;
+    END IF;
+
+    -- 5. P0 Integrity: Opening balance changes must use controlled journal entries if transactions exist
+    IF NEW.opening_balance IS DISTINCT FROM OLD.opening_balance THEN
+        SELECT (
+            EXISTS (SELECT 1 FROM account_transactions WHERE account_id = OLD.id) OR
+            EXISTS (SELECT 1 FROM payments WHERE account_id = OLD.id) OR
+            EXISTS (SELECT 1 FROM expenses WHERE account_id = OLD.id) OR
+            EXISTS (SELECT 1 FROM journal_lines WHERE account_code = OLD.account_code)
+        ) INTO v_has_tx;
+
+        IF v_has_tx THEN
+            RAISE EXCEPTION 'Integrity constraint: Cannot modify opening_balance directly for account % with existing transactions. Use an adjusting journal entry instead.', OLD.account_code;
+        END IF;
+
+        -- For virgin accounts with zero transactions, only owner_admin may correct initial opening balance
+        IF auth_current_role() NOT IN ('service_role') AND NOT auth_has_company_role(OLD.company_id, 'owner_admin') THEN
+            RAISE EXCEPTION 'Forbidden: Only owner_admin may correct initial opening balance on accounts with no transactions.';
+        END IF;
+    END IF;
+
+    -- 6. Safe account metadata editing (preserves current_balance, updates opening_balance only if allowed)
     UPDATE cash_bank_accounts
     SET 
         account_name = COALESCE(NEW.account_name, OLD.account_name),
@@ -137,11 +166,19 @@ BEGIN
         bank_name = NEW.bank_name,
         account_number = NEW.account_number,
         ifsc_code = NEW.ifsc_code,
-        opening_balance = COALESCE(NEW.opening_balance, OLD.opening_balance),
-        current_balance = COALESCE(NEW.current_balance, OLD.current_balance),
+        opening_balance = CASE 
+            WHEN NEW.opening_balance IS DISTINCT FROM OLD.opening_balance THEN NEW.opening_balance 
+            ELSE OLD.opening_balance 
+        END,
+        current_balance = CASE
+            WHEN auth_current_role() IN ('service_role') THEN COALESCE(NEW.current_balance, OLD.current_balance)
+            WHEN NEW.opening_balance IS DISTINCT FROM OLD.opening_balance THEN NEW.opening_balance
+            ELSE OLD.current_balance
+        END,
         is_active = COALESCE(NEW.is_active, OLD.is_active),
         updated_at = CURRENT_TIMESTAMP
     WHERE id = OLD.id;
+
     RETURN NEW;
 END;
 $$;
@@ -269,6 +306,117 @@ CREATE TRIGGER accounts_view_delete_trigger
     INSTEAD OF DELETE ON accounts
     FOR EACH ROW
     EXECUTE FUNCTION trg_accounts_view_delete();
+
+-- ----------------------------------------------------------------------------
+-- 4.1 Authoritative Transaction-Driven Balance Synchronization Trigger
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION trg_sync_account_transaction_balance()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.direction = 'DEBIT' THEN
+            UPDATE cash_bank_accounts
+            SET current_balance = current_balance + NEW.amount,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = NEW.account_id;
+        ELSIF NEW.direction = 'CREDIT' THEN
+            UPDATE cash_bank_accounts
+            SET current_balance = current_balance - NEW.amount,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = NEW.account_id;
+        END IF;
+        RETURN NEW;
+    ELSIF TG_OP = 'DELETE' THEN
+        IF OLD.direction = 'DEBIT' THEN
+            UPDATE cash_bank_accounts
+            SET current_balance = current_balance - OLD.amount,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = OLD.account_id;
+        ELSIF OLD.direction = 'CREDIT' THEN
+            UPDATE cash_bank_accounts
+            SET current_balance = current_balance + OLD.amount,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = OLD.account_id;
+        END IF;
+        RETURN OLD;
+    ELSIF TG_OP = 'UPDATE' THEN
+        -- Reverse OLD effect
+        IF OLD.direction = 'DEBIT' THEN
+            UPDATE cash_bank_accounts SET current_balance = current_balance - OLD.amount WHERE id = OLD.account_id;
+        ELSIF OLD.direction = 'CREDIT' THEN
+            UPDATE cash_bank_accounts SET current_balance = current_balance + OLD.amount WHERE id = OLD.account_id;
+        END IF;
+        -- Apply NEW effect
+        IF NEW.direction = 'DEBIT' THEN
+            UPDATE cash_bank_accounts SET current_balance = current_balance + NEW.amount, updated_at = CURRENT_TIMESTAMP WHERE id = NEW.account_id;
+        ELSIF NEW.direction = 'CREDIT' THEN
+            UPDATE cash_bank_accounts SET current_balance = current_balance - NEW.amount, updated_at = CURRENT_TIMESTAMP WHERE id = NEW.account_id;
+        END IF;
+        RETURN NEW;
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_account_transactions_balance_sync ON account_transactions;
+CREATE TRIGGER trg_account_transactions_balance_sync
+    AFTER INSERT OR UPDATE OR DELETE ON account_transactions
+    FOR EACH ROW
+    EXECUTE FUNCTION trg_sync_account_transaction_balance();
+
+-- 4.2 Authoritative Ledger Balance Reconciliation RPC
+CREATE OR REPLACE FUNCTION fn_reconcile_account_balance(p_account_id UUID)
+RETURNS DECIMAL(14, 2)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_opening DECIMAL(14, 2);
+    v_net_tx DECIMAL(14, 2);
+    v_new_balance DECIMAL(14, 2);
+    v_company_id UUID;
+BEGIN
+    SELECT company_id, COALESCE(opening_balance, 0.00)
+    INTO v_company_id, v_opening
+    FROM cash_bank_accounts
+    WHERE id = p_account_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Account % not found', p_account_id;
+    END IF;
+
+    IF auth_current_role() NOT IN ('service_role') THEN
+        IF NOT auth_is_company_member(v_company_id) THEN
+            RAISE EXCEPTION 'Unauthorized: Caller is not a member of company %', v_company_id;
+        END IF;
+        IF NOT auth_has_company_role(v_company_id, 'owner_admin', 'manager', 'accounts_operator') THEN
+            RAISE EXCEPTION 'Forbidden: User is not authorized to reconcile account balance';
+        END IF;
+    END IF;
+
+    SELECT COALESCE(SUM(CASE WHEN direction = 'DEBIT' THEN amount WHEN direction = 'CREDIT' THEN -amount ELSE 0 END), 0.00)
+    INTO v_net_tx
+    FROM account_transactions
+    WHERE account_id = p_account_id;
+
+    v_new_balance := v_opening + v_net_tx;
+
+    UPDATE cash_bank_accounts
+    SET current_balance = v_new_balance,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = p_account_id;
+
+    RETURN v_new_balance;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION fn_reconcile_account_balance FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION fn_reconcile_account_balance TO authenticated, service_role;
 
 -- ----------------------------------------------------------------------------
 -- 5. Atomic PostgreSQL Voucher Sequence Generator Function

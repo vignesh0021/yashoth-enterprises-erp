@@ -25,13 +25,13 @@ describe('Suite 19: Negative Security, RBAC & Anti-Tampering Gate', () => {
 
   function authIsCompanyMember(session: MockSession, cid: string): boolean {
     if (!cid) return false;
-    if (session.role === 'service_role' || session.role === 'owner_admin') return true;
+    if (session.role === 'service_role') return true;
     return session.companyMemberships.some((m) => m.companyId === cid && m.isActive);
   }
 
   function authHasCompanyRole(session: MockSession, cid: string, allowedRoles: string[]): boolean {
     if (!cid) return false;
-    if (session.role === 'service_role' || session.role === 'owner_admin') return true;
+    if (session.role === 'service_role') return true;
     return session.companyMemberships.some(
       (m) => m.companyId === cid && m.isActive && allowedRoles.includes(m.role)
     );

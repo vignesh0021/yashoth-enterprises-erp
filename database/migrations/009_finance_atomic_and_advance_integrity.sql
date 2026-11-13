@@ -105,53 +105,241 @@ CREATE TABLE IF NOT EXISTS labour_payments (
 CREATE INDEX IF NOT EXISTS idx_labour_payments_labour ON labour_payments(company_id, daily_labour_id);
 
 -- ----------------------------------------------------------------------------
--- 5. Row-Level Security (RLS) on New Tables
+-- 5. Authoritative Financial Table Direct-Write Restriction & Operation-Specific RBAC
 -- ----------------------------------------------------------------------------
+-- Ensure RLS is active on all core financial tables
 ALTER TABLE employee_advances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE contractor_payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE labour_payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS account_transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS payment_allocations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS journal_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS journal_lines ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS salary_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS daily_labour_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS contractor_work_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS expenses ENABLE ROW LEVEL SECURITY;
 
--- employee_advances RLS
+-- 5.1 account_transactions (IMMUTABLE LEDGER: Writes strictly restricted to atomic RPCs/system functions)
+DROP POLICY IF EXISTS account_transactions_tenant_policy ON account_transactions;
+DROP POLICY IF EXISTS rls_account_transactions_select ON account_transactions;
+DROP POLICY IF EXISTS rls_account_transactions_insert ON account_transactions;
+DROP POLICY IF EXISTS rls_account_transactions_update ON account_transactions;
+DROP POLICY IF EXISTS rls_account_transactions_delete ON account_transactions;
+
+CREATE POLICY rls_account_transactions_select ON account_transactions FOR SELECT
+    USING (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator'));
+
+CREATE POLICY rls_account_transactions_insert ON account_transactions FOR INSERT
+    WITH CHECK (auth_current_role() = 'service_role');
+
+CREATE POLICY rls_account_transactions_update ON account_transactions FOR UPDATE
+    USING (false);
+
+CREATE POLICY rls_account_transactions_delete ON account_transactions FOR DELETE
+    USING (false);
+
+-- 5.2 employee_advances (Disbursements strictly via fn_issue_employee_advance_atomic)
+DROP POLICY IF EXISTS rls_employee_advances_select ON employee_advances;
+DROP POLICY IF EXISTS rls_employee_advances_insert ON employee_advances;
+DROP POLICY IF EXISTS rls_employee_advances_update ON employee_advances;
+DROP POLICY IF EXISTS rls_employee_advances_delete ON employee_advances;
+
 CREATE POLICY rls_employee_advances_select ON employee_advances FOR SELECT
-    USING (auth_is_company_member(company_id));
+    USING (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator'));
 
 CREATE POLICY rls_employee_advances_insert ON employee_advances FOR INSERT
-    WITH CHECK (auth_is_company_member(company_id));
+    WITH CHECK (auth_current_role() = 'service_role');
 
 CREATE POLICY rls_employee_advances_update ON employee_advances FOR UPDATE
-    USING (auth_is_company_member(company_id))
-    WITH CHECK (auth_is_company_member(company_id));
+    USING (false);
 
 CREATE POLICY rls_employee_advances_delete ON employee_advances FOR DELETE
-    USING (auth_is_company_member(company_id));
+    USING (false);
 
--- contractor_payments RLS
+-- 5.3 contractor_payments (Disbursements strictly via fn_post_contractor_payment_atomic)
+DROP POLICY IF EXISTS rls_contractor_payments_select ON contractor_payments;
+DROP POLICY IF EXISTS rls_contractor_payments_insert ON contractor_payments;
+DROP POLICY IF EXISTS rls_contractor_payments_update ON contractor_payments;
+DROP POLICY IF EXISTS rls_contractor_payments_delete ON contractor_payments;
+
 CREATE POLICY rls_contractor_payments_select ON contractor_payments FOR SELECT
     USING (auth_is_company_member(company_id));
 
 CREATE POLICY rls_contractor_payments_insert ON contractor_payments FOR INSERT
-    WITH CHECK (auth_is_company_member(company_id));
+    WITH CHECK (auth_current_role() = 'service_role');
 
 CREATE POLICY rls_contractor_payments_update ON contractor_payments FOR UPDATE
-    USING (auth_is_company_member(company_id))
-    WITH CHECK (auth_is_company_member(company_id));
+    USING (false);
 
 CREATE POLICY rls_contractor_payments_delete ON contractor_payments FOR DELETE
-    USING (auth_is_company_member(company_id));
+    USING (false);
 
--- labour_payments RLS
+-- 5.4 labour_payments (Disbursements strictly via fn_post_labour_payment_atomic)
+DROP POLICY IF EXISTS rls_labour_payments_select ON labour_payments;
+DROP POLICY IF EXISTS rls_labour_payments_insert ON labour_payments;
+DROP POLICY IF EXISTS rls_labour_payments_update ON labour_payments;
+DROP POLICY IF EXISTS rls_labour_payments_delete ON labour_payments;
+
 CREATE POLICY rls_labour_payments_select ON labour_payments FOR SELECT
     USING (auth_is_company_member(company_id));
 
 CREATE POLICY rls_labour_payments_insert ON labour_payments FOR INSERT
-    WITH CHECK (auth_is_company_member(company_id));
+    WITH CHECK (auth_current_role() = 'service_role');
 
 CREATE POLICY rls_labour_payments_update ON labour_payments FOR UPDATE
-    USING (auth_is_company_member(company_id))
-    WITH CHECK (auth_is_company_member(company_id));
+    USING (false);
 
 CREATE POLICY rls_labour_payments_delete ON labour_payments FOR DELETE
+    USING (false);
+
+-- 5.5 salary_records (Salary accruals and disbursements)
+DROP POLICY IF EXISTS rls_salary_records_select ON salary_records;
+DROP POLICY IF EXISTS rls_salary_records_insert ON salary_records;
+DROP POLICY IF EXISTS rls_salary_records_update ON salary_records;
+DROP POLICY IF EXISTS rls_salary_records_delete ON salary_records;
+
+CREATE POLICY rls_salary_records_select ON salary_records FOR SELECT
+    USING (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator'));
+
+CREATE POLICY rls_salary_records_insert ON salary_records FOR INSERT
+    WITH CHECK (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator'));
+
+CREATE POLICY rls_salary_records_update ON salary_records FOR UPDATE
+    USING (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator'))
+    WITH CHECK (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator'));
+
+CREATE POLICY rls_salary_records_delete ON salary_records FOR DELETE
+    USING (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin') AND status <> 'PAID');
+
+-- 5.6 daily_labour_entries (Daily attendance accruals - Store Supervisor allowed to log)
+DROP POLICY IF EXISTS rls_daily_labour_select ON daily_labour_entries;
+DROP POLICY IF EXISTS rls_daily_labour_insert ON daily_labour_entries;
+DROP POLICY IF EXISTS rls_daily_labour_update ON daily_labour_entries;
+DROP POLICY IF EXISTS rls_daily_labour_delete ON daily_labour_entries;
+
+CREATE POLICY rls_daily_labour_select ON daily_labour_entries FOR SELECT
     USING (auth_is_company_member(company_id));
+
+CREATE POLICY rls_daily_labour_insert ON daily_labour_entries FOR INSERT
+    WITH CHECK (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator', 'store_operator'));
+
+CREATE POLICY rls_daily_labour_update ON daily_labour_entries FOR UPDATE
+    USING (auth_is_company_member(company_id) AND (
+        auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator')
+        OR (auth_has_company_role(company_id, 'store_operator') AND status = 'PENDING')
+    ))
+    WITH CHECK (auth_is_company_member(company_id) AND (
+        auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator')
+        OR (auth_has_company_role(company_id, 'store_operator') AND status = 'PENDING')
+    ));
+
+CREATE POLICY rls_daily_labour_delete ON daily_labour_entries FOR DELETE
+    USING (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin') AND status = 'PENDING');
+
+-- 5.7 contractor_work_entries (Work logging - Store Supervisor allowed to log)
+DROP POLICY IF EXISTS rls_contractor_work_select ON contractor_work_entries;
+DROP POLICY IF EXISTS rls_contractor_work_insert ON contractor_work_entries;
+DROP POLICY IF EXISTS rls_contractor_work_update ON contractor_work_entries;
+DROP POLICY IF EXISTS rls_contractor_work_delete ON contractor_work_entries;
+
+CREATE POLICY rls_contractor_work_select ON contractor_work_entries FOR SELECT
+    USING (auth_is_company_member(company_id));
+
+CREATE POLICY rls_contractor_work_insert ON contractor_work_entries FOR INSERT
+    WITH CHECK (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator', 'store_operator'));
+
+CREATE POLICY rls_contractor_work_update ON contractor_work_entries FOR UPDATE
+    USING (auth_is_company_member(company_id) AND (
+        auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator')
+        OR (auth_has_company_role(company_id, 'store_operator') AND status = 'PENDING')
+    ))
+    WITH CHECK (auth_is_company_member(company_id) AND (
+        auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator')
+        OR (auth_has_company_role(company_id, 'store_operator') AND status = 'PENDING')
+    ));
+
+CREATE POLICY rls_contractor_work_delete ON contractor_work_entries FOR DELETE
+    USING (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin') AND status = 'PENDING');
+
+-- 5.8 payments and payment_allocations (Supervisor denied write access)
+DROP POLICY IF EXISTS payments_tenant_policy ON payments;
+DROP POLICY IF EXISTS rls_payments_select ON payments;
+DROP POLICY IF EXISTS rls_payments_insert ON payments;
+DROP POLICY IF EXISTS rls_payments_update ON payments;
+DROP POLICY IF EXISTS rls_payments_delete ON payments;
+
+CREATE POLICY rls_payments_select ON payments FOR SELECT
+    USING (auth_is_company_member(company_id));
+
+CREATE POLICY rls_payments_insert ON payments FOR INSERT
+    WITH CHECK (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator'));
+
+CREATE POLICY rls_payments_update ON payments FOR UPDATE
+    USING (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator'))
+    WITH CHECK (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator'));
+
+CREATE POLICY rls_payments_delete ON payments FOR DELETE
+    USING (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin')
+           AND NOT EXISTS (SELECT 1 FROM account_transactions WHERE payment_id = payments.id));
+
+DROP POLICY IF EXISTS payment_allocations_tenant_policy ON payment_allocations;
+DROP POLICY IF EXISTS rls_payment_allocations_select ON payment_allocations;
+DROP POLICY IF EXISTS rls_payment_allocations_insert ON payment_allocations;
+DROP POLICY IF EXISTS rls_payment_allocations_update ON payment_allocations;
+DROP POLICY IF EXISTS rls_payment_allocations_delete ON payment_allocations;
+
+CREATE POLICY rls_payment_allocations_select ON payment_allocations FOR SELECT
+    USING (auth_is_company_member(company_id));
+
+CREATE POLICY rls_payment_allocations_insert ON payment_allocations FOR INSERT
+    WITH CHECK (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator'));
+
+CREATE POLICY rls_payment_allocations_update ON payment_allocations FOR UPDATE
+    USING (false);
+
+CREATE POLICY rls_payment_allocations_delete ON payment_allocations FOR DELETE
+    USING (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin'));
+
+-- 5.9 journal_entries and journal_lines (General Ledger: Supervisor denied write access)
+DROP POLICY IF EXISTS journal_entries_tenant_policy ON journal_entries;
+DROP POLICY IF EXISTS rls_journal_entries_select ON journal_entries;
+DROP POLICY IF EXISTS rls_journal_entries_insert ON journal_entries;
+DROP POLICY IF EXISTS rls_journal_entries_update ON journal_entries;
+DROP POLICY IF EXISTS rls_journal_entries_delete ON journal_entries;
+
+CREATE POLICY rls_journal_entries_select ON journal_entries FOR SELECT
+    USING (auth_is_company_member(company_id));
+
+CREATE POLICY rls_journal_entries_insert ON journal_entries FOR INSERT
+    WITH CHECK (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator'));
+
+CREATE POLICY rls_journal_entries_update ON journal_entries FOR UPDATE
+    USING (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator') AND status <> 'POSTED')
+    WITH CHECK (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator') AND status <> 'POSTED');
+
+CREATE POLICY rls_journal_entries_delete ON journal_entries FOR DELETE
+    USING (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin') AND status <> 'POSTED');
+
+DROP POLICY IF EXISTS journal_lines_tenant_policy ON journal_lines;
+DROP POLICY IF EXISTS rls_journal_lines_select ON journal_lines;
+DROP POLICY IF EXISTS rls_journal_lines_insert ON journal_lines;
+DROP POLICY IF EXISTS rls_journal_lines_update ON journal_lines;
+DROP POLICY IF EXISTS rls_journal_lines_delete ON journal_lines;
+
+CREATE POLICY rls_journal_lines_select ON journal_lines FOR SELECT
+    USING (auth_is_company_member(company_id));
+
+CREATE POLICY rls_journal_lines_insert ON journal_lines FOR INSERT
+    WITH CHECK (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator'));
+
+CREATE POLICY rls_journal_lines_update ON journal_lines FOR UPDATE
+    USING (false);
+
+CREATE POLICY rls_journal_lines_delete ON journal_lines FOR DELETE
+    USING (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin')
+           AND EXISTS (SELECT 1 FROM journal_entries WHERE id = journal_lines.journal_entry_id AND status <> 'POSTED'));
 
 -- ----------------------------------------------------------------------------
 -- 6. Atomic RPC Function: Post Contractor Progress Payment
@@ -1430,3 +1618,15 @@ GRANT EXECUTE ON FUNCTION fn_post_salary_accrual_atomic TO authenticated, servic
 GRANT EXECUTE ON FUNCTION fn_post_daily_labour_accrual_atomic TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION fn_post_contractor_work_atomic TO authenticated, service_role;
 
+-- ----------------------------------------------------------------------------
+-- 15. Revoke Direct DML on Immutable Ledger and Atomic Payment Tables
+-- ----------------------------------------------------------------------------
+-- Prevent ordinary authenticated PostgREST bypass of atomic RPCs
+REVOKE INSERT, UPDATE, DELETE ON account_transactions FROM authenticated, anon, PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON employee_advances FROM authenticated, anon, PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON contractor_payments FROM authenticated, anon, PUBLIC;
+REVOKE INSERT, UPDATE, DELETE ON labour_payments FROM authenticated, anon, PUBLIC;
+
+-- Revoke all modification privileges from anon role
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon;
+GRANT SELECT ON public.materials, public.material_grades TO anon;

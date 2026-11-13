@@ -53,8 +53,8 @@ BEGIN
     IF cid IS NULL THEN
         RETURN FALSE;
     END IF;
-    -- Service role and owner_admin bypass company membership check
-    IF auth_current_role() IN ('service_role', 'owner_admin') THEN
+    -- Only service_role bypasses company membership check
+    IF auth_current_role() = 'service_role' THEN
         RETURN TRUE;
     END IF;
     RETURN EXISTS (
@@ -78,7 +78,8 @@ BEGIN
     IF cid IS NULL THEN
         RETURN FALSE;
     END IF;
-    IF auth_current_role() IN ('service_role', 'owner_admin') THEN
+    -- Only service_role bypasses company role check
+    IF auth_current_role() = 'service_role' THEN
         RETURN TRUE;
     END IF;
     RETURN EXISTS (

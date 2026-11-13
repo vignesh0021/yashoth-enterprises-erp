@@ -192,6 +192,13 @@ BEGIN
         RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
     END IF;
 
+    -- Enforce operation-specific role authorization (Financial disbursement)
+    IF auth_current_role() NOT IN ('service_role') THEN
+        IF NOT auth_has_company_role(p_company_id, 'owner_admin', 'manager', 'accounts_operator') THEN
+            RAISE EXCEPTION 'Forbidden: User does not have financial disbursement authorization in company %', p_company_id;
+        END IF;
+    END IF;
+
     -- 2. Verify contractor belongs to the specified company
     PERFORM 1 FROM contractors WHERE id = p_contractor_id AND company_id = p_company_id;
     IF NOT FOUND THEN
@@ -343,6 +350,13 @@ BEGIN
         RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
     END IF;
 
+    -- Enforce operation-specific role authorization (Financial disbursement)
+    IF auth_current_role() NOT IN ('service_role') THEN
+        IF NOT auth_has_company_role(p_company_id, 'owner_admin', 'manager', 'accounts_operator') THEN
+            RAISE EXCEPTION 'Forbidden: User does not have financial disbursement authorization in company %', p_company_id;
+        END IF;
+    END IF;
+
     -- 2. Idempotency check
     IF p_idempotency_key IS NOT NULL THEN
         SELECT id INTO v_payment_id FROM labour_payments 
@@ -477,6 +491,13 @@ BEGIN
         RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
     END IF;
 
+    -- Enforce operation-specific role authorization (Financial disbursement)
+    IF auth_current_role() NOT IN ('service_role') THEN
+        IF NOT auth_has_company_role(p_company_id, 'owner_admin', 'manager', 'accounts_operator') THEN
+            RAISE EXCEPTION 'Forbidden: User does not have salary disbursement authorization in company %', p_company_id;
+        END IF;
+    END IF;
+
     -- 2. Fetch and lock salary record row
     SELECT * INTO v_record FROM salary_records 
     WHERE id = p_salary_record_id AND company_id = p_company_id FOR UPDATE;
@@ -601,6 +622,13 @@ BEGIN
     -- Enforce authenticated caller is active member of company
     IF NOT auth_is_company_member(p_company_id) THEN
         RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
+    END IF;
+
+    -- Enforce operation-specific role authorization (Financial disbursement)
+    IF auth_current_role() NOT IN ('service_role') THEN
+        IF NOT auth_has_company_role(p_company_id, 'owner_admin', 'manager', 'accounts_operator') THEN
+            RAISE EXCEPTION 'Forbidden: User does not have advance disbursement authorization in company %', p_company_id;
+        END IF;
     END IF;
 
     -- 2. If account_id provided, verify cash/bank account belongs to the same company, is active, and matches payment mode
@@ -741,6 +769,13 @@ BEGIN
     -- Enforce authenticated caller is active member of company
     IF NOT auth_is_company_member(p_company_id) THEN
         RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
+    END IF;
+
+    -- Enforce operation-specific role authorization (Salary accrual)
+    IF auth_current_role() NOT IN ('service_role') THEN
+        IF NOT auth_has_company_role(p_company_id, 'owner_admin', 'manager', 'accounts_operator', 'hr_operator') THEN
+            RAISE EXCEPTION 'Forbidden: User does not have salary accrual authorization in company %', p_company_id;
+        END IF;
     END IF;
 
     -- 2. Verify employee belongs to company
@@ -995,6 +1030,13 @@ BEGIN
         RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
     END IF;
 
+    -- Enforce operation-specific role authorization (Daily labour accrual)
+    IF auth_current_role() NOT IN ('service_role') THEN
+        IF NOT auth_has_company_role(p_company_id, 'owner_admin', 'manager', 'accounts_operator', 'hr_operator', 'store_operator', 'weighment_operator') THEN
+            RAISE EXCEPTION 'Forbidden: User does not have labour accrual authorization in company %', p_company_id;
+        END IF;
+    END IF;
+
     -- 2. If account_id provided and payment is made, verify cash/bank account belongs to company, is active, and matches payment mode
     IF p_account_id IS NOT NULL AND COALESCE(p_amount_paid, 0) > 0 THEN
         PERFORM 1 FROM cash_bank_accounts 
@@ -1192,6 +1234,13 @@ BEGIN
     -- Enforce authenticated caller is active member of company
     IF NOT auth_is_company_member(p_company_id) THEN
         RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
+    END IF;
+
+    -- Enforce operation-specific role authorization (Contractor work recording)
+    IF auth_current_role() NOT IN ('service_role') THEN
+        IF NOT auth_has_company_role(p_company_id, 'owner_admin', 'manager', 'accounts_operator', 'store_operator') THEN
+            RAISE EXCEPTION 'Forbidden: User does not have contractor work authorization in company %', p_company_id;
+        END IF;
     END IF;
 
     -- 2. Verify contractor belongs to the specified company

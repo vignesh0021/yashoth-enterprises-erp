@@ -108,6 +108,27 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
+    -- 1. Authorization check: Caller must be authenticated
+    IF auth_current_user_id() IS NULL AND auth_current_role() NOT IN ('service_role') THEN
+        RAISE EXCEPTION 'Unauthenticated: Caller must be authenticated';
+    END IF;
+
+    -- 2. Prevent cross-company account modification
+    IF NEW.company_id IS NOT NULL AND NEW.company_id <> OLD.company_id THEN
+        RAISE EXCEPTION 'Forbidden: Cannot change account company_id (cross-company transfer prohibited)';
+    END IF;
+
+    -- 3. Tenant and role authorization
+    IF auth_current_role() NOT IN ('service_role') THEN
+        IF NOT auth_is_company_member(OLD.company_id) THEN
+            RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', OLD.company_id;
+        END IF;
+
+        IF NOT auth_has_company_role(OLD.company_id, 'owner_admin', 'manager', 'accounts_operator') THEN
+            RAISE EXCEPTION 'Forbidden: User is not authorized to update financial accounts in company %', OLD.company_id;
+        END IF;
+    END IF;
+
     UPDATE cash_bank_accounts
     SET 
         account_name = COALESCE(NEW.account_name, OLD.account_name),
@@ -138,6 +159,27 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
+    -- 1. Authorization check: Caller must be authenticated
+    IF auth_current_user_id() IS NULL AND auth_current_role() NOT IN ('service_role') THEN
+        RAISE EXCEPTION 'Unauthenticated: Caller must be authenticated';
+    END IF;
+
+    -- 2. Validate tenant identifier
+    IF NEW.company_id IS NULL THEN
+        RAISE EXCEPTION 'Validation error: company_id is required';
+    END IF;
+
+    -- 3. Tenant and role authorization
+    IF auth_current_role() NOT IN ('service_role') THEN
+        IF NOT auth_is_company_member(NEW.company_id) THEN
+            RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', NEW.company_id;
+        END IF;
+
+        IF NOT auth_has_company_role(NEW.company_id, 'owner_admin', 'manager', 'accounts_operator') THEN
+            RAISE EXCEPTION 'Forbidden: Only accounts and owner roles may create financial accounts in company %', NEW.company_id;
+        END IF;
+    END IF;
+
     INSERT INTO cash_bank_accounts (
         id,
         company_id,
@@ -180,6 +222,43 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
+    -- 1. Authorization check: Caller must be authenticated
+    IF auth_current_user_id() IS NULL AND auth_current_role() NOT IN ('service_role') THEN
+        RAISE EXCEPTION 'Unauthenticated: Caller must be authenticated';
+    END IF;
+
+    -- 2. Tenant and role authorization (Owner only)
+    IF auth_current_role() NOT IN ('service_role') THEN
+        IF NOT auth_is_company_member(OLD.company_id) THEN
+            RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', OLD.company_id;
+        END IF;
+
+        IF NOT auth_has_company_role(OLD.company_id, 'owner_admin') THEN
+            RAISE EXCEPTION 'Forbidden: Only owner_admin may delete financial accounts';
+        END IF;
+    END IF;
+
+    -- 3. Prevent deletion of accounts with linked transactions or posted journals
+    IF EXISTS (SELECT 1 FROM account_transactions WHERE account_id = OLD.id) THEN
+        RAISE EXCEPTION 'Integrity constraint: Cannot delete account % with linked transactions. Deactivate by setting is_active = false instead.', OLD.account_code;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM payments WHERE account_id = OLD.id) THEN
+        RAISE EXCEPTION 'Integrity constraint: Cannot delete account % linked to payment records. Deactivate by setting is_active = false instead.', OLD.account_code;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM expenses WHERE account_id = OLD.id) THEN
+        RAISE EXCEPTION 'Integrity constraint: Cannot delete account % linked to expense disbursements. Deactivate by setting is_active = false instead.', OLD.account_code;
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM journal_lines jl
+        JOIN journal_entries je ON je.id = jl.journal_entry_id
+        WHERE je.company_id = OLD.company_id AND jl.account_code = OLD.account_code
+    ) THEN
+        RAISE EXCEPTION 'Integrity constraint: Cannot delete account % with posted journal entries. Deactivate by setting is_active = false instead.', OLD.account_code;
+    END IF;
+
     DELETE FROM cash_bank_accounts WHERE id = OLD.id;
     RETURN OLD;
 END;
@@ -241,19 +320,34 @@ BEGIN
         RAISE EXCEPTION 'Unauthenticated: Caller must be authenticated';
     END IF;
 
-    -- 2. Tenant isolation check: Caller must be an active member of target company
-    IF NOT auth_is_company_member(p_company_id) THEN
-        RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
+    -- 2. Tenant isolation check: If caller is authenticated (not service_role), verify membership
+    IF auth_current_role() NOT IN ('service_role') THEN
+        IF NOT auth_is_company_member(p_company_id) THEN
+            RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
+        END IF;
+
+        -- 3. Operation-specific role validation on document types
+        IF p_doc_type IN ('PAYMENT', 'RECEIPT', 'JOURNAL') THEN
+            IF NOT auth_has_company_role(p_company_id, 'owner_admin', 'manager', 'accounts_operator') THEN
+                RAISE EXCEPTION 'Forbidden: User is not authorized to generate financial % vouchers', p_doc_type;
+            END IF;
+        END IF;
     END IF;
 
-    -- 3. Determine current Indian Financial Year (e.g. "26" for FY 2026-2027)
+    -- 4. Verify company exists
+    PERFORM 1 FROM companies WHERE id = p_company_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Company % does not exist', p_company_id;
+    END IF;
+
+    -- 5. Determine current Indian Financial Year (e.g. "26" for FY 2026-2027)
     IF EXTRACT(MONTH FROM CURRENT_DATE) >= 4 THEN
         v_fy := TO_CHAR(CURRENT_DATE, 'YY');
     ELSE
         v_fy := TO_CHAR(CURRENT_DATE - INTERVAL '1 year', 'YY');
     END IF;
 
-    -- 4. Resolve default prefix if omitted
+    -- 6. Resolve default prefix if omitted
     v_prefix := COALESCE(p_prefix, 
         CASE p_doc_type
             WHEN 'WEIGHMENT' THEN 'WM'
@@ -267,7 +361,7 @@ BEGIN
         END
     );
 
-    -- 5. Atomically lock and increment counter
+    -- 7. Atomically lock and increment counter
     INSERT INTO company_document_sequences (company_id, doc_type, prefix, financial_year, current_number)
     VALUES (p_company_id, p_doc_type, v_prefix, v_fy, 1)
     ON CONFLICT (company_id, doc_type, financial_year)
@@ -283,4 +377,5 @@ $$;
 
 REVOKE ALL ON FUNCTION fn_get_next_voucher_no(UUID, VARCHAR, VARCHAR) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION fn_get_next_voucher_no(UUID, VARCHAR, VARCHAR) TO authenticated, service_role;
+
 

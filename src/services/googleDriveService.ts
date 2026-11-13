@@ -83,7 +83,7 @@ class GoogleDriveService {
   }
 
   public isAuthenticated(): boolean {
-    return !!this.accessToken || !!this.userEmail;
+    return Boolean(this.accessToken);
   }
 
   public connectGmailAccount(email: string): { success: boolean; userEmail: string } {
@@ -103,9 +103,9 @@ class GoogleDriveService {
 
   public getStatus(): GoogleDriveStatus & { isNativeAndroid: boolean } {
     const email = this.getConnectedEmail();
-    const isNativeAndroid = typeof window !== 'undefined' && !!(window as any).AndroidNative;
+    const isNativeAndroid = typeof window !== 'undefined' && Boolean((window as any).AndroidNative);
     return {
-      isConnected: !!this.accessToken || isNativeAndroid,
+      isConnected: Boolean(this.accessToken),
       userEmail: email,
       hasClientId: this.isConfigured(),
       isNativeAndroid,
@@ -162,50 +162,58 @@ class GoogleDriveService {
   }
 
   /**
-   * Triggers the interactive Google sign-in consent modal, or connects Gmail account for email backup.
+   * Triggers the interactive Google sign-in consent modal.
    */
   public async signIn(): Promise<{ success: boolean; error?: string }> {
-    const email = this.getConnectedEmail();
-
     if (!this.isConfigured()) {
-      // Connect to Gmail directly
-      this.connectGmailAccount(email);
       return {
-        success: true,
+        success: false,
+        error: 'Google Drive Client ID is not configured. Please enter your Google Cloud OAuth Client ID in Settings.',
       };
     }
 
     try {
-      await this.initClient();
-
-      if (!this.tokenClient) {
-        // Fallback to Gmail email backup mode
-        this.connectGmailAccount(email);
-        return { success: true };
+      const ok = await this.initClient();
+      if (!ok || !this.tokenClient) {
+        return {
+          success: false,
+          error: 'Google Identity Services could not be initialized. Please check network connection.',
+        };
       }
 
       return new Promise((resolve) => {
         try {
           this.tokenClient.callback = (tokenResponse: any) => {
-            if (tokenResponse.error) {
-              // Fallback to Gmail email backup
-              this.connectGmailAccount(email);
-              resolve({ success: true });
+            if (tokenResponse?.error) {
+              resolve({
+                success: false,
+                error: tokenResponse.error_description || tokenResponse.error || 'Google sign-in was cancelled or failed.',
+              });
               return;
             }
-            this.accessToken = tokenResponse.access_token;
-            resolve({ success: true });
+            if (tokenResponse?.access_token) {
+              this.accessToken = tokenResponse.access_token;
+              resolve({ success: true });
+            } else {
+              resolve({
+                success: false,
+                error: 'No access token received from Google OAuth.',
+              });
+            }
           };
           this.tokenClient.requestAccessToken({ prompt: 'consent' });
-        } catch {
-          // Fallback to Gmail email backup
-          this.connectGmailAccount(email);
-          resolve({ success: true });
+        } catch (reqErr: any) {
+          resolve({
+            success: false,
+            error: reqErr?.message || 'Failed to request Google OAuth token.',
+          });
         }
       });
-    } catch {
-      this.connectGmailAccount(email);
-      return { success: true };
+    } catch (err: any) {
+      return {
+        success: false,
+        error: err?.message || 'Google Drive authentication error.',
+      };
     }
   }
 
@@ -333,10 +341,21 @@ class GoogleDriveService {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error?.message || `HTTP ${response.status}: Failed to upload to Google Drive.`);
+        let errMsg = errorData.error?.message;
+        if (!errMsg) {
+          if (response.status === 401) errMsg = 'HTTP 401 Unauthorized: Invalid or expired Google OAuth access token.';
+          else if (response.status === 403) errMsg = 'HTTP 403 Forbidden: Insufficient Google Drive permissions or scope.';
+          else if (response.status === 404) errMsg = 'HTTP 404 Not Found: Google Drive upload endpoint unavailable.';
+          else if (response.status >= 500) errMsg = `HTTP ${response.status} Server Error: Google Drive backend service unavailable.`;
+          else errMsg = `HTTP ${response.status}: Failed to upload to Google Drive.`;
+        }
+        throw new Error(errMsg);
       }
 
       const fileData = await response.json();
+      if (!fileData?.id || typeof fileData.id !== 'string' || fileData.id.trim().length === 0) {
+        throw new Error('Google Drive upload response did not return a valid non-empty file ID.');
+      }
       return { success: true, fileId: fileData.id };
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to upload backup to Google Drive.' };

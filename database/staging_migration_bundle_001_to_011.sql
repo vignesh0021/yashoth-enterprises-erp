@@ -1679,6 +1679,16 @@ CREATE TABLE IF NOT EXISTS expenses (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Ensure expenses columns exist if table already existed from migration 001
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(20) NOT NULL DEFAULT 'CASH' CHECK (payment_mode IN ('CASH', 'BANK', 'UNPAID'));
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS status VARCHAR(20) NOT NULL DEFAULT 'PAID' CHECK (status IN ('PAID', 'UNPAID', 'REVERSED'));
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS approval_status VARCHAR(20) NOT NULL DEFAULT 'APPROVED' CHECK (approval_status IN ('APPROVED', 'PENDING', 'REJECTED'));
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS entered_by VARCHAR(100);
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS attachment_url TEXT;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS reversal_expense_id UUID REFERENCES expenses(id) ON DELETE SET NULL;
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS reversal_reason TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_expenses_company_date ON expenses(company_id, expense_date);
 CREATE INDEX IF NOT EXISTS idx_expenses_status ON expenses(company_id, status);
 

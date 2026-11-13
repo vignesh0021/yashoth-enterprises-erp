@@ -196,6 +196,20 @@ export const TRANSLATIONS: Record<AppLanguage, Record<string, string>> = {
     'emp.daily_attendance': 'Daily Attendance',
     'emp.active_staff': 'Active Staff Members',
 
+    // Preferred Core Operational Labels
+    'label.inward': 'Inward',
+    'label.outward': 'Outward',
+    'label.inventory': 'Inventory',
+    'label.stock_movement': 'Stock Movement',
+    'label.weighment': 'Weighment',
+    'label.supplier': 'Supplier',
+    'label.customer': 'Customer',
+    'label.ledger': 'Ledger',
+    'label.receivable': 'Receivable',
+    'label.payable': 'Payable',
+    'label.reconciliation': 'Reconciliation',
+    'label.journal_entry': 'Journal Entry',
+
     // Language Toggle
     'lang.switch': 'தமிழ்',
     'lang.current': 'English',
@@ -381,6 +395,20 @@ export const TRANSLATIONS: Record<AppLanguage, Record<string, string>> = {
     'emp.add_employee': 'புதிய பணியாளர் சேர்க்க',
     'emp.daily_attendance': 'தினசரி வருகை பதிவு',
     'emp.active_staff': 'மொத்த பணியாளர்கள்',
+
+    // Preferred Core Operational Labels
+    'label.inward': 'சரக்கு வந்தது',
+    'label.outward': 'சரக்கு வெளியேறியது',
+    'label.inventory': 'இருப்புச் சரக்கு',
+    'label.stock_movement': 'சரக்கு மாற்றம்',
+    'label.weighment': 'எடை பதிவு',
+    'label.supplier': 'சரக்கு விற்பவர்',
+    'label.customer': 'சரக்கு வாங்குபவர்',
+    'label.ledger': 'கணக்குப் புத்தகம்',
+    'label.receivable': 'நமக்கு வர வேண்டியது',
+    'label.payable': 'நாம் கொடுக்க வேண்டியது',
+    'label.reconciliation': 'கணக்குச் சரிபார்ப்பு',
+    'label.journal_entry': 'கணக்குப் பதிவு',
 
     // Language Toggle
     'lang.switch': 'English',

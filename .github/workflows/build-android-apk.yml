@@ -36,9 +36,9 @@ jobs:
           cache: 'gradle'
 
       - name: Install Dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
-      - name: Run Mandatory Unit Test Suite (165 Tests)
+      - name: Run Mandatory Automated Test Battery
         run: node scripts/test-runner.mjs
 
       - name: Build Production Web Bundle & Sync Capacitor Android
@@ -66,19 +66,3 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      - name: Publish APK to GitHub Releases (Latest)
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v1.0.0-latest
-          target_commitish: ${{ github.sha }}
-          name: "Yashoth Enterprises Scrap ERP — Android APK (Latest)"
-          body: |
-            ### Yashoth Enterprises Scrap ERP (`com.yashothenterprises.erp`)
-            - **1000% Official IMOP Quotation & GST Tax Invoice Replica**
-            - **Vehicle Insurance & Vahan RTO Compliance Alert Engine**
-            - **GSTIN Verification & NIC Form GST EWB-01 (v1.03) E-Way Bill Engine**
-            - **1-Tap Quotations & Purchase Orders (PO) Builder**
-            - **Offline-First Scrap Yard Mode**
-          files: Yashoth-Enterprises-ERP.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

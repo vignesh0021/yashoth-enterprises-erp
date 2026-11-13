@@ -137,6 +137,24 @@ export interface Party {
   openingBalance: number; // positive = customer owes us; negative = we owe supplier
   openingBalanceDate: string;
   isActive: boolean;
+
+  // Scrap Buyer & Agent CRM Fields (Phase 7)
+  buyerType?: 'SCRAP_BUYER' | 'AGENT' | 'BROKER' | 'REGULAR_CUSTOMER' | 'PROSPECT';
+  whatsApp?: string;
+  location?: string;
+  interestedMaterials?: string[];
+  materialGrade?: string;
+  preferredQuantity?: number;
+  expectedBuyingRate?: number;
+  minQuantity?: number;
+  maxQuantity?: number;
+  creditTerms?: string;
+  transportArrangements?: string;
+  lastContactDate?: string;
+  nextFollowUpDate?: string;
+  assignedEmployee?: string;
+  crmStatus?: 'LEAD' | 'CONTACTED' | 'QUOTED' | 'NEGOTIATING' | 'ACTIVE' | 'INACTIVE';
+  notes?: string;
 }
 
 export type WeighingMethod = 'MANUAL_SCALE' | 'WEIGHBRIDGE_SLIP' | 'HARDWARE_LINK';

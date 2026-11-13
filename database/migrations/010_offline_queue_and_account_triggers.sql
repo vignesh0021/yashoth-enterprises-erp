@@ -253,3 +253,7 @@ BEGIN
     RETURN v_voucher_no;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+REVOKE ALL ON FUNCTION fn_get_next_voucher_no(UUID, VARCHAR, VARCHAR) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION fn_get_next_voucher_no(UUID, VARCHAR, VARCHAR) TO authenticated, service_role;
+

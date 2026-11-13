@@ -11,7 +11,7 @@ export interface SupabaseConfig {
 
 const DEFAULT_CONFIG: SupabaseConfig = {
   supabaseUrl: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '',
-  supabaseAnonKey: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY) || '',
+  supabaseAnonKey: (typeof import.meta !== 'undefined' && (import.meta.env?.VITE_SUPABASE_ANON_KEY || import.meta.env?.VITE_SUPABASE_PUBLISHABLE_KEY)) || '',
 };
 
 class SupabaseClientWrapper {

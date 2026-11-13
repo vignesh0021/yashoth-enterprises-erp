@@ -26,7 +26,8 @@ dist-ssr
 
 # Environment
 .env
-.env.production
+.env.*
+!.env.example
 
 # impeccable-ignore-start
 **/.impeccable/config.local.json

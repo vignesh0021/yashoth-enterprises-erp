@@ -144,4 +144,24 @@ describe('Suite 18: Supabase Migration Readiness & Staging Validation (010 & 011
     };
     expect(resolvedSaveAsNew.id).not.toBe(serverState.id);
   });
+
+  it('18.5 verifies Staging environment isolation and gitignore protection', () => {
+    const gitignorePath = path.join(rootDir, '.gitignore');
+    expect(fs.existsSync(gitignorePath)).toBe(true);
+    const gitignoreContent = fs.readFileSync(gitignorePath, 'utf-8');
+    expect(gitignoreContent).toContain('.env.*');
+
+    const envStagingPath = path.join(rootDir, '.env.staging');
+    expect(fs.existsSync(envStagingPath)).toBe(true);
+    const envStagingContent = fs.readFileSync(envStagingPath, 'utf-8');
+    expect(envStagingContent).toContain('VITE_APP_ENV=staging');
+    expect(envStagingContent).toContain('qruqcqwgwlrroevqtnax.supabase.co');
+    expect(envStagingContent).not.toContain('production');
+  });
+
+  it('18.6 verifies RPC execution privilege restriction on fn_get_next_voucher_no', () => {
+    const sql = fs.readFileSync(mig010Path, 'utf-8');
+    expect(sql).toContain('REVOKE ALL ON FUNCTION fn_get_next_voucher_no');
+    expect(sql).toContain('GRANT EXECUTE ON FUNCTION fn_get_next_voucher_no(UUID, VARCHAR, VARCHAR) TO authenticated, service_role;');
+  });
 });

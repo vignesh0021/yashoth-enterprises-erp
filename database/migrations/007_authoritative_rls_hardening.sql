@@ -12,25 +12,43 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- ----------------------------------------------------------------------------
 
 -- Retrieves current Supabase authenticated user ID
-CREATE OR REPLACE FUNCTION auth_current_user_id() RETURNS UUID AS $$
+CREATE OR REPLACE FUNCTION auth_current_user_id() 
+RETURNS UUID 
+LANGUAGE plpgsql 
+STABLE 
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
 BEGIN
     RETURN NULLIF(current_setting('request.jwt.claim.sub', true), '')::UUID;
 EXCEPTION WHEN OTHERS THEN
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$;
 
 -- Retrieves current Supabase authenticated role
-CREATE OR REPLACE FUNCTION auth_current_role() RETURNS VARCHAR AS $$
+CREATE OR REPLACE FUNCTION auth_current_role() 
+RETURNS VARCHAR 
+LANGUAGE plpgsql 
+STABLE 
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
 BEGIN
     RETURN COALESCE(current_setting('request.jwt.claim.role', true), 'authenticated');
 EXCEPTION WHEN OTHERS THEN
     RETURN 'authenticated';
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$;
 
 -- Verifies if current user is an active member of the specified company
-CREATE OR REPLACE FUNCTION auth_is_company_member(cid UUID) RETURNS BOOLEAN AS $$
+CREATE OR REPLACE FUNCTION auth_is_company_member(cid UUID) 
+RETURNS BOOLEAN 
+LANGUAGE plpgsql 
+STABLE 
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
 BEGIN
     IF cid IS NULL THEN
         RETURN FALSE;
@@ -46,10 +64,16 @@ BEGIN
           AND is_active = true
     );
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$;
 
 -- Verifies if current user has an authorized role within the company
-CREATE OR REPLACE FUNCTION auth_has_company_role(cid UUID, VARIADIC allowed_roles TEXT[]) RETURNS BOOLEAN AS $$
+CREATE OR REPLACE FUNCTION auth_has_company_role(cid UUID, VARIADIC allowed_roles TEXT[]) 
+RETURNS BOOLEAN 
+LANGUAGE plpgsql 
+STABLE 
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
 BEGIN
     IF cid IS NULL THEN
         RETURN FALSE;
@@ -65,7 +89,7 @@ BEGIN
           AND role = ANY(allowed_roles)
     );
 END;
-$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+$$;
 
 -- ----------------------------------------------------------------------------
 -- 2. Enable Row-Level Security on ALL Operational & Financial Tables

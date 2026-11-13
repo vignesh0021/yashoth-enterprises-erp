@@ -72,6 +72,10 @@ CREATE POLICY offline_queue_tenant_policy ON offline_sync_queue
     USING (
         auth_current_role() IN ('owner_admin', 'service_role')
         OR auth_is_company_member(company_id)
+    )
+    WITH CHECK (
+        auth_current_role() IN ('owner_admin', 'service_role')
+        OR auth_is_company_member(company_id)
     );
 
 DROP POLICY IF EXISTS sync_conflicts_tenant_policy ON sync_conflicts;
@@ -80,11 +84,23 @@ CREATE POLICY sync_conflicts_tenant_policy ON sync_conflicts
     USING (
         auth_current_role() IN ('owner_admin', 'service_role')
         OR auth_is_company_member(company_id)
+    )
+    WITH CHECK (
+        auth_current_role() IN ('owner_admin', 'service_role')
+        OR auth_is_company_member(company_id)
     );
 
 -- ----------------------------------------------------------------------------
--- 4. INSTEAD OF UPDATE & INSERT Trigger for PostgREST 'accounts' View
+-- 4. INSTEAD OF Triggers for PostgREST 'accounts' View & Schema Alignment
 -- ----------------------------------------------------------------------------
+-- Ensure required balance and audit timestamp columns exist on cash_bank_accounts
+ALTER TABLE IF EXISTS cash_bank_accounts ADD COLUMN IF NOT EXISTS current_balance DECIMAL(14, 2) DEFAULT 0.00;
+ALTER TABLE IF EXISTS cash_bank_accounts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP;
+UPDATE cash_bank_accounts SET current_balance = COALESCE(opening_balance, 0.00) WHERE current_balance IS NULL;
+
+-- Ensure view 'accounts' exists and reflects all columns
+CREATE OR REPLACE VIEW accounts AS SELECT * FROM cash_bank_accounts;
+
 CREATE OR REPLACE FUNCTION trg_accounts_view_update()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -149,6 +165,20 @@ CREATE TRIGGER accounts_view_insert_trigger
     FOR EACH ROW
     EXECUTE FUNCTION trg_accounts_view_insert();
 
+CREATE OR REPLACE FUNCTION trg_accounts_view_delete()
+RETURNS TRIGGER AS $$
+BEGIN
+    DELETE FROM cash_bank_accounts WHERE id = OLD.id;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS accounts_view_delete_trigger ON accounts;
+CREATE TRIGGER accounts_view_delete_trigger
+    INSTEAD OF DELETE ON accounts
+    FOR EACH ROW
+    EXECUTE FUNCTION trg_accounts_view_delete();
+
 -- ----------------------------------------------------------------------------
 -- 5. Atomic PostgreSQL Voucher Sequence Generator Function
 -- ----------------------------------------------------------------------------
@@ -163,6 +193,20 @@ CREATE TABLE IF NOT EXISTS company_document_sequences (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (company_id, doc_type, financial_year)
 );
+
+ALTER TABLE company_document_sequences ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS company_document_sequences_tenant_policy ON company_document_sequences;
+CREATE POLICY company_document_sequences_tenant_policy ON company_document_sequences
+    FOR ALL
+    USING (
+        auth_current_role() IN ('owner_admin', 'service_role')
+        OR auth_is_company_member(company_id)
+    )
+    WITH CHECK (
+        auth_current_role() IN ('owner_admin', 'service_role')
+        OR auth_is_company_member(company_id)
+    );
 
 CREATE OR REPLACE FUNCTION fn_get_next_voucher_no(
     p_company_id UUID,

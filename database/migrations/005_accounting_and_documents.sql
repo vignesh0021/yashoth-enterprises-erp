@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS journal_entries (
     total_debit NUMERIC(15,2) NOT NULL,
     total_credit NUMERIC(15,2) NOT NULL,
     is_posted BOOLEAN NOT NULL DEFAULT true,
+    status VARCHAR(20) NOT NULL DEFAULT 'POSTED' CHECK (status IN ('DRAFT', 'POSTED', 'CANCELLED', 'REVERSED')),
     created_by UUID REFERENCES users_roles(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT chk_journal_balanced CHECK (ROUND(total_debit, 2) = ROUND(total_credit, 2)),

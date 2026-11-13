@@ -102,7 +102,11 @@ UPDATE cash_bank_accounts SET current_balance = COALESCE(opening_balance, 0.00) 
 CREATE OR REPLACE VIEW accounts AS SELECT * FROM cash_bank_accounts;
 
 CREATE OR REPLACE FUNCTION trg_accounts_view_update()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER 
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
 BEGIN
     UPDATE cash_bank_accounts
     SET 
@@ -119,7 +123,7 @@ BEGIN
     WHERE id = OLD.id;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 DROP TRIGGER IF EXISTS accounts_view_update_trigger ON accounts;
 CREATE TRIGGER accounts_view_update_trigger
@@ -128,7 +132,11 @@ CREATE TRIGGER accounts_view_update_trigger
     EXECUTE FUNCTION trg_accounts_view_update();
 
 CREATE OR REPLACE FUNCTION trg_accounts_view_insert()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER 
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
 BEGIN
     INSERT INTO cash_bank_accounts (
         id,
@@ -157,7 +165,7 @@ BEGIN
     );
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 DROP TRIGGER IF EXISTS accounts_view_insert_trigger ON accounts;
 CREATE TRIGGER accounts_view_insert_trigger
@@ -166,12 +174,16 @@ CREATE TRIGGER accounts_view_insert_trigger
     EXECUTE FUNCTION trg_accounts_view_insert();
 
 CREATE OR REPLACE FUNCTION trg_accounts_view_delete()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER 
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
 BEGIN
     DELETE FROM cash_bank_accounts WHERE id = OLD.id;
     RETURN OLD;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 DROP TRIGGER IF EXISTS accounts_view_delete_trigger ON accounts;
 CREATE TRIGGER accounts_view_delete_trigger
@@ -212,21 +224,36 @@ CREATE OR REPLACE FUNCTION fn_get_next_voucher_no(
     p_company_id UUID,
     p_doc_type VARCHAR,
     p_prefix VARCHAR DEFAULT NULL
-) RETURNS VARCHAR AS $$
+) 
+RETURNS VARCHAR 
+LANGUAGE plpgsql 
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
 DECLARE
     v_fy VARCHAR(10);
     v_prefix VARCHAR(20);
     v_next_num BIGINT;
     v_voucher_no VARCHAR(50);
 BEGIN
-    -- Determine current Indian Financial Year (e.g. "26" for FY 2026-2027)
+    -- 1. Authorization check: Caller must be authenticated
+    IF auth_current_user_id() IS NULL AND auth_current_role() NOT IN ('service_role') THEN
+        RAISE EXCEPTION 'Unauthenticated: Caller must be authenticated';
+    END IF;
+
+    -- 2. Tenant isolation check: Caller must be an active member of target company
+    IF NOT auth_is_company_member(p_company_id) THEN
+        RAISE EXCEPTION 'Unauthorized: Caller is not an authorized member of company %', p_company_id;
+    END IF;
+
+    -- 3. Determine current Indian Financial Year (e.g. "26" for FY 2026-2027)
     IF EXTRACT(MONTH FROM CURRENT_DATE) >= 4 THEN
         v_fy := TO_CHAR(CURRENT_DATE, 'YY');
     ELSE
         v_fy := TO_CHAR(CURRENT_DATE - INTERVAL '1 year', 'YY');
     END IF;
 
-    -- Resolve default prefix if omitted
+    -- 4. Resolve default prefix if omitted
     v_prefix := COALESCE(p_prefix, 
         CASE p_doc_type
             WHEN 'WEIGHMENT' THEN 'WM'
@@ -240,7 +267,7 @@ BEGIN
         END
     );
 
-    -- Atomically lock and increment counter
+    -- 5. Atomically lock and increment counter
     INSERT INTO company_document_sequences (company_id, doc_type, prefix, financial_year, current_number)
     VALUES (p_company_id, p_doc_type, v_prefix, v_fy, 1)
     ON CONFLICT (company_id, doc_type, financial_year)
@@ -252,7 +279,7 @@ BEGIN
     v_voucher_no := v_prefix || '-' || v_fy || '-' || LPAD(v_next_num::TEXT, 4, '0');
     RETURN v_voucher_no;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 REVOKE ALL ON FUNCTION fn_get_next_voucher_no(UUID, VARCHAR, VARCHAR) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION fn_get_next_voucher_no(UUID, VARCHAR, VARCHAR) TO authenticated, service_role;

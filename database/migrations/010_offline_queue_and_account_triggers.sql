@@ -290,7 +290,7 @@ BEGIN
 
     IF EXISTS (
         SELECT 1 FROM journal_lines jl
-        JOIN journal_entries je ON je.id = jl.journal_entry_id
+        JOIN journal_entries je ON je.id = jl.journal_id
         WHERE je.company_id = OLD.company_id AND jl.account_code = OLD.account_code
     ) THEN
         RAISE EXCEPTION 'Integrity constraint: Cannot delete account % with posted journal entries. Deactivate by setting is_active = false instead.', OLD.account_code;

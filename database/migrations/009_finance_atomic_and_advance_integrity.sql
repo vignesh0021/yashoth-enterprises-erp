@@ -291,16 +291,36 @@ DROP POLICY IF EXISTS rls_payment_allocations_update ON payment_allocations;
 DROP POLICY IF EXISTS rls_payment_allocations_delete ON payment_allocations;
 
 CREATE POLICY rls_payment_allocations_select ON payment_allocations FOR SELECT
-    USING (auth_is_company_member(company_id));
+    USING (
+        EXISTS (
+            SELECT 1 FROM payments p
+            WHERE p.id = payment_allocations.payment_id
+              AND auth_is_company_member(p.company_id)
+        )
+    );
 
 CREATE POLICY rls_payment_allocations_insert ON payment_allocations FOR INSERT
-    WITH CHECK (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator'));
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM payments p
+            WHERE p.id = payment_allocations.payment_id
+              AND auth_is_company_member(p.company_id)
+              AND auth_has_company_role(p.company_id, 'owner_admin', 'manager', 'accounts_operator')
+        )
+    );
 
 CREATE POLICY rls_payment_allocations_update ON payment_allocations FOR UPDATE
     USING (false);
 
 CREATE POLICY rls_payment_allocations_delete ON payment_allocations FOR DELETE
-    USING (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin'));
+    USING (
+        EXISTS (
+            SELECT 1 FROM payments p
+            WHERE p.id = payment_allocations.payment_id
+              AND auth_is_company_member(p.company_id)
+              AND auth_has_company_role(p.company_id, 'owner_admin')
+        )
+    );
 
 -- 5.9 journal_entries and journal_lines (General Ledger: Supervisor denied write access)
 DROP POLICY IF EXISTS journal_entries_tenant_policy ON journal_entries;
@@ -329,17 +349,37 @@ DROP POLICY IF EXISTS rls_journal_lines_update ON journal_lines;
 DROP POLICY IF EXISTS rls_journal_lines_delete ON journal_lines;
 
 CREATE POLICY rls_journal_lines_select ON journal_lines FOR SELECT
-    USING (auth_is_company_member(company_id));
+    USING (
+        EXISTS (
+            SELECT 1 FROM journal_entries je
+            WHERE je.id = journal_lines.journal_id
+              AND auth_is_company_member(je.company_id)
+        )
+    );
 
 CREATE POLICY rls_journal_lines_insert ON journal_lines FOR INSERT
-    WITH CHECK (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin', 'manager', 'accounts_operator'));
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM journal_entries je
+            WHERE je.id = journal_lines.journal_id
+              AND auth_is_company_member(je.company_id)
+              AND auth_has_company_role(je.company_id, 'owner_admin', 'manager', 'accounts_operator')
+        )
+    );
 
 CREATE POLICY rls_journal_lines_update ON journal_lines FOR UPDATE
     USING (false);
 
 CREATE POLICY rls_journal_lines_delete ON journal_lines FOR DELETE
-    USING (auth_is_company_member(company_id) AND auth_has_company_role(company_id, 'owner_admin')
-           AND EXISTS (SELECT 1 FROM journal_entries WHERE id = journal_lines.journal_entry_id AND status <> 'POSTED'));
+    USING (
+        EXISTS (
+            SELECT 1 FROM journal_entries je
+            WHERE je.id = journal_lines.journal_id
+              AND auth_is_company_member(je.company_id)
+              AND auth_has_company_role(je.company_id, 'owner_admin')
+              AND je.status <> 'POSTED'
+        )
+    );
 
 -- ----------------------------------------------------------------------------
 -- 6. Atomic RPC Function: Post Contractor Progress Payment

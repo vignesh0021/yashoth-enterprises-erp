@@ -267,7 +267,7 @@ CREATE POLICY purchase_lines_tenant_policy ON purchase_lines
     USING (
         EXISTS (
             SELECT 1 FROM purchase_headers ph
-            WHERE ph.id = purchase_lines.purchase_id
+            WHERE ph.id = purchase_lines.purchase_header_id
               AND auth_is_company_member(ph.company_id)
         )
     );
@@ -298,7 +298,7 @@ CREATE POLICY sales_lines_tenant_policy ON sales_lines
     USING (
         EXISTS (
             SELECT 1 FROM sales_headers sh
-            WHERE sh.id = sales_lines.sales_id
+            WHERE sh.id = sales_lines.sales_header_id
               AND auth_is_company_member(sh.company_id)
         )
     );
@@ -401,7 +401,7 @@ CREATE POLICY journal_lines_tenant_policy ON journal_lines
     USING (
         EXISTS (
             SELECT 1 FROM journal_entries je
-            WHERE je.id = journal_lines.journal_entry_id
+            WHERE je.id = journal_lines.journal_id
               AND auth_is_company_member(je.company_id)
         )
     );

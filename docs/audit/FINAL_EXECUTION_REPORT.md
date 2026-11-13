@@ -32,7 +32,7 @@ In strict compliance with forensic audit standards, every subsystem and verifica
 | **Staging User Provisioning** | 3 Personas (Owner, Accounts, Supervisor)| `PASS` | Provisioned in auth.users, users_roles & company_memberships |
 | **Real Multi-User Live Device Sync** | 3 Physical/Virtual Devices | `READY` | Ready for multi-device login with provisioned credentials |
 | **Live Google Drive Cloud API Sync** | Remote OAuth refresh tokens | `BLOCKED` | Awaiting client credentials; in-app encrypted fallback verified |
-| **Local Android APK Compilation** | `./gradlew assembleDebug` on Termux | `BLOCKED` | Termux environment lacks Java/Gradle; delegated to GitHub Actions |
+| **Android APK Compilation (CI/CD)** | GitHub Actions CI Run #37 | `PASS` | Compiled debug APK (55.2 MB) & uploaded artifact (SHA256: 3b2f491e...) |
 
 ---
 

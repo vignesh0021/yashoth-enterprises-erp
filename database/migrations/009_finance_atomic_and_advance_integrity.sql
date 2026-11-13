@@ -121,6 +121,12 @@ ALTER TABLE IF EXISTS daily_labour_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS contractor_work_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS expenses ENABLE ROW LEVEL SECURITY;
 
+-- Ensure contractor_work_entries status & idempotency columns exist before policy definition
+ALTER TABLE contractor_work_entries ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PARTIALLY_PAID', 'PAID', 'REVERSED'));
+ALTER TABLE contractor_work_entries ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(100);
+ALTER TABLE contractor_work_entries ADD COLUMN IF NOT EXISTS accrual_journal_id UUID;
+CREATE INDEX IF NOT EXISTS idx_contractor_work_idempotency ON contractor_work_entries(company_id, idempotency_key);
+
 -- 5.1 account_transactions (IMMUTABLE LEDGER: Writes strictly restricted to atomic RPCs/system functions)
 DROP POLICY IF EXISTS account_transactions_tenant_policy ON account_transactions;
 DROP POLICY IF EXISTS rls_account_transactions_select ON account_transactions;

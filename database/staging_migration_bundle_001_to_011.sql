@@ -1773,6 +1773,9 @@ CREATE TABLE IF NOT EXISTS contractor_work_entries (
     remaining_balance NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     payment_mode VARCHAR(20) NOT NULL DEFAULT 'BANK' CHECK (payment_mode IN ('CASH', 'BANK', 'UNPAID')),
     account_id UUID REFERENCES cash_bank_accounts(id) ON DELETE SET NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PARTIALLY_PAID', 'PAID', 'REVERSED')),
+    idempotency_key VARCHAR(100),
+    accrual_journal_id UUID,
     notes TEXT,
     created_by VARCHAR(100),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -2020,6 +2023,12 @@ ALTER TABLE IF EXISTS salary_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS daily_labour_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS contractor_work_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS expenses ENABLE ROW LEVEL SECURITY;
+
+-- Ensure contractor_work_entries status & idempotency columns exist before policy definition
+ALTER TABLE contractor_work_entries ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PARTIALLY_PAID', 'PAID', 'REVERSED'));
+ALTER TABLE contractor_work_entries ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(100);
+ALTER TABLE contractor_work_entries ADD COLUMN IF NOT EXISTS accrual_journal_id UUID;
+CREATE INDEX IF NOT EXISTS idx_contractor_work_idempotency ON contractor_work_entries(company_id, idempotency_key);
 
 -- 5.1 account_transactions (IMMUTABLE LEDGER: Writes strictly restricted to atomic RPCs/system functions)
 DROP POLICY IF EXISTS account_transactions_tenant_policy ON account_transactions;

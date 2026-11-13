@@ -129,6 +129,9 @@ CREATE TABLE IF NOT EXISTS contractor_work_entries (
     remaining_balance NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     payment_mode VARCHAR(20) NOT NULL DEFAULT 'BANK' CHECK (payment_mode IN ('CASH', 'BANK', 'UNPAID')),
     account_id UUID REFERENCES cash_bank_accounts(id) ON DELETE SET NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PARTIALLY_PAID', 'PAID', 'REVERSED')),
+    idempotency_key VARCHAR(100),
+    accrual_journal_id UUID,
     notes TEXT,
     created_by VARCHAR(100),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

@@ -121,7 +121,8 @@ ALTER TABLE IF EXISTS daily_labour_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS contractor_work_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS expenses ENABLE ROW LEVEL SECURITY;
 
--- Ensure contractor_work_entries status & idempotency columns exist before policy definition
+-- Ensure contractor_work_entries & daily_labour_entries status & idempotency columns exist before policy definition
+ALTER TABLE daily_labour_entries ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PARTIALLY_PAID', 'PAID', 'REVERSED'));
 ALTER TABLE contractor_work_entries ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PARTIALLY_PAID', 'PAID', 'REVERSED'));
 ALTER TABLE contractor_work_entries ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(100);
 ALTER TABLE contractor_work_entries ADD COLUMN IF NOT EXISTS accrual_journal_id UUID;

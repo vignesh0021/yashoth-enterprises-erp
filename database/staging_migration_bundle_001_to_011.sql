@@ -1729,6 +1729,7 @@ CREATE TABLE IF NOT EXISTS daily_labour_entries (
     remaining_balance NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     payment_mode VARCHAR(20) NOT NULL DEFAULT 'CASH' CHECK (payment_mode IN ('CASH', 'BANK', 'UNPAID')),
     account_id UUID REFERENCES cash_bank_accounts(id) ON DELETE SET NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PARTIALLY_PAID', 'PAID', 'REVERSED')),
     notes TEXT,
     created_by VARCHAR(100),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -2024,7 +2025,8 @@ ALTER TABLE IF EXISTS daily_labour_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS contractor_work_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS expenses ENABLE ROW LEVEL SECURITY;
 
--- Ensure contractor_work_entries status & idempotency columns exist before policy definition
+-- Ensure contractor_work_entries & daily_labour_entries status & idempotency columns exist before policy definition
+ALTER TABLE daily_labour_entries ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PARTIALLY_PAID', 'PAID', 'REVERSED'));
 ALTER TABLE contractor_work_entries ADD COLUMN IF NOT EXISTS status VARCHAR(30) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PARTIALLY_PAID', 'PAID', 'REVERSED'));
 ALTER TABLE contractor_work_entries ADD COLUMN IF NOT EXISTS idempotency_key VARCHAR(100);
 ALTER TABLE contractor_work_entries ADD COLUMN IF NOT EXISTS accrual_journal_id UUID;

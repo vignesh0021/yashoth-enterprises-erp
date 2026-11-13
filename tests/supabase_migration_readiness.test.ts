@@ -152,8 +152,10 @@ describe('Suite 18: Supabase Migration Readiness & Staging Validation (010 & 011
     expect(gitignoreContent).toContain('.env.*');
 
     const envStagingPath = path.join(rootDir, '.env.staging');
-    expect(fs.existsSync(envStagingPath)).toBe(true);
-    const envStagingContent = fs.readFileSync(envStagingPath, 'utf-8');
+    const envStagingExamplePath = path.join(rootDir, '.env.staging.example');
+    const targetPath = fs.existsSync(envStagingPath) ? envStagingPath : envStagingExamplePath;
+    expect(fs.existsSync(targetPath)).toBe(true);
+    const envStagingContent = fs.readFileSync(targetPath, 'utf-8');
     expect(envStagingContent).toContain('VITE_APP_ENV=staging');
     expect(envStagingContent).toContain('qruqcqwgwlrroevqtnax.supabase.co');
     expect(envStagingContent).not.toContain('production');

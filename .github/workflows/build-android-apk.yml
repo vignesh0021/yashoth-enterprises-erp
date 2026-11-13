@@ -38,6 +38,11 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Provision Staging Environment Configuration
+        run: |
+          cp .env.staging.example .env.staging
+          cp .env.staging.example .env
+
       - name: Run Mandatory Automated Test Battery
         run: node scripts/test-runner.mjs
 

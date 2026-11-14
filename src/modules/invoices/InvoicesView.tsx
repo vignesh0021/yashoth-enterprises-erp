@@ -255,16 +255,20 @@ export const InvoicesView: React.FC = () => {
 
   const handleDeleteInvoice = (inv: Invoice) => {
     if (window.confirm(`Are you sure you want to delete Tax Invoice #${inv.invoiceNo} for ${inv.customerName}?`)) {
-      const res = deleteTaxInvoice(inv.id);
-      if (res.success) {
-        if (selectedInvoice?.id === inv.id) {
-          setSelectedInvoice(null);
+      try {
+        const res = deleteTaxInvoice(inv.id);
+        if (res.success) {
+          if (selectedInvoice?.id === inv.id) {
+            setSelectedInvoice(null);
+          }
+          setFeedbackMsg({ type: 'success', text: res.message || 'Invoice deleted.' });
+        } else {
+          setFeedbackMsg({ type: 'error', text: res.message || 'Unable to delete invoice.' });
         }
-        setFeedbackMsg({ type: 'success', text: res.message || 'Invoice deleted.' });
-        setTimeout(() => setFeedbackMsg(null), 5000);
-      } else {
-        alert(res.message);
+      } catch (err: any) {
+        setFeedbackMsg({ type: 'error', text: err?.message || 'Unable to delete invoice.' });
       }
+      setTimeout(() => setFeedbackMsg(null), 5000);
     }
   };
 

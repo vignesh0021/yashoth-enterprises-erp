@@ -87,4 +87,30 @@ describe('Cashflow CRUD, Account Balance Reconciliation & Mobile Backup Fixes', 
     const reportsView = readSrc('src/modules/reports/ReportsView.tsx');
     expect(reportsView).toContain('overflow-x-auto touch-pan-x');
   });
+
+  it('purges pre-seeded dummy operational data and supports clearAllOperationalData in ERPContext and SettingsView', () => {
+    const erpCtx = readSrc('src/context/ERPContext.tsx');
+    const settingsView = readSrc('src/modules/settings/SettingsView.tsx');
+    expect(erpCtx).toContain('dummy_purged_v1');
+    expect(erpCtx).toContain('clearAllOperationalData');
+    expect(settingsView).toContain('Clear All Dummy / Operational Data');
+  });
+
+  it('provides explicit Inactive/Activate and permanent Delete actions for Materials, Parties, Invoices, and Proforma Invoices', () => {
+    const erpCtx = readSrc('src/context/ERPContext.tsx');
+    const materialsTab = readSrc('src/modules/inventory/MaterialsMasterTab.tsx');
+    const partiesView = readSrc('src/modules/parties/PartiesView.tsx');
+    const invoicesView = readSrc('src/modules/invoices/InvoicesView.tsx');
+    const docsView = readSrc('src/modules/documents/CommercialDocumentsView.tsx');
+
+    expect(erpCtx).toContain('deleteMaterial = (id: string, force: boolean = false)');
+    expect(erpCtx).toContain('deleteParty = (id: string, force: boolean = false)');
+    expect(erpCtx).toContain('if (currentUser) currentUser.lastActiveAt = Date.now()');
+    expect(materialsTab).toContain('handleToggleActive');
+    expect(materialsTab).toContain('Permanently Delete Material');
+    expect(partiesView).toContain('handleToggleActive');
+    expect(partiesView).toContain('Permanently Delete Party');
+    expect(invoicesView).toContain('catch (err: any)');
+    expect(docsView).toContain('catch (err: any)');
+  });
 });

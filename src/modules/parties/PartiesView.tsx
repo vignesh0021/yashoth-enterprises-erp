@@ -18,7 +18,8 @@ import {
   Trash2,
   CheckCircle,
   AlertCircle,
-  BookUser
+  BookUser,
+  Power
 } from 'lucide-react';
 import { pickContactFromPhonebook } from '../../utils/contactPicker.ts';
 import { QuickContactModal } from '../../components/QuickContactModal.tsx';
@@ -135,9 +136,23 @@ export const PartiesView: React.FC = () => {
     setTimeout(() => setFeedbackMsg(null), 5000);
   };
 
+  const handleToggleActive = (p: Party) => {
+    const nextActive = !p.isActive;
+    updateParty(p.id, { isActive: nextActive });
+    setFeedbackMsg({
+      type: 'success',
+      text: `Party "${p.legalName}" marked ${nextActive ? 'Active' : 'Inactive'}.`,
+    });
+    setTimeout(() => setFeedbackMsg(null), 5000);
+  };
+
   const handleDeleteParty = (p: Party) => {
-    if (confirm(`Are you sure you want to delete or deactivate party "${p.legalName}"?`)) {
-      const res = deleteParty(p.id);
+    const isInactive = p.isActive === false;
+    const promptMsg = isInactive
+      ? `Permanently delete inactive party "${p.legalName}"?`
+      : `Delete party "${p.legalName}"? (If linked to transactions, it will be marked Inactive first; click Delete again to permanently remove.)`;
+    if (confirm(promptMsg)) {
+      const res = deleteParty(p.id, isInactive);
       if (res.success) {
         setFeedbackMsg({ type: 'success', text: res.message || `Party "${p.legalName}" removed.` });
       } else {
@@ -298,16 +313,30 @@ export const PartiesView: React.FC = () => {
                           Statement
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleOpenEdit(party)}
-                          className="p-1 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                          className="p-1 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
                           title="Edit Party Details"
                         >
                           <Edit3 className="w-3.5 h-3.5" />
                         </button>
                         <button
+                          type="button"
+                          onClick={() => handleToggleActive(party)}
+                          className={`p-1 rounded transition-colors cursor-pointer ${
+                            party.isActive !== false
+                              ? 'text-amber-600 hover:text-amber-800 hover:bg-amber-50'
+                              : 'text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50'
+                          }`}
+                          title={party.isActive !== false ? 'Mark Inactive' : 'Mark Active'}
+                        >
+                          <Power className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => handleDeleteParty(party)}
-                          className="p-1 rounded text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition-colors"
-                          title="Delete / Deactivate Party"
+                          className="p-1 rounded text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer"
+                          title={party.isActive === false ? 'Permanently Delete Party' : 'Delete Party'}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>

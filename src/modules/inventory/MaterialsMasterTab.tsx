@@ -14,7 +14,8 @@ import {
   CheckCircle, 
   AlertCircle,
   Filter,
-  DollarSign
+  DollarSign,
+  Power
 } from 'lucide-react';
 
 export const MaterialsMasterTab: React.FC = () => {
@@ -109,9 +110,23 @@ export const MaterialsMasterTab: React.FC = () => {
     setTimeout(() => setFeedbackMsg(null), 5000);
   };
 
+  const handleToggleActive = (mat: Material) => {
+    const nextActive = !mat.isActive;
+    updateMaterial(mat.id, { isActive: nextActive });
+    setFeedbackMsg({
+      type: 'success',
+      text: `Material "${mat.name}" marked ${nextActive ? 'Active' : 'Inactive'}.`,
+    });
+    setTimeout(() => setFeedbackMsg(null), 5000);
+  };
+
   const handleDelete = (mat: Material) => {
-    if (confirm(`Are you sure you want to delete or deactivate scrap material "${mat.name}"?`)) {
-      const res = deleteMaterial(mat.id);
+    const isInactive = mat.isActive === false;
+    const promptMsg = isInactive
+      ? `Permanently delete inactive scrap material "${mat.name}" and any linked stock entries?`
+      : `Delete scrap material "${mat.name}"? (If linked to stock/transactions, it will be marked Inactive first; click Delete again to permanently remove.)`;
+    if (confirm(promptMsg)) {
+      const res = deleteMaterial(mat.id, isInactive);
       if (res.success) {
         setFeedbackMsg({ type: 'success', text: res.message || `Material "${mat.name}" removed.` });
       } else {
@@ -269,16 +284,30 @@ export const MaterialsMasterTab: React.FC = () => {
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
+                            type="button"
                             onClick={() => handleOpenEdit(mat)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
                             title="Edit Material"
                           >
                             <Edit3 className="w-3.5 h-3.5" />
                           </button>
                           <button
+                            type="button"
+                            onClick={() => handleToggleActive(mat)}
+                            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                              mat.isActive !== false
+                                ? 'text-amber-600 hover:text-amber-800 hover:bg-amber-50'
+                                : 'text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50'
+                            }`}
+                            title={mat.isActive !== false ? 'Mark Inactive' : 'Mark Active'}
+                          >
+                            <Power className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleDelete(mat)}
-                            className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition-colors"
-                            title="Delete or Deactivate Material"
+                            className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer"
+                            title={mat.isActive === false ? 'Permanently Delete Material' : 'Delete Material'}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>

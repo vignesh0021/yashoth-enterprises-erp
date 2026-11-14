@@ -13,7 +13,8 @@ import {
   CheckCircle2, 
   AlertCircle, 
   FileSpreadsheet, 
-  Database 
+  Database,
+  Trash2
 } from 'lucide-react';
 import { BackupManagerView } from './BackupManagerView.tsx';
 
@@ -27,7 +28,8 @@ export const SettingsView: React.FC = () => {
     importOpeningStock, 
     exportBackup, 
     restoreBackup, 
-    resetToDemoData 
+    resetToDemoData,
+    clearAllOperationalData 
   } = useERP();
 
   const [activeTab, setActiveTab] = useState<'PROFILE' | 'ROLES' | 'MIGRATION' | 'BACKUP'>('PROFILE');
@@ -113,13 +115,32 @@ export const SettingsView: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-xl font-black text-slate-900 tracking-tight">{t('settings.title', 'System Settings & Data Migration')}</h1>
-        <p className="text-xs text-slate-500 mt-0.5">
-          {language === 'ta' 
-            ? 'நிறுவன சுயவிவரம், ஜிஎஸ்டி பில் முன்னொட்டு, பயனர் அனுமதிகள் மற்றும் தரவு காப்பகம்.'
-            : 'Configure company profile, invoice numbering, RBAC security roles, and migrate legacy Excel registers safely.'}
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-black text-slate-900 tracking-tight">{t('settings.title', 'System Settings & Data Migration')}</h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {language === 'ta' 
+              ? 'நிறுவன சுயவிவரம், ஜிஎஸ்டி பில் முன்னொட்டு, பயனர் அனுமதிகள் மற்றும் தரவு காப்பகம்.'
+              : 'Configure company profile, invoice numbering, RBAC security roles, and migrate legacy Excel registers safely.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            if (window.confirm('Clear ALL dummy / operational records (invoices, stock, parties, cashbook, tasks, documents) and start clean? Company profile and yard setup will be preserved.')) {
+              try {
+                clearAllOperationalData();
+                alert('All operational & dummy data cleared.');
+              } catch (err: any) {
+                alert(err?.message || 'Only Owner Admin can clear all operational data.');
+              }
+            }
+          }}
+          className="shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold cursor-pointer transition-colors"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          <span>Clear All Dummy / Operational Data</span>
+        </button>
       </div>
 
       {/* Tabs */}

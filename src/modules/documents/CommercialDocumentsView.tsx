@@ -350,11 +350,15 @@ export const CommercialDocumentsView: React.FC = () => {
 
   const handleDelete = (docId: string) => {
     if (window.confirm('Are you sure you want to delete this commercial document?')) {
-      const res = deleteCommercialDoc(docId);
-      if (res.success) {
-        setFeedback({ type: 'success', text: res.message || 'Deleted successfully.' });
-      } else {
-        setFeedback({ type: 'error', text: res.message || 'Failed to delete.' });
+      try {
+        const res = deleteCommercialDoc(docId);
+        if (res.success) {
+          setFeedback({ type: 'success', text: res.message || 'Deleted successfully.' });
+        } else {
+          setFeedback({ type: 'error', text: res.message || 'Failed to delete.' });
+        }
+      } catch (err: any) {
+        setFeedback({ type: 'error', text: err?.message || 'Failed to delete.' });
       }
     }
   };

@@ -247,10 +247,10 @@ interface ERPContextType {
   // Core Business Actions & CRUD
   addParty: (partyData: Omit<Party, 'id'>) => Party;
   updateParty: (id: string, updates: Partial<Party>) => void;
-  deleteParty: (id: string) => { success: boolean; message?: string };
+  deleteParty: (id: string, force?: boolean) => { success: boolean; message?: string };
   addMaterial: (matData: Omit<Material, 'id'>) => Material;
   updateMaterial: (id: string, updates: Partial<Material>) => void;
-  deleteMaterial: (id: string) => { success: boolean; message?: string };
+  deleteMaterial: (id: string, force?: boolean) => { success: boolean; message?: string };
   addVehicle: (vehData: Omit<Vehicle, 'id'>) => Vehicle;
   updateVehicle: (id: string, updates: Partial<Vehicle>) => void;
   deleteVehicle: (id: string) => { success: boolean; message?: string };
@@ -336,6 +336,7 @@ interface ERPContextType {
   importParties: (rows: any[], dryRun: boolean) => ReturnType<typeof migrateParties>;
   importOpeningStock: (rows: any[], dryRun: boolean) => ReturnType<typeof migrateOpeningStock>;
   resetToDemoData: () => void;
+  clearAllOperationalData: () => void;
   exportBackup: () => string;
   restoreBackup: (jsonStr: string) => boolean;
 
@@ -418,6 +419,52 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // One-time purge of legacy pre-seeded mockData dummy records on upgrade while preserving user-created data
+  if (typeof window !== 'undefined' && localStorage.getItem(STORAGE_PREFIX + 'dummy_purged_v1') !== '1') {
+    const stripIds = (key: string, dummyItems: { id: string }[]) => {
+      try {
+        const raw = localStorage.getItem(STORAGE_PREFIX + key);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return;
+        const dummyIds = new Set(dummyItems.map((d) => d.id));
+        const filtered = parsed.filter((item: any) => !item || !dummyIds.has(item.id));
+        localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(filtered));
+      } catch {
+        // ignore malformed storage
+      }
+    };
+    stripIds('materials', INITIAL_MATERIALS);
+    stripIds('materialGrades', INITIAL_MATERIAL_GRADES);
+    stripIds('parties', INITIAL_PARTIES);
+    stripIds('vehicles', INITIAL_VEHICLES);
+    stripIds('vehicleDocuments', INITIAL_VEHICLE_DOCS);
+    stripIds('employees', INITIAL_EMPLOYEES);
+    stripIds('attendance', INITIAL_ATTENDANCE);
+    stripIds('accounts', INITIAL_ACCOUNTS);
+    stripIds('accountTransactions', INITIAL_ACCOUNT_TRANSACTIONS);
+    stripIds('expenses', INITIAL_EXPENSES);
+    stripIds('inventoryLots', INITIAL_LOTS);
+    stripIds('stockMovements', INITIAL_STOCK_MOVEMENTS);
+    stripIds('invoices', INITIAL_INVOICES);
+    stripIds('commercialDocuments', INITIAL_COMMERCIAL_DOCUMENTS);
+    stripIds('journalEntries', INITIAL_JOURNAL_ENTRIES);
+    stripIds('backupHistory', INITIAL_BACKUP_HISTORY);
+    stripIds('restoreLogs', INITIAL_RESTORE_LOGS);
+    stripIds('dailyTasks', INITIAL_DAILY_TASKS);
+    stripIds('workNotes', INITIAL_WORK_NOTES);
+    stripIds('uploadedDocuments', INITIAL_UPLOADED_DOCS);
+    stripIds('salaryRecords', INITIAL_SALARY_RECORDS);
+    stripIds('employeeAdvances', INITIAL_EMPLOYEE_ADVANCES);
+    stripIds('dailyLabourEntries', INITIAL_DAILY_LABOUR);
+    stripIds('labourPayments', INITIAL_LABOUR_PAYMENTS);
+    stripIds('contractors', INITIAL_CONTRACTORS);
+    stripIds('contractorWorkEntries', INITIAL_CONTRACTOR_WORK);
+    stripIds('contractorPayments', INITIAL_CONTRACTOR_PAYMENTS);
+    stripIds('dailyCashClosings', INITIAL_DAILY_CASH_CLOSINGS);
+    localStorage.setItem(STORAGE_PREFIX + 'dummy_purged_v1', '1');
+  }
+
   const [companies, setCompanies] = useState<Company[]>(() => {
     const loaded = load<Company[]>('companies', []);
     return loaded && loaded.length > 0 ? loaded : INITIAL_COMPANIES;
@@ -431,81 +478,45 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const company: CompanySettings = activeCompany;
 
   const [yards, setYards] = useState<Yard[]>(() => load('yards', INITIAL_YARDS));
-  const [materials, setMaterials] = useState<Material[]>(() => load('materials', INITIAL_MATERIALS));
-  const [materialGrades, setMaterialGrades] = useState<MaterialGrade[]>(() => load('materialGrades', INITIAL_MATERIAL_GRADES));
-  const [parties, setParties] = useState<Party[]>(() => {
-    const loaded = load<Party[]>('parties', []);
-    if (!loaded || loaded.length === 0) return INITIAL_PARTIES;
-    const existingIds = new Set(loaded.map((p) => p.id));
-    const missing = INITIAL_PARTIES.filter((p) => !existingIds.has(p.id));
-    return [...loaded, ...missing];
-  });
-  const [vehicles, setVehicles] = useState<Vehicle[]>(() => load('vehicles', INITIAL_VEHICLES));
-  const [vehicleDocuments, setVehicleDocuments] = useState<VehicleDocument[]>(() => load('vehicleDocuments', INITIAL_VEHICLE_DOCS));
-  const [employees, setEmployees] = useState<Employee[]>(() => load('employees', INITIAL_EMPLOYEES));
-  const [attendance, setAttendance] = useState<AttendanceEntry[]>(() => load('attendance', INITIAL_ATTENDANCE));
-  const [accounts, setAccounts] = useState<CashBankAccount[]>(() => load('accounts', INITIAL_ACCOUNTS));
-  const [accountTransactions, setAccountTransactions] = useState<AccountTransaction[]>(() => load('accountTransactions', INITIAL_ACCOUNT_TRANSACTIONS));
-  const [expenses, setExpenses] = useState<Expense[]>(() => {
-    const loaded = load<Expense[]>('expenses', []);
-    return loaded && loaded.length > 0 ? loaded : INITIAL_EXPENSES;
-  });
+  const [materials, setMaterials] = useState<Material[]>(() => load<Material[]>('materials', []));
+  const [materialGrades, setMaterialGrades] = useState<MaterialGrade[]>(() => load<MaterialGrade[]>('materialGrades', []));
+  const [parties, setParties] = useState<Party[]>(() => load<Party[]>('parties', []));
+  const [vehicles, setVehicles] = useState<Vehicle[]>(() => load<Vehicle[]>('vehicles', []));
+  const [vehicleDocuments, setVehicleDocuments] = useState<VehicleDocument[]>(() => load<VehicleDocument[]>('vehicleDocuments', []));
+  const [employees, setEmployees] = useState<Employee[]>(() => load<Employee[]>('employees', []));
+  const [attendance, setAttendance] = useState<AttendanceEntry[]>(() => load<AttendanceEntry[]>('attendance', []));
+  const [accounts, setAccounts] = useState<CashBankAccount[]>(() => load<CashBankAccount[]>('accounts', []));
+  const [accountTransactions, setAccountTransactions] = useState<AccountTransaction[]>(() => load<AccountTransaction[]>('accountTransactions', []));
+  const [expenses, setExpenses] = useState<Expense[]>(() => load<Expense[]>('expenses', []));
   const [weighments, setWeighments] = useState<Weighment[]>(() => load('weighments', []));
   const [collectionJobs, setCollectionJobs] = useState<CollectionJob[]>(() => load('collectionJobs', []));
   const [purchases, setPurchases] = useState<PurchaseHeader[]>(() => load('purchases', []));
-  const [inventoryLots, setInventoryLots] = useState<InventoryLot[]>(() => load('inventoryLots', INITIAL_LOTS));
-  const [stockMovements, setStockMovements] = useState<StockMovement[]>(() => load('stockMovements', INITIAL_STOCK_MOVEMENTS));
+  const [inventoryLots, setInventoryLots] = useState<InventoryLot[]>(() => load<InventoryLot[]>('inventoryLots', []));
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>(() => load<StockMovement[]>('stockMovements', []));
   const [sales, setSales] = useState<SalesHeader[]>(() => load('sales', []));
-  const [invoices, setInvoices] = useState<Invoice[]>(() => {
-    const loaded = load<Invoice[]>('invoices', []);
-    return loaded && loaded.length > 0 ? loaded : INITIAL_INVOICES;
-  });
+  const [invoices, setInvoices] = useState<Invoice[]>(() => load<Invoice[]>('invoices', []));
   const [payments, setPayments] = useState<Payment[]>(() => load('payments', []));
   const [stockCounts, setStockCounts] = useState<StockCount[]>(() => load('stockCounts', []));
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => load('auditLogs', []));
-  const [commercialDocuments, setCommercialDocuments] = useState<CommercialDocument[]>(() => {
-    const loaded = load<CommercialDocument[]>('commercialDocuments', []);
-    if (!loaded || loaded.length === 0) return INITIAL_COMMERCIAL_DOCUMENTS;
-    const existingIds = new Set(loaded.map((d) => d.id));
-    const missing = INITIAL_COMMERCIAL_DOCUMENTS.filter((d) => !existingIds.has(d.id));
-    return [...missing, ...loaded];
-  });
-  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(() => {
-    const loaded = load<JournalEntry[]>('journalEntries', []);
-    return loaded && loaded.length > 0 ? loaded : INITIAL_JOURNAL_ENTRIES;
-  });
-  const [backupHistory, setBackupHistory] = useState<BackupHistoryItem[]>(() => {
-    const loaded = load<BackupHistoryItem[]>('backupHistory', []);
-    return loaded && loaded.length > 0 ? loaded : INITIAL_BACKUP_HISTORY;
-  });
-  const [restoreLogs, setRestoreLogs] = useState<RestoreLog[]>(() => {
-    const loaded = load<RestoreLog[]>('restoreLogs', []);
-    return loaded && loaded.length > 0 ? loaded : INITIAL_RESTORE_LOGS;
-  });
+  const [commercialDocuments, setCommercialDocuments] = useState<CommercialDocument[]>(() => load<CommercialDocument[]>('commercialDocuments', []));
+  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>(() => load<JournalEntry[]>('journalEntries', []));
+  const [backupHistory, setBackupHistory] = useState<BackupHistoryItem[]>(() => load<BackupHistoryItem[]>('backupHistory', []));
+  const [restoreLogs, setRestoreLogs] = useState<RestoreLog[]>(() => load<RestoreLog[]>('restoreLogs', []));
   const [backupSchedule, setBackupSchedule] = useState<BackupScheduleConfig>(() => {
     const loaded = load<BackupScheduleConfig>('backupSchedule', INITIAL_BACKUP_SCHEDULE);
     return loaded || INITIAL_BACKUP_SCHEDULE;
   });
-  const [dailyTasks, setDailyTasks] = useState<DailyTask[]>(() => {
-    const loaded = load<DailyTask[]>('dailyTasks', []);
-    return loaded && loaded.length > 0 ? loaded : INITIAL_DAILY_TASKS;
-  });
-  const [workNotes, setWorkNotes] = useState<WorkNote[]>(() => {
-    const loaded = load<WorkNote[]>('workNotes', []);
-    return loaded && loaded.length > 0 ? loaded : INITIAL_WORK_NOTES;
-  });
-  const [uploadedDocuments, setUploadedDocuments] = useState<UploadedDocument[]>(() => {
-    const loaded = load<UploadedDocument[]>('uploadedDocuments', []);
-    return loaded && loaded.length > 0 ? loaded : INITIAL_UPLOADED_DOCS;
-  });
-  const [salaryRecords, setSalaryRecords] = useState<MonthlySalaryRecord[]>(() => load('salaryRecords', INITIAL_SALARY_RECORDS));
-  const [employeeAdvances, setEmployeeAdvances] = useState<EmployeeAdvance[]>(() => load('employeeAdvances', INITIAL_EMPLOYEE_ADVANCES));
-  const [dailyLabourEntries, setDailyLabourEntries] = useState<DailyLabourEntry[]>(() => load('dailyLabourEntries', INITIAL_DAILY_LABOUR));
-  const [labourPayments, setLabourPayments] = useState<LabourPayment[]>(() => load('labourPayments', INITIAL_LABOUR_PAYMENTS));
-  const [contractors, setContractors] = useState<Contractor[]>(() => load('contractors', INITIAL_CONTRACTORS));
-  const [contractorWorkEntries, setContractorWorkEntries] = useState<ContractorWorkEntry[]>(() => load('contractorWorkEntries', INITIAL_CONTRACTOR_WORK));
-  const [contractorPayments, setContractorPayments] = useState<ContractorPayment[]>(() => load('contractorPayments', INITIAL_CONTRACTOR_PAYMENTS));
-  const [dailyCashClosings, setDailyCashClosings] = useState<DailyCashClosingRecord[]>(() => load('dailyCashClosings', INITIAL_DAILY_CASH_CLOSINGS));
+  const [dailyTasks, setDailyTasks] = useState<DailyTask[]>(() => load<DailyTask[]>('dailyTasks', []));
+  const [workNotes, setWorkNotes] = useState<WorkNote[]>(() => load<WorkNote[]>('workNotes', []));
+  const [uploadedDocuments, setUploadedDocuments] = useState<UploadedDocument[]>(() => load<UploadedDocument[]>('uploadedDocuments', []));
+  const [salaryRecords, setSalaryRecords] = useState<MonthlySalaryRecord[]>(() => load<MonthlySalaryRecord[]>('salaryRecords', []));
+  const [employeeAdvances, setEmployeeAdvances] = useState<EmployeeAdvance[]>(() => load<EmployeeAdvance[]>('employeeAdvances', []));
+  const [dailyLabourEntries, setDailyLabourEntries] = useState<DailyLabourEntry[]>(() => load<DailyLabourEntry[]>('dailyLabourEntries', []));
+  const [labourPayments, setLabourPayments] = useState<LabourPayment[]>(() => load<LabourPayment[]>('labourPayments', []));
+  const [contractors, setContractors] = useState<Contractor[]>(() => load<Contractor[]>('contractors', []));
+  const [contractorWorkEntries, setContractorWorkEntries] = useState<ContractorWorkEntry[]>(() => load<ContractorWorkEntry[]>('contractorWorkEntries', []));
+  const [contractorPayments, setContractorPayments] = useState<ContractorPayment[]>(() => load<ContractorPayment[]>('contractorPayments', []));
+  const [dailyCashClosings, setDailyCashClosings] = useState<DailyCashClosingRecord[]>(() => load<DailyCashClosingRecord[]>('dailyCashClosings', []));
 
   // Persist state updates to localStorage
   useEffect(() => {
@@ -764,7 +775,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     logAudit('UPDATE_PARTY', 'PARTY', id, existing, updated);
   };
 
-  const deleteParty = (id: string): { success: boolean; message?: string } => {
+  const deleteParty = (id: string, force: boolean = false): { success: boolean; message?: string } => {
     const existing = parties.find((p) => p.id === id);
     if (!existing) return { success: false, message: 'Party not found.' };
 
@@ -773,18 +784,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const hasInvoices = invoices.some((i) => i.customerPartyId === id);
     const hasPayments = payments.some((p) => p.partyId === id);
 
-    if (hasPurchases || hasSales || hasInvoices || hasPayments) {
+    if ((hasPurchases || hasSales || hasInvoices || hasPayments) && existing.isActive !== false && !force) {
       setParties((prev) => prev.map((p) => (p.id === id ? { ...p, isActive: false } : p)));
       logAudit('DEACTIVATE_PARTY', 'PARTY', id, existing, { isActive: false });
       return {
         success: true,
-        message: `Party "${existing.legalName}" has transaction history so it has been marked Inactive to preserve audit trails.`,
+        message: `Party "${existing.legalName}" has transaction history so it was marked Inactive. Click Delete again to permanently remove it.`,
       };
     }
 
     setParties((prev) => prev.filter((p) => p.id !== id));
     logAudit('DELETE_PARTY', 'PARTY', id, existing, null);
-    return { success: true, message: `Party "${existing.legalName}" deleted successfully.` };
+    return { success: true, message: `Party "${existing.legalName}" permanently deleted.` };
   };
 
   const addMaterial = (matData: Omit<Material, 'id'>) => {
@@ -805,7 +816,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     logAudit('UPDATE_MATERIAL', 'MATERIAL', id, existing, updated);
   };
 
-  const deleteMaterial = (id: string): { success: boolean; message?: string } => {
+  const deleteMaterial = (id: string, force: boolean = false): { success: boolean; message?: string } => {
     const existing = materials.find((m) => m.id === id);
     if (!existing) return { success: false, message: 'Material not found.' };
 
@@ -814,18 +825,20 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const hasPurchases = purchases.some((p) => p.lines.some((l) => l.materialId === id));
     const hasSales = sales.some((s) => s.lines.some((l) => l.materialId === id));
 
-    if (hasLots || hasMovements || hasPurchases || hasSales) {
+    if ((hasLots || hasMovements || hasPurchases || hasSales) && existing.isActive !== false && !force) {
       setMaterials((prev) => prev.map((m) => (m.id === id ? { ...m, isActive: false } : m)));
       logAudit('DEACTIVATE_MATERIAL', 'MATERIAL', id, existing, { isActive: false });
       return {
         success: true,
-        message: `Material "${existing.name}" is linked to existing stock or transactions. It has been deactivated instead of permanently deleted.`,
+        message: `Material "${existing.name}" is linked to stock or transactions and was marked Inactive. Click Delete again to permanently remove it.`,
       };
     }
 
     setMaterials((prev) => prev.filter((m) => m.id !== id));
+    setInventoryLots((prev) => prev.filter((l) => l.materialId !== id));
+    setStockMovements((prev) => prev.filter((m) => m.materialId !== id));
     logAudit('DELETE_MATERIAL', 'MATERIAL', id, existing, null);
-    return { success: true, message: `Material "${existing.name}" deleted successfully.` };
+    return { success: true, message: `Material "${existing.name}" permanently deleted.` };
   };
 
   const addVehicle = (vehData: Omit<Vehicle, 'id'>) => {
@@ -2498,7 +2511,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteCommercialDoc = (id: string): { success: boolean; message?: string } => {
-    enforceAuthorization(currentUser, 'invoice:delete', activeCompanyId);
+    try {
+      if (currentUser) currentUser.lastActiveAt = Date.now();
+      enforceAuthorization(currentUser, 'invoice:delete', activeCompanyId);
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Not authorized to delete this document.' };
+    }
     const existing = commercialDocuments.find((d) => d.id === id);
     if (!existing) return { success: false, message: 'Document not found.' };
     setCommercialDocuments((prev) => prev.filter((d) => d.id !== id));
@@ -2997,7 +3015,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deleteTaxInvoice = (id: string): { success: boolean; message?: string } => {
-    enforceAuthorization(currentUser, 'invoice:delete', company.id);
+    try {
+      if (currentUser) currentUser.lastActiveAt = Date.now();
+      enforceAuthorization(currentUser, 'invoice:delete', company.id);
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Not authorized to delete this invoice.' };
+    }
     const existing = invoices.find((inv) => inv.id === id);
     if (!existing) return { success: false, message: 'Invoice not found.' };
     setInvoices((prev) => prev.filter((inv) => inv.id !== id));
@@ -3014,7 +3037,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const deletePayment = (id: string): { success: boolean; message?: string } => {
-    enforceAuthorization(currentUser, 'finance:delete', company.id);
+    try {
+      if (currentUser) currentUser.lastActiveAt = Date.now();
+      enforceAuthorization(currentUser, 'finance:delete', company.id);
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Not authorized to delete this payment.' };
+    }
     const existing = payments.find((p) => p.id === id);
     if (!existing) return { success: false, message: 'Payment voucher not found.' };
     setPayments((prev) => prev.filter((p) => p.id !== id));
@@ -3146,6 +3174,47 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setContractorPayments(INITIAL_CONTRACTOR_PAYMENTS);
     setDailyCashClosings(INITIAL_DAILY_CASH_CLOSINGS);
     localStorage.clear();
+  };
+
+  const clearAllOperationalData = () => {
+    if (currentUser) currentUser.lastActiveAt = Date.now();
+    enforceAuthorization(currentUser, 'admin:full', company.id);
+    setMaterials([]);
+    setMaterialGrades([]);
+    setParties([]);
+    setVehicles([]);
+    setVehicleDocuments([]);
+    setEmployees([]);
+    setAttendance([]);
+    setAccounts([]);
+    setAccountTransactions([]);
+    setExpenses([]);
+    setWeighments([]);
+    setCollectionJobs([]);
+    setPurchases([]);
+    setInventoryLots([]);
+    setStockMovements([]);
+    setSales([]);
+    setInvoices([]);
+    setPayments([]);
+    setStockCounts([]);
+    setAuditLogs([]);
+    setCommercialDocuments([]);
+    setJournalEntries([]);
+    setBackupHistory([]);
+    setRestoreLogs([]);
+    setDailyTasks([]);
+    setWorkNotes([]);
+    setUploadedDocuments([]);
+    setSalaryRecords([]);
+    setEmployeeAdvances([]);
+    setDailyLabourEntries([]);
+    setLabourPayments([]);
+    setContractors([]);
+    setContractorWorkEntries([]);
+    setContractorPayments([]);
+    setDailyCashClosings([]);
+    localStorage.setItem(STORAGE_PREFIX + 'dummy_purged_v1', '1');
   };
 
   const exportBackup = () => {
@@ -3775,6 +3844,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         getBalanceSheetReport,
         getPartyStatementReport,
         resetToDemoData,
+        clearAllOperationalData,
         exportBackup,
         restoreBackup,
         backupHistory,

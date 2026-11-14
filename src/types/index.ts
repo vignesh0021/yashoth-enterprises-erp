@@ -711,7 +711,7 @@ export interface JournalEntry {
 // ----------------------------------------------------------------------------
 
 export type BackupType = 'FULL_DATABASE' | 'COMPANY_SCOPED' | 'SAFETY_PRE_RESTORE';
-export type BackupDestination = 'LOCAL_FILE' | 'ENCRYPTED_ARCHIVE' | 'GOOGLE_DRIVE' | 'CLOUD_STORAGE';
+export type BackupDestination = 'LOCAL_FILE' | 'ENCRYPTED_ARCHIVE' | 'GOOGLE_DRIVE' | 'SUPABASE_CLOUD' | 'CLOUD_STORAGE';
 export type BackupStatus = 'SUCCESS' | 'FAILED' | 'VERIFIED';
 export type RestoreStatus = 'COMPLETED' | 'FAILED' | 'ROLLED_BACK';
 export type BackupFrequency = 'MANUAL_ONLY' | 'DAILY' | 'WEEKLY' | 'MONTHLY';

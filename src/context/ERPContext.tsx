@@ -315,6 +315,7 @@ interface ERPContextType {
   addAccount: (accData: Omit<CashBankAccount, 'id'>) => CashBankAccount;
   updateAccount: (id: string, updates: Partial<CashBankAccount>) => void;
   deleteAccount: (id: string) => { success: boolean; message?: string };
+  addAccountTransaction: (txData: Omit<AccountTransaction, 'id' | 'companyId'>) => AccountTransaction;
   updateAccountTransaction: (id: string, updates: Partial<AccountTransaction>) => void;
   deleteAccountTransaction: (id: string) => { success: boolean; message?: string };
   updateWeighment: (id: string, updates: Partial<Weighment>) => void;
@@ -2755,6 +2756,15 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!existing) return;
     const updated = { ...existing, ...updates };
     setAccounts((prev) => prev.map((a) => (a.id === id ? updated : a)));
+    if (updates.openingBalance !== undefined) {
+      setAccountTransactions((prev) =>
+        prev.map((tx) =>
+          tx.accountId === id && tx.transactionType === 'OPENING_BALANCE'
+            ? { ...tx, amount: updates.openingBalance! }
+            : tx
+        )
+      );
+    }
     logAudit('UPDATE_ACCOUNT', 'ACCOUNT', id, existing, updated);
     if (dbRepository.isRemoteDatabaseAvailable()) {
       dbRepository.updateAccount(id, updates).catch((e) => console.warn('Sync update account to DB failed', e));
@@ -2764,15 +2774,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteAccount = (id: string): { success: boolean; message?: string } => {
     const existing = accounts.find((a) => a.id === id);
     if (!existing) return { success: false, message: 'Account not found.' };
-    const hasTx = accountTransactions.some((tx) => tx.accountId === id);
-    if (hasTx) {
+    const hasOperationalTx = accountTransactions.some(
+      (tx) => tx.accountId === id && tx.transactionType !== 'OPENING_BALANCE'
+    );
+    if (hasOperationalTx && existing.isActive !== false) {
       setAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, isActive: false } : a)));
       if (dbRepository.isRemoteDatabaseAvailable()) {
         dbRepository.updateAccount(id, { isActive: false }).catch((e) => console.warn('Sync deactivate account failed', e));
       }
-      return { success: true, message: `Account "${existing.accountName}" has financial history and was deactivated instead of permanently deleted.` };
+      return { success: true, message: `Account "${existing.accountName}" has operational transactions and was deactivated. Click delete again if you want to permanently remove it.` };
     }
     setAccounts((prev) => prev.filter((a) => a.id !== id));
+    setAccountTransactions((prev) => prev.filter((tx) => tx.accountId !== id));
     logAudit('DELETE_ACCOUNT', 'ACCOUNT', id, existing, null);
     if (dbRepository.isRemoteDatabaseAvailable()) {
       dbRepository.deleteAccount(id).catch((e) => console.warn('Sync delete account failed', e));
@@ -2878,6 +2891,17 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAccountTransactions((prev) => prev.filter((tx) => tx.referenceNo !== existing.voucherNo));
     logAudit('DELETE_EXPENSE', 'EXPENSE', id, existing, null);
     return { success: true, message: `Expense voucher "${existing.voucherNo}" deleted and ledger reversed.` };
+  };
+
+  const addAccountTransaction = (txData: Omit<AccountTransaction, 'id' | 'companyId'>): AccountTransaction => {
+    const newTx: AccountTransaction = {
+      ...txData,
+      id: 'atx-' + Math.random().toString(36).substring(2, 9),
+      companyId: activeCompanyId,
+    };
+    setAccountTransactions((prev) => [newTx, ...prev]);
+    logAudit('CREATE_ACCOUNT_TX', 'ACCOUNT_TRANSACTION', newTx.id, null, newTx);
+    return newTx;
   };
 
   const updateAccountTransaction = (id: string, updates: Partial<AccountTransaction>) => {
@@ -3318,8 +3342,24 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
 
-      // Download file to client device if running in browser
-      if (typeof window !== 'undefined' && typeof document !== 'undefined' && options?.destination !== 'GOOGLE_DRIVE') {
+      // Handle Supabase Cloud Backup destination
+      if (options?.destination === 'SUPABASE_CLOUD') {
+        const pushRes = await teamSyncService.pushToCloud(
+          currentState,
+          currentUser.email || currentUser.fullName || 'System Admin'
+        );
+        if (!pushRes.success) {
+          throw new Error(pushRes.error || 'Supabase Cloud backup failed.');
+        }
+      }
+
+      // Download file to client device if running in browser (skip forced download for cloud-only destinations)
+      if (
+        typeof window !== 'undefined' &&
+        typeof document !== 'undefined' &&
+        options?.destination !== 'GOOGLE_DRIVE' &&
+        options?.destination !== 'SUPABASE_CLOUD'
+      ) {
         const mimeType = options?.isEncrypted ? 'application/octet-stream' : 'application/json';
         if ((window as any).AndroidNative && typeof (window as any).AndroidNative.saveFileToDownloads === 'function') {
           (window as any).AndroidNative.saveFileToDownloads(backupResult.filename, backupResult.rawJson, mimeType);
@@ -3703,6 +3743,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addAccount,
         updateAccount,
         deleteAccount,
+        addAccountTransaction,
         updateAccountTransaction,
         deleteAccountTransaction,
         updateWeighment,

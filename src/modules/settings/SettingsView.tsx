@@ -123,7 +123,7 @@ export const SettingsView: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-2 text-xs font-semibold overflow-x-auto">
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2 text-xs font-semibold overflow-x-auto touch-pan-x">
         {[
           { id: 'PROFILE', label: language === 'ta' ? 'நிறுவன சுயவிவரம்' : 'Company & Tax Profile', icon: Building },
           { id: 'ROLES', label: language === 'ta' ? 'பயனர் அனுமதிகள்' : 'Role-Based Access Control', icon: Shield },
@@ -135,13 +135,13 @@ export const SettingsView: React.FC = () => {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 px-3.5 py-2.5 min-h-[44px] rounded-xl transition-all cursor-pointer font-bold ${
+              className={`shrink-0 whitespace-nowrap flex items-center gap-2 px-3.5 py-2.5 min-h-[44px] rounded-xl transition-all cursor-pointer font-bold ${
                 activeTab === tab.id
                   ? 'bg-red-600 text-white shadow-sm'
                   : 'text-slate-600 hover:bg-slate-100 bg-white border border-slate-200'
               }`}
             >
-              <Icon className="w-3.5 h-3.5" />
+              <Icon className="w-3.5 h-3.5 shrink-0" />
               <span>{tab.label}</span>
             </button>
           );

@@ -144,7 +144,11 @@ export const BackupManagerView: React.FC = () => {
       });
 
       if (result.success) {
-        if (exportDestination === 'GOOGLE_DRIVE') {
+        if (exportDestination === 'SUPABASE_CLOUD') {
+          setExportSuccessMessage(
+            `Backup successfully synced to Supabase Cloud! Snapshot: ${result.filename} (SHA-256: ${result.checksum.slice(0, 16)}...)`
+          );
+        } else if (exportDestination === 'GOOGLE_DRIVE') {
           setExportSuccessMessage(
             `Backup successfully confirmed & uploaded to Google Drive! File: ${result.filename} (SHA-256: ${result.checksum.slice(0, 16)}...)`
           );
@@ -299,51 +303,105 @@ export const BackupManagerView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 min-w-0">
+      {/* Supabase Cloud Backup & Quick Restore Card */}
+      <div className="bg-slate-900 text-white p-4 sm:p-5 rounded-xl border border-slate-800 shadow-sm space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Cloud className="w-4 h-4 text-emerald-400 shrink-0" />
+              <h3 className="text-sm font-bold text-white">Supabase Cloud Backup &amp; Sync</h3>
+              <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                Cloud Hub Ready
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-300 mt-1 break-words">
+              Push an instant full-database snapshot to Supabase Cloud or restore the latest team revision across devices.
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+            <button
+              type="button"
+              disabled={isTeamSyncing}
+              onClick={handlePushTeamSync}
+              className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 min-h-[40px] bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold disabled:opacity-50 cursor-pointer transition-colors whitespace-nowrap"
+            >
+              <Upload className="w-3.5 h-3.5 shrink-0" />
+              <span>{isTeamSyncing ? 'Syncing...' : 'Backup to Supabase'}</span>
+            </button>
+            <button
+              type="button"
+              disabled={isTeamSyncing}
+              onClick={handlePullTeamSync}
+              className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 min-h-[40px] bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 rounded-lg text-xs font-bold disabled:opacity-50 cursor-pointer transition-colors whitespace-nowrap"
+            >
+              <Download className="w-3.5 h-3.5 shrink-0" />
+              <span>Restore from Supabase</span>
+            </button>
+          </div>
+        </div>
+        {teamSyncMsg && (
+          <div
+            className={`p-2.5 rounded-lg text-xs font-semibold flex items-start gap-2 break-words ${
+              teamSyncMsg.type === 'success'
+                ? 'bg-emerald-950/80 border border-emerald-700 text-emerald-200'
+                : 'bg-rose-950/80 border border-rose-700 text-rose-200'
+            }`}
+          >
+            {teamSyncMsg.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
+            ) : (
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
+            )}
+            <span className="min-w-0 flex-1 break-words">{teamSyncMsg.text}</span>
+          </div>
+        )}
+      </div>
+
       {/* Navigation Sub-Tabs */}
-      <div className="flex border-b border-slate-200 gap-2 text-xs font-bold text-slate-600">
+      <div className="flex overflow-x-auto touch-pan-x whitespace-nowrap border-b border-slate-200 gap-2 text-xs font-bold text-slate-600">
         <button
           onClick={() => setActiveTab('EXPORT')}
-          className={`flex items-center gap-1.5 pb-2.5 px-3 border-b-2 transition-colors ${
+          className={`shrink-0 flex items-center gap-1.5 pb-2.5 px-3 border-b-2 transition-colors ${
             activeTab === 'EXPORT'
               ? 'border-indigo-600 text-indigo-700'
               : 'border-transparent hover:text-slate-900'
           }`}
         >
-          <Download className="w-4 h-4" />
+          <Download className="w-4 h-4 shrink-0" />
           <span>Generate Backup</span>
         </button>
         <button
           onClick={() => setActiveTab('RESTORE')}
-          className={`flex items-center gap-1.5 pb-2.5 px-3 border-b-2 transition-colors ${
+          className={`shrink-0 flex items-center gap-1.5 pb-2.5 px-3 border-b-2 transition-colors ${
             activeTab === 'RESTORE'
               ? 'border-indigo-600 text-indigo-700'
               : 'border-transparent hover:text-slate-900'
           }`}
         >
-          <Upload className="w-4 h-4" />
+          <Upload className="w-4 h-4 shrink-0" />
           <span>Restore Wizard</span>
         </button>
         <button
           onClick={() => setActiveTab('SCHEDULE')}
-          className={`flex items-center gap-1.5 pb-2.5 px-3 border-b-2 transition-colors ${
+          className={`shrink-0 flex items-center gap-1.5 pb-2.5 px-3 border-b-2 transition-colors ${
             activeTab === 'SCHEDULE'
               ? 'border-indigo-600 text-indigo-700'
               : 'border-transparent hover:text-slate-900'
           }`}
         >
-          <Calendar className="w-4 h-4" />
-          <span>Schedule & Cloud</span>
+          <Calendar className="w-4 h-4 shrink-0" />
+          <span>Schedule &amp; Cloud</span>
         </button>
         <button
           onClick={() => setActiveTab('HISTORY')}
-          className={`flex items-center gap-1.5 pb-2.5 px-3 border-b-2 transition-colors ${
+          className={`shrink-0 flex items-center gap-1.5 pb-2.5 px-3 border-b-2 transition-colors ${
             activeTab === 'HISTORY'
               ? 'border-indigo-600 text-indigo-700'
               : 'border-transparent hover:text-slate-900'
           }`}
         >
-          <History className="w-4 h-4" />
+          <History className="w-4 h-4 shrink-0" />
           <span>Backup History ({backupHistory.length})</span>
         </button>
       </div>
@@ -351,13 +409,13 @@ export const BackupManagerView: React.FC = () => {
       {/* TAB 1: GENERATE BACKUP */}
       {activeTab === 'EXPORT' && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="md:col-span-2 bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-5 text-xs">
+          <div className="md:col-span-2 bg-white p-4 sm:p-6 rounded-xl border border-slate-200 shadow-sm space-y-5 text-xs min-w-0">
             <div>
               <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                <Database className="w-4 h-4 text-indigo-600" />
+                <Database className="w-4 h-4 text-indigo-600 shrink-0" />
                 <span>Create System Backup Archive</span>
               </h3>
-              <p className="text-slate-500 mt-1">
+              <p className="text-slate-500 mt-1 break-words">
                 Generates a cryptographically verified snapshot of operational records, journals, and company fixtures with SHA-256 integrity checksums.
               </p>
             </div>
@@ -365,14 +423,14 @@ export const BackupManagerView: React.FC = () => {
             {exportSuccessMessage && (
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-emerald-800 flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-600" />
-                <span className="font-semibold break-all">{exportSuccessMessage}</span>
+                <span className="font-semibold break-words min-w-0 flex-1">{exportSuccessMessage}</span>
               </div>
             )}
 
             {exportErrorMessage && (
               <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600" />
-                <span className="font-semibold">{exportErrorMessage}</span>
+                <span className="font-semibold break-words min-w-0 flex-1">{exportErrorMessage}</span>
               </div>
             )}
 
@@ -381,21 +439,21 @@ export const BackupManagerView: React.FC = () => {
               <label className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">
                 Backup Scope
               </label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <button
                   type="button"
                   onClick={() => setExportScope('FULL')}
-                  className={`p-3 rounded-lg border text-left flex flex-col justify-between ${
+                  className={`p-3 rounded-lg border text-left flex flex-col justify-between min-w-0 ${
                     exportScope === 'FULL'
                       ? 'border-indigo-600 bg-indigo-50/50 text-indigo-950 font-bold'
                       : 'border-slate-200 hover:bg-slate-50 text-slate-700'
                   }`}
                 >
                   <span className="font-bold flex items-center gap-1.5">
-                    <Database className="w-3.5 h-3.5 text-indigo-600" />
-                    Full Database
+                    <Database className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                    <span>Full Database</span>
                   </span>
-                  <span className="text-[11px] text-slate-500 font-normal mt-1">
+                  <span className="text-[11px] text-slate-500 font-normal mt-1 break-words">
                     Complete multi-company ERP database including all companies, entities, and audit logs.
                   </span>
                 </button>
@@ -403,17 +461,17 @@ export const BackupManagerView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setExportScope('COMPANY')}
-                  className={`p-3 rounded-lg border text-left flex flex-col justify-between ${
+                  className={`p-3 rounded-lg border text-left flex flex-col justify-between min-w-0 ${
                     exportScope === 'COMPANY'
                       ? 'border-indigo-600 bg-indigo-50/50 text-indigo-950 font-bold'
                       : 'border-slate-200 hover:bg-slate-50 text-slate-700'
                   }`}
                 >
                   <span className="font-bold flex items-center gap-1.5">
-                    <HardDrive className="w-3.5 h-3.5 text-indigo-600" />
-                    Company-Scoped
+                    <HardDrive className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                    <span>Company-Scoped</span>
                   </span>
-                  <span className="text-[11px] text-slate-500 font-normal mt-1">
+                  <span className="text-[11px] text-slate-500 font-normal mt-1 break-words">
                     Isolated export of <strong className="text-slate-800">{activeCompany.companyName}</strong> records only.
                   </span>
                 </button>
@@ -425,8 +483,29 @@ export const BackupManagerView: React.FC = () => {
               <label className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">
                 Destination
               </label>
-              <div className="grid grid-cols-2 gap-3">
-                <label className={`p-3 rounded-lg border cursor-pointer flex items-center gap-3 ${
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <label className={`p-3 rounded-lg border cursor-pointer flex items-start gap-3 min-w-0 ${
+                  exportDestination === 'SUPABASE_CLOUD' ? 'border-emerald-600 bg-emerald-50/40' : 'border-slate-200'
+                }`}>
+                  <input
+                    type="radio"
+                    name="dest"
+                    checked={exportDestination === 'SUPABASE_CLOUD'}
+                    onChange={() => setExportDestination('SUPABASE_CLOUD')}
+                    className="text-emerald-600 mt-1 shrink-0"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                      <Cloud className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Supabase Cloud Backup</span>
+                    </span>
+                    <span className="text-[11px] text-slate-500 block mt-0.5 break-words">
+                      Saves verified snapshot directly to Supabase Cloud Hub for instant multi-device restore.
+                    </span>
+                  </div>
+                </label>
+
+                <label className={`p-3 rounded-lg border cursor-pointer flex items-start gap-3 min-w-0 ${
                   exportDestination === 'LOCAL_FILE' ? 'border-indigo-600 bg-indigo-50/30' : 'border-slate-200'
                 }`}>
                   <input
@@ -434,15 +513,15 @@ export const BackupManagerView: React.FC = () => {
                     name="dest"
                     checked={exportDestination === 'LOCAL_FILE'}
                     onChange={() => setExportDestination('LOCAL_FILE')}
-                    className="text-indigo-600"
+                    className="text-indigo-600 mt-1 shrink-0"
                   />
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <span className="font-bold text-slate-800 block">Local Device Download</span>
-                    <span className="text-[11px] text-slate-500">Save directly to local storage / filesystem.</span>
+                    <span className="text-[11px] text-slate-500 block mt-0.5 break-words">Save directly to local storage / filesystem.</span>
                   </div>
                 </label>
 
-                <label className={`p-3 rounded-lg border cursor-pointer flex items-center gap-3 ${
+                <label className={`p-3 rounded-lg border cursor-pointer flex items-start gap-3 min-w-0 ${
                   exportDestination === 'GOOGLE_DRIVE' ? 'border-indigo-600 bg-indigo-50/30' : 'border-slate-200'
                 }`}>
                   <input
@@ -450,15 +529,15 @@ export const BackupManagerView: React.FC = () => {
                     name="dest"
                     checked={exportDestination === 'GOOGLE_DRIVE'}
                     onChange={() => setExportDestination('GOOGLE_DRIVE')}
-                    className="text-indigo-600"
+                    className="text-indigo-600 mt-1 shrink-0"
                   />
-                  <div>
-                    <span className="font-bold text-slate-800 block flex items-center gap-1.5">
-                      <Cloud className="w-3.5 h-3.5 text-blue-600" />
-                      Google Drive Cloud (Save to Drive)
+                  <div className="min-w-0 flex-1">
+                    <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                      <Cloud className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span>Google Drive Cloud (Save to Drive)</span>
                     </span>
-                    <span className="text-[11px] text-slate-500">
-                      Saves to device Downloads and opens Android 1-Tap "Save to Drive" with your account (yashothenterprises44@gmail.com).
+                    <span className="text-[11px] text-slate-500 block mt-0.5 break-words">
+                      Saves to device Downloads and opens Android 1-Tap &quot;Save to Drive&quot; with your account (<span className="break-all font-medium text-slate-700">yashothenterprises44@gmail.com</span>).
                     </span>
                   </div>
                 </label>
@@ -466,13 +545,13 @@ export const BackupManagerView: React.FC = () => {
             </div>
 
             {/* Encryption Option */}
-            <div className="p-4 border border-slate-200 rounded-xl bg-slate-50/70 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Shield className="w-4 h-4 text-emerald-600" />
-                  <div>
+            <div className="p-3 sm:p-4 border border-slate-200 rounded-xl bg-slate-50/70 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2 min-w-0 flex-1">
+                  <Shield className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
                     <span className="font-bold text-slate-900 block">AES-256-GCM Military Grade Encryption</span>
-                    <span className="text-[11px] text-slate-500">
+                    <span className="text-[11px] text-slate-500 block mt-0.5 break-words">
                       Derives cryptographic keys using PBKDF2 (100,000 rounds) and packages as an encrypted (.yebak) archive.
                     </span>
                   </div>
@@ -481,12 +560,12 @@ export const BackupManagerView: React.FC = () => {
                   type="checkbox"
                   checked={encryptBackup}
                   onChange={(e) => setEncryptBackup(e.target.checked)}
-                  className="w-4 h-4 text-indigo-600 rounded border-slate-300"
+                  className="w-4 h-4 text-indigo-600 rounded border-slate-300 shrink-0 mt-1"
                 />
               </div>
 
               {encryptBackup && (
-                <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-200/60">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-200/60">
                   <div>
                     <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                       Encryption Password (Min 6 chars)
@@ -527,21 +606,26 @@ export const BackupManagerView: React.FC = () => {
                 type="button"
                 disabled={isExporting}
                 onClick={handleGenerateBackup}
-                className="w-full flex items-center justify-center gap-2 py-3 px-4 min-h-[48px] bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white rounded-xl font-bold shadow-md shadow-red-600/20 disabled:opacity-50 cursor-pointer transition-all"
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 min-h-[48px] bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white rounded-xl font-bold shadow-md shadow-red-600/20 disabled:opacity-50 cursor-pointer transition-all text-center"
               >
                 {isExporting ? (
                   <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
                     <span>காப்பகம் உருவாக்கப்படுகிறது (Generating Archive)...</span>
+                  </>
+                ) : exportDestination === 'SUPABASE_CLOUD' ? (
+                  <>
+                    <Cloud className="w-5 h-5 text-white shrink-0" />
+                    <span>Backup to Supabase Cloud (சுபபேஸ் கிளவுட் பேக்கப்)</span>
                   </>
                 ) : exportDestination === 'GOOGLE_DRIVE' ? (
                   <>
-                    <Cloud className="w-5 h-5 text-white" />
+                    <Cloud className="w-5 h-5 text-white shrink-0" />
                     <span>Save to Google Drive / Android Share Sheet (கூகிள் டிரைவில் சேமிக்க)</span>
                   </>
                 ) : (
                   <>
-                    <Download className="w-5 h-5" />
+                    <Download className="w-5 h-5 shrink-0" />
                     <span>Download {encryptBackup ? 'Encrypted (.yebak)' : 'JSON'} Backup to Device (பதிவிறக்கம்)</span>
                   </>
                 )}
@@ -551,10 +635,10 @@ export const BackupManagerView: React.FC = () => {
                 type="button"
                 disabled={isExporting}
                 onClick={handleInstantEmailBackup}
-                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 min-h-[44px] bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white rounded-xl font-semibold border border-slate-700 cursor-pointer transition-all text-xs"
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 min-h-[44px] bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white rounded-xl font-semibold border border-slate-700 cursor-pointer transition-all text-xs text-center"
               >
-                <Mail className="w-4 h-4 text-amber-400" />
-                <span>1-Tap Email Backup to yashothenterprises44@gmail.com (மின்னஞ்சலுக்கு அனுப்ப)</span>
+                <Mail className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="break-all sm:break-normal">1-Tap Email Backup to yashothenterprises44@gmail.com (மின்னஞ்சலுக்கு அனுப்ப)</span>
               </button>
             </div>
           </div>
@@ -843,7 +927,7 @@ export const BackupManagerView: React.FC = () => {
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-700 font-semibold mb-1">Retention Count</label>
                   <input
@@ -1204,7 +1288,7 @@ export const BackupManagerView: React.FC = () => {
               <span className="font-bold text-slate-800 uppercase tracking-wider text-[10px] block mb-2">
                 Financial Reconciliation Metrics
               </span>
-              <div className="grid grid-cols-2 gap-2 text-[11px]">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
                 <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-lg">
                   <span className="text-emerald-700 block text-[10px]">Total Sales Revenue:</span>
                   <span className="font-bold text-emerald-900">

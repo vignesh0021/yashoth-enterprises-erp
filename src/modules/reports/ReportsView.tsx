@@ -149,14 +149,14 @@ export const ReportsView: React.FC = () => {
         
         {/* 1. TRIAL BALANCE */}
         {activeReport === 'TRIAL_BALANCE' && (
-          <div className="p-5 space-y-4">
+          <div className="p-3 sm:p-5 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4">
               <div>
                 <h3 className="text-sm font-black text-slate-900 uppercase tracking-wider">Official Trial Balance</h3>
                 <p className="text-xs text-slate-500">As of date: {trialBalance.asOfDate}</p>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <input
                   type="date"
                   value={asOfDate}
@@ -180,53 +180,55 @@ export const ReportsView: React.FC = () => {
             </div>
 
             {/* Reconciliation Status Badge */}
-            <div className={`p-3 rounded-xl border flex items-center justify-between text-xs font-bold ${
+            <div className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-bold ${
               trialBalance.isBalanced ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'
             }`}>
               <div className="flex items-center gap-2">
-                {trialBalance.isBalanced ? <CheckCircle2 className="w-5 h-5 text-emerald-600" /> : <AlertTriangle className="w-5 h-5 text-red-600" />}
+                {trialBalance.isBalanced ? <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600" /> : <AlertTriangle className="w-5 h-5 shrink-0 text-red-600" />}
                 <span>{trialBalance.isBalanced ? 'Trial Balance is Reconciled and Perfectly Balanced' : 'Trial Balance Imbalance Detected!'}</span>
               </div>
-              <span className="font-mono">Difference: {formatINR(trialBalance.difference)}</span>
+              <span className="font-mono shrink-0">Difference: {formatINR(trialBalance.difference)}</span>
             </div>
 
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px]">
-                  <th className="p-2.5">Code</th>
-                  <th className="p-2.5">Account Description</th>
-                  <th className="p-2.5">Category</th>
-                  <th className="p-2.5 text-right">Debit Balance (₹)</th>
-                  <th className="p-2.5 text-right">Credit Balance (₹)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 font-medium">
-                {trialBalance.items.map((row) => (
-                  <tr key={row.code} className="hover:bg-slate-50/70">
-                    <td className="p-2.5 font-mono font-bold text-slate-700">{row.code}</td>
-                    <td className="p-2.5 text-slate-900">{row.name}</td>
-                    <td className="p-2.5">
-                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-600">
-                        {row.category}
-                      </span>
-                    </td>
-                    <td className="p-2.5 text-right font-mono text-slate-800">
-                      {row.debitBalance > 0 ? formatINR(row.debitBalance) : '-'}
-                    </td>
-                    <td className="p-2.5 text-right font-mono text-slate-800">
-                      {row.creditBalance > 0 ? formatINR(row.creditBalance) : '-'}
-                    </td>
+            <div className="w-full overflow-x-auto touch-pan-x -mx-1 px-1">
+              <table className="w-full min-w-[620px] text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px]">
+                    <th className="p-2.5">Code</th>
+                    <th className="p-2.5">Account Description</th>
+                    <th className="p-2.5">Category</th>
+                    <th className="p-2.5 text-right">Debit Balance (₹)</th>
+                    <th className="p-2.5 text-right">Credit Balance (₹)</th>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300">
-                  <td colSpan={3} className="p-3 uppercase">Total Sum</td>
-                  <td className="p-3 text-right font-mono text-sm text-emerald-700">{formatINR(trialBalance.totalDebits)}</td>
-                  <td className="p-3 text-right font-mono text-sm text-emerald-700">{formatINR(trialBalance.totalCredits)}</td>
-                </tr>
-              </tfoot>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {trialBalance.items.map((row) => (
+                    <tr key={row.code} className="hover:bg-slate-50/70">
+                      <td className="p-2.5 font-mono font-bold text-slate-700 whitespace-nowrap">{row.code}</td>
+                      <td className="p-2.5 text-slate-900">{row.name}</td>
+                      <td className="p-2.5 whitespace-nowrap">
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 text-slate-600">
+                          {row.category}
+                        </span>
+                      </td>
+                      <td className="p-2.5 text-right font-mono text-slate-800 whitespace-nowrap">
+                        {row.debitBalance > 0 ? formatINR(row.debitBalance) : '-'}
+                      </td>
+                      <td className="p-2.5 text-right font-mono text-slate-800 whitespace-nowrap">
+                        {row.creditBalance > 0 ? formatINR(row.creditBalance) : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-100 font-black text-slate-900 border-t-2 border-slate-300">
+                    <td colSpan={3} className="p-3 uppercase">Total Sum</td>
+                    <td className="p-3 text-right font-mono text-sm text-emerald-700 whitespace-nowrap">{formatINR(trialBalance.totalDebits)}</td>
+                    <td className="p-3 text-right font-mono text-sm text-emerald-700 whitespace-nowrap">{formatINR(trialBalance.totalCredits)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           </div>
         )}
 
@@ -476,44 +478,46 @@ export const ReportsView: React.FC = () => {
               </div>
             </div>
 
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px]">
-                  <th className="p-2.5">Date</th>
-                  <th className="p-2.5">Entry No</th>
-                  <th className="p-2.5">Narration</th>
-                  <th className="p-2.5 text-right">Debit (₹)</th>
-                  <th className="p-2.5 text-right">Credit (₹)</th>
-                  <th className="p-2.5 text-right">Running Balance (₹)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 font-medium">
-                {generalLedger.rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="p-6 text-center text-slate-400 italic">
-                      No journal lines posted for this account code yet.
-                    </td>
+            <div className="w-full overflow-x-auto touch-pan-x -mx-1 px-1">
+              <table className="w-full min-w-[600px] text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px]">
+                    <th className="p-2.5">Date</th>
+                    <th className="p-2.5">Entry No</th>
+                    <th className="p-2.5">Narration</th>
+                    <th className="p-2.5 text-right">Debit (₹)</th>
+                    <th className="p-2.5 text-right">Credit (₹)</th>
+                    <th className="p-2.5 text-right">Running Balance (₹)</th>
                   </tr>
-                ) : (
-                  generalLedger.rows.map((row, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/70">
-                      <td className="p-2.5 font-mono text-slate-600">{row.date}</td>
-                      <td className="p-2.5 font-mono text-slate-800 font-bold">{row.entryNo}</td>
-                      <td className="p-2.5 text-slate-700">{row.narration}</td>
-                      <td className="p-2.5 text-right font-mono text-slate-800">
-                        {row.debit > 0 ? formatINR(row.debit) : '-'}
-                      </td>
-                      <td className="p-2.5 text-right font-mono text-slate-800">
-                        {row.credit > 0 ? formatINR(row.credit) : '-'}
-                      </td>
-                      <td className="p-2.5 text-right font-mono font-bold text-slate-900">
-                        {formatINR(row.runningBalance)}
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {generalLedger.rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-6 text-center text-slate-400 italic">
+                        No journal lines posted for this account code yet.
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    generalLedger.rows.map((row, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/70">
+                        <td className="p-2.5 font-mono text-slate-600 whitespace-nowrap">{row.date}</td>
+                        <td className="p-2.5 font-mono text-slate-800 font-bold whitespace-nowrap">{row.entryNo}</td>
+                        <td className="p-2.5 text-slate-700">{row.narration}</td>
+                        <td className="p-2.5 text-right font-mono text-slate-800 whitespace-nowrap">
+                          {row.debit > 0 ? formatINR(row.debit) : '-'}
+                        </td>
+                        <td className="p-2.5 text-right font-mono text-slate-800 whitespace-nowrap">
+                          {row.credit > 0 ? formatINR(row.credit) : '-'}
+                        </td>
+                        <td className="p-2.5 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
+                          {formatINR(row.runningBalance)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -576,46 +580,48 @@ export const ReportsView: React.FC = () => {
                   </div>
                 </div>
 
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px]">
-                      <th className="p-2.5">Date</th>
-                      <th className="p-2.5">Doc Ref</th>
-                      <th className="p-2.5">Type</th>
-                      <th className="p-2.5">Narration</th>
-                      <th className="p-2.5 text-right">Debit (₹)</th>
-                      <th className="p-2.5 text-right">Credit (₹)</th>
-                      <th className="p-2.5 text-right">Balance (₹)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium">
-                    {partyStatement.items.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="p-6 text-center text-slate-400 italic">
-                          No transactions found for this party in the selected date range.
-                        </td>
+                <div className="w-full overflow-x-auto touch-pan-x -mx-1 px-1">
+                  <table className="w-full min-w-[640px] text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase text-[10px]">
+                        <th className="p-2.5">Date</th>
+                        <th className="p-2.5">Doc Ref</th>
+                        <th className="p-2.5">Type</th>
+                        <th className="p-2.5">Narration</th>
+                        <th className="p-2.5 text-right">Debit (₹)</th>
+                        <th className="p-2.5 text-right">Credit (₹)</th>
+                        <th className="p-2.5 text-right">Balance (₹)</th>
                       </tr>
-                    ) : (
-                      partyStatement.items.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50/70">
-                          <td className="p-2.5 font-mono text-slate-600">{item.date}</td>
-                          <td className="p-2.5 font-mono text-slate-900 font-bold">{item.documentRef}</td>
-                          <td className="p-2.5 text-[10px] uppercase font-bold text-slate-500">{item.documentType}</td>
-                          <td className="p-2.5 text-slate-700">{item.narration}</td>
-                          <td className="p-2.5 text-right font-mono text-slate-800">
-                            {item.debit > 0 ? formatINR(item.debit) : '-'}
-                          </td>
-                          <td className="p-2.5 text-right font-mono text-slate-800">
-                            {item.credit > 0 ? formatINR(item.credit) : '-'}
-                          </td>
-                          <td className="p-2.5 text-right font-mono font-bold text-slate-900">
-                            {formatINR(item.runningBalance)}
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {partyStatement.items.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="p-6 text-center text-slate-400 italic">
+                            No transactions found for this party in the selected date range.
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : (
+                        partyStatement.items.map((item, idx) => (
+                          <tr key={idx} className="hover:bg-slate-50/70">
+                            <td className="p-2.5 font-mono text-slate-600 whitespace-nowrap">{item.date}</td>
+                            <td className="p-2.5 font-mono text-slate-900 font-bold whitespace-nowrap">{item.documentRef}</td>
+                            <td className="p-2.5 text-[10px] uppercase font-bold text-slate-500 whitespace-nowrap">{item.documentType}</td>
+                            <td className="p-2.5 text-slate-700">{item.narration}</td>
+                            <td className="p-2.5 text-right font-mono text-slate-800 whitespace-nowrap">
+                              {item.debit > 0 ? formatINR(item.debit) : '-'}
+                            </td>
+                            <td className="p-2.5 text-right font-mono text-slate-800 whitespace-nowrap">
+                              {item.credit > 0 ? formatINR(item.credit) : '-'}
+                            </td>
+                            <td className="p-2.5 text-right font-mono font-bold text-slate-900 whitespace-nowrap">
+                              {formatINR(item.runningBalance)}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>
@@ -718,44 +724,46 @@ export const ReportsView: React.FC = () => {
                 <span>Export CSV</span>
               </button>
             </div>
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
-                <tr>
-                  <th className="py-2.5 px-3">Purchase No</th>
-                  <th className="py-2.5 px-3">Date</th>
-                  <th className="py-2.5 px-3">Supplier</th>
-                  <th className="py-2.5 px-3 text-right">Taxable (₹)</th>
-                  <th className="py-2.5 px-3 text-right">Tax (₹)</th>
-                  <th className="py-2.5 px-3 text-right">Total Amount (₹)</th>
-                  <th className="py-2.5 px-3 text-center">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 font-medium">
-                {purchases.map((p) => (
-                  <tr key={p.id} className="hover:bg-slate-50">
-                    <td className="py-2.5 px-3 font-bold text-slate-900 font-mono">{p.purchaseNo}</td>
-                    <td className="py-2.5 px-3 text-slate-500">{p.transactionDate.split('T')[0]}</td>
-                    <td className="py-2.5 px-3 font-medium text-slate-800">
-                      {parties.find((sup) => sup.id === p.supplierPartyId)?.legalName || 'N/A'}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-mono text-slate-600">{formatINR(p.subtotalAmount)}</td>
-                    <td className="py-2.5 px-3 text-right font-mono text-slate-600">{formatINR(p.taxAmount)}</td>
-                    <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">{formatINR(p.totalAmount)}</td>
-                    <td className="py-2.5 px-3 text-center">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
-                        {p.status}
-                      </span>
-                    </td>
+            <div className="w-full overflow-x-auto touch-pan-x">
+              <table className="w-full min-w-[620px] text-left text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
+                  <tr>
+                    <th className="py-2.5 px-3">Purchase No</th>
+                    <th className="py-2.5 px-3">Date</th>
+                    <th className="py-2.5 px-3">Supplier</th>
+                    <th className="py-2.5 px-3 text-right">Taxable (₹)</th>
+                    <th className="py-2.5 px-3 text-right">Tax (₹)</th>
+                    <th className="py-2.5 px-3 text-right">Total Amount (₹)</th>
+                    <th className="py-2.5 px-3 text-center">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium">
+                  {purchases.map((p) => (
+                    <tr key={p.id} className="hover:bg-slate-50">
+                      <td className="py-2.5 px-3 font-bold text-slate-900 font-mono whitespace-nowrap">{p.purchaseNo}</td>
+                      <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{p.transactionDate.split('T')[0]}</td>
+                      <td className="py-2.5 px-3 font-medium text-slate-800">
+                        {parties.find((sup) => sup.id === p.supplierPartyId)?.legalName || 'N/A'}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-slate-600 whitespace-nowrap">{formatINR(p.subtotalAmount)}</td>
+                      <td className="py-2.5 px-3 text-right font-mono text-slate-600 whitespace-nowrap">{formatINR(p.taxAmount)}</td>
+                      <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 whitespace-nowrap">{formatINR(p.totalAmount)}</td>
+                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
+                          {p.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
         {/* 8. SALES REGISTER */}
         {activeReport === 'SALES_REGISTER' && (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto touch-pan-x">
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Sales & Dispatch Register</h3>
@@ -783,7 +791,7 @@ export const ReportsView: React.FC = () => {
                 <span>Export CSV</span>
               </button>
             </div>
-            <table className="w-full text-left text-xs">
+            <table className="w-full min-w-[620px] text-left text-xs">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
                 <tr>
                   <th className="py-2.5 px-3">Order No</th>
@@ -798,15 +806,15 @@ export const ReportsView: React.FC = () => {
               <tbody className="divide-y divide-slate-100 font-medium">
                 {sales.map((s) => (
                   <tr key={s.id} className="hover:bg-slate-50">
-                    <td className="py-2.5 px-3 font-bold text-slate-900 font-mono">{s.salesNo}</td>
-                    <td className="py-2.5 px-3 text-slate-500">{s.orderDate}</td>
+                    <td className="py-2.5 px-3 font-bold text-slate-900 font-mono whitespace-nowrap">{s.salesNo}</td>
+                    <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{s.orderDate}</td>
                     <td className="py-2.5 px-3 font-medium text-slate-800">
                       {parties.find((cust) => cust.id === s.customerPartyId)?.legalName || 'N/A'}
                     </td>
-                    <td className="py-2.5 px-3 text-right font-mono text-slate-600">{formatINR(s.subtotalAmount)}</td>
-                    <td className="py-2.5 px-3 text-right font-mono text-slate-600">{formatINR(s.taxAmount)}</td>
-                    <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900">{formatINR(s.totalAmount)}</td>
-                    <td className="py-2.5 px-3 text-center">
+                    <td className="py-2.5 px-3 text-right font-mono text-slate-600 whitespace-nowrap">{formatINR(s.subtotalAmount)}</td>
+                    <td className="py-2.5 px-3 text-right font-mono text-slate-600 whitespace-nowrap">{formatINR(s.taxAmount)}</td>
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-900 whitespace-nowrap">{formatINR(s.totalAmount)}</td>
+                    <td className="py-2.5 px-3 text-center whitespace-nowrap">
                       <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700">
                         {s.status}
                       </span>
@@ -820,14 +828,14 @@ export const ReportsView: React.FC = () => {
 
         {/* 9. AUDIT TRAIL */}
         {activeReport === 'AUDIT_LOG' && (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto touch-pan-x">
             <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wider">Immutable Security Audit Trail</h3>
                 <span className="text-[10px] text-slate-500">Non-editable system actions log</span>
               </div>
             </div>
-            <table className="w-full text-left text-xs font-mono">
+            <table className="w-full min-w-[620px] text-left text-xs font-mono">
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-[10px]">
                 <tr>
                   <th className="py-2.5 px-3">Timestamp</th>
@@ -840,11 +848,11 @@ export const ReportsView: React.FC = () => {
               <tbody className="divide-y divide-slate-100">
                 {auditLogs.map((log) => (
                   <tr key={log.id}>
-                    <td className="py-2.5 px-3 text-slate-500">{new Date(log.timestamp).toLocaleString()}</td>
-                    <td className="py-2.5 px-3 font-bold text-slate-800">{log.actorName}</td>
-                    <td className="py-2.5 px-3 text-red-700 font-semibold">{log.action}</td>
-                    <td className="py-2.5 px-3 text-slate-700">{log.entityType}</td>
-                    <td className="py-2.5 px-3 text-slate-500">{log.entityId}</td>
+                    <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{new Date(log.timestamp).toLocaleString()}</td>
+                    <td className="py-2.5 px-3 font-bold text-slate-800 whitespace-nowrap">{log.actorName}</td>
+                    <td className="py-2.5 px-3 text-red-700 font-semibold whitespace-nowrap">{log.action}</td>
+                    <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap">{log.entityType}</td>
+                    <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">{log.entityId}</td>
                   </tr>
                 ))}
               </tbody>

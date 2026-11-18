@@ -330,6 +330,8 @@ interface ERPContextType {
   updateAttendanceEntry: (id: string, updates: Partial<AttendanceEntry>) => void;
   deleteAttendanceEntry: (id: string) => { success: boolean; message?: string };
   addAttendanceRecord: (entryData: Omit<AttendanceEntry, 'id'>) => AttendanceEntry;
+  batchMarkAttendance: (entries: { employeeId: string; date: string; status: AttendanceStatus; overtimeHours?: number; remarks?: string }[]) => void;
+  clearAttendanceDates: (employeeId: string, dates: string[]) => void;
   reconcileStockCount: (yardId: string, lines: { materialId: string; physicalQuantity: number; reason?: string }[], notes?: string) => StockCount;
   
   // Data Migration & Backups
@@ -2745,6 +2747,21 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addAttendanceRecord = (entryData: Omit<AttendanceEntry, 'id'>): AttendanceEntry => {
+    const existing = attendance.find(
+      (a) => a.employeeId === entryData.employeeId && a.attendanceDate === entryData.attendanceDate
+    );
+    if (existing) {
+      const updated: AttendanceEntry = {
+        ...existing,
+        ...entryData,
+        id: existing.id,
+        isCorrected: true,
+        correctionReason: 'Amended by Supervisor',
+      };
+      setAttendance((prev) => prev.map((a) => (a.id === existing.id ? updated : a)));
+      logAudit('UPDATE_ATTENDANCE', 'ATTENDANCE', existing.id, existing, updated);
+      return updated;
+    }
     const newEntry: AttendanceEntry = {
       ...entryData,
       id: 'att-' + Math.random().toString(36).substring(2, 9),
@@ -2754,6 +2771,54 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAttendance((prev) => [newEntry, ...prev]);
     logAudit('CREATE_ATTENDANCE', 'ATTENDANCE', newEntry.id, null, newEntry);
     return newEntry;
+  };
+
+  const batchMarkAttendance = (
+    entries: { employeeId: string; date: string; status: AttendanceStatus; overtimeHours?: number; remarks?: string }[]
+  ) => {
+    if (!entries || entries.length === 0) return;
+    setAttendance((prev) => {
+      const entryMap = new Map<string, AttendanceEntry>();
+      for (const item of prev) {
+        entryMap.set(`${item.employeeId}__${item.attendanceDate}`, item);
+      }
+      for (const e of entries) {
+        const key = `${e.employeeId}__${e.date}`;
+        const existing = entryMap.get(key);
+        if (existing) {
+          entryMap.set(key, {
+            ...existing,
+            status: e.status,
+            overtimeHours: e.overtimeHours ?? 0,
+            remarks: e.remarks ?? existing.remarks,
+            isCorrected: true,
+            correctionReason: 'Batch updated',
+          });
+        } else {
+          entryMap.set(key, {
+            id: 'att-' + Math.random().toString(36).substring(2, 9),
+            employeeId: e.employeeId,
+            attendanceDate: e.date,
+            status: e.status,
+            overtimeHours: e.overtimeHours ?? 0,
+            remarks: e.remarks,
+            markedBy: currentUser.fullName,
+            isCorrected: false,
+          });
+        }
+      }
+      return Array.from(entryMap.values());
+    });
+    logAudit('BATCH_MARK_ATTENDANCE', 'ATTENDANCE', 'BATCH', null, { count: entries.length });
+  };
+
+  const clearAttendanceDates = (employeeId: string, dates: string[]) => {
+    if (!dates || dates.length === 0) return;
+    const dateSet = new Set(dates);
+    setAttendance((prev) =>
+      prev.filter((a) => !(a.employeeId === employeeId && dateSet.has(a.attendanceDate)))
+    );
+    logAudit('CLEAR_ATTENDANCE', 'ATTENDANCE', employeeId, null, { count: dates.length });
   };
 
   const addAccount = (accData: Omit<CashBankAccount, 'id'>): CashBankAccount => {
@@ -3827,6 +3892,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateAttendanceEntry,
         deleteAttendanceEntry,
         addAttendanceRecord,
+        batchMarkAttendance,
+        clearAttendanceDates,
         reconcileStockCount,
         importParties,
         importOpeningStock,

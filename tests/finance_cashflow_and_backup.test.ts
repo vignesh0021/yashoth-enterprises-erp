@@ -113,4 +113,18 @@ describe('Cashflow CRUD, Account Balance Reconciliation & Mobile Backup Fixes', 
     expect(invoicesView).toContain('catch (err: any)');
     expect(docsView).toContain('catch (err: any)');
   });
+
+  it('provides individual monthly calendar, Mark All Present, Bulk Range, UNMARKED indicator, and Inactive toggle in EmployeesView & ERPContext', () => {
+    const erpCtx = readSrc('src/context/ERPContext.tsx');
+    const empView = readSrc('src/modules/employees/EmployeesView.tsx');
+    expect(erpCtx).toContain('batchMarkAttendance');
+    expect(erpCtx).toContain('clearAttendanceDates');
+    expect(empView).toContain('Mark All Present');
+    expect(empView).toContain('Bulk Range');
+    expect(empView).toContain('Mark Mon–Sat Present');
+    expect(empView).toContain('UNMARKED');
+    expect(empView).toContain('handleCalendarDayTap');
+    expect(empView).toContain('handleToggleEmployeeActive');
+    expect(empView).not.toContain("useState('2026-10')");
+  });
 });

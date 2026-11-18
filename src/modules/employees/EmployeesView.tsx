@@ -17,12 +17,54 @@ import {
   DollarSign,
   Printer,
   History,
-  ShieldCheck,
   Zap,
-  BookUser
+  BookUser,
+  ChevronLeft,
+  ChevronRight,
+  Power,
+  CheckCheck,
+  CalendarRange
 } from 'lucide-react';
-import { pickContactFromPhonebook, isContactPickerSupported } from '../../utils/contactPicker.ts';
 import { QuickContactModal } from '../../components/QuickContactModal.tsx';
+
+const shiftIsoDate = (isoDate: string, deltaDays: number): string => {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + deltaDays));
+  return dt.toISOString().slice(0, 10);
+};
+
+const shiftYearMonth = (ym: string, deltaMonths: number): string => {
+  const [y, m] = ym.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1 + deltaMonths, 1));
+  return dt.toISOString().slice(0, 7);
+};
+
+const getDatesInMonth = (ym: string): string[] => {
+  const [y, m] = ym.split('-').map(Number);
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const res: string[] = [];
+  for (let day = 1; day <= daysInMonth; day++) {
+    res.push(`${ym}-${String(day).padStart(2, '0')}`);
+  }
+  return res;
+};
+
+const getDatesInRange = (fromDate: string, toDate: string, skipSundays: boolean): string[] => {
+  if (!fromDate || !toDate || fromDate > toDate) return [];
+  const res: string[] = [];
+  let cur = fromDate;
+  let guard = 0;
+  while (cur <= toDate && guard < 366) {
+    const [y, m, d] = cur.split('-').map(Number);
+    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    if (!skipSundays || dow !== 0) {
+      res.push(cur);
+    }
+    cur = shiftIsoDate(cur, 1);
+    guard++;
+  }
+  return res;
+};
 
 export const EmployeesView: React.FC = () => {
   const { 
@@ -32,6 +74,8 @@ export const EmployeesView: React.FC = () => {
     updateAttendanceEntry, 
     deleteAttendanceEntry, 
     addAttendanceRecord,
+    batchMarkAttendance,
+    clearAttendanceDates,
     addEmployee, 
     updateEmployee, 
     deleteEmployee, 
@@ -39,15 +83,25 @@ export const EmployeesView: React.FC = () => {
     currentUser 
   } = useERP();
 
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const todayIso = new Date().toISOString().split('T')[0];
+  const [selectedDate, setSelectedDate] = useState(todayIso);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Individual Employee Performance & Salary Tracking State
+  // Individual Employee Performance, Calendar & Salary Tracking State
   const [trackingEmployee, setTrackingEmployee] = useState<Employee | null>(null);
-  const [activeTrackingTab, setActiveTrackingTab] = useState<'overview' | 'history' | 'payslip'>('overview');
-  const [selectedMonth, setSelectedMonth] = useState('2026-10');
+  const [activeTrackingTab, setActiveTrackingTab] = useState<'calendar' | 'overview' | 'history' | 'payslip'>('calendar');
+  const [selectedMonth, setSelectedMonth] = useState(todayIso.slice(0, 7));
+  const [calendarBrush, setCalendarBrush] = useState<'CYCLE' | AttendanceStatus | 'CLEAR'>('CYCLE');
+
+  // Bulk Range Attendance Modal State
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [bulkTargetEmpId, setBulkTargetEmpId] = useState<string>('ALL_ACTIVE');
+  const [bulkFromDate, setBulkFromDate] = useState(todayIso.slice(0, 8) + '01');
+  const [bulkToDate, setBulkToDate] = useState(todayIso);
+  const [bulkStatus, setBulkStatus] = useState<AttendanceStatus>('PRESENT');
+  const [bulkSkipSundays, setBulkSkipSundays] = useState(true);
 
   // Form State for Employee Add / Edit
   const [code, setCode] = useState('');
@@ -69,13 +123,121 @@ export const EmployeesView: React.FC = () => {
   const [otHours, setOtHours] = useState<number>(4);
   const [otRemarks, setOtRemarks] = useState('Extended yard shift / double duty');
 
+  const showToast = (type: 'success' | 'error', text: string) => {
+    setFeedbackMsg({ type, text });
+    setTimeout(() => setFeedbackMsg(null), 4000);
+  };
+
   const handleStatusChange = (empId: string, status: AttendanceStatus, hours: number = 0, remarks?: string) => {
     markAttendance(empId, selectedDate, status, hours, remarks);
-    setFeedbackMsg({
-      type: 'success',
-      text: `Status updated to ${status.replace('_', ' ')}${hours > 0 ? ` (+${hours}h OT)` : ''} for selected date.`,
+    showToast('success', `Status updated to ${status.replace('_', ' ')}${hours > 0 ? ` (+${hours}h OT)` : ''} for ${selectedDate}.`);
+  };
+
+  const handleMarkAllPresentForDate = () => {
+    const activeEmps = employees.filter((e) => e.isActive !== false);
+    if (activeEmps.length === 0) {
+      showToast('error', 'No active employees in roster.');
+      return;
+    }
+    batchMarkAttendance(
+      activeEmps.map((e) => ({
+        employeeId: e.id,
+        date: selectedDate,
+        status: 'PRESENT',
+        overtimeHours: 0,
+        remarks: 'Marked All Present',
+      }))
+    );
+    showToast('success', `Marked ${activeEmps.length} active staff Present for ${selectedDate}.`);
+  };
+
+  const handleBulkRangeSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const dates = getDatesInRange(bulkFromDate, bulkToDate, bulkSkipSundays);
+    if (dates.length === 0) {
+      showToast('error', 'Select a valid date range (From Date <= To Date).');
+      return;
+    }
+    const targetEmps =
+      bulkTargetEmpId === 'ALL_ACTIVE'
+        ? employees.filter((emp) => emp.isActive !== false)
+        : employees.filter((emp) => emp.id === bulkTargetEmpId);
+
+    if (targetEmps.length === 0) {
+      showToast('error', 'No matching employees selected.');
+      return;
+    }
+
+    const entries: { employeeId: string; date: string; status: AttendanceStatus; overtimeHours?: number; remarks?: string }[] = [];
+    for (const emp of targetEmps) {
+      for (const dt of dates) {
+        entries.push({
+          employeeId: emp.id,
+          date: dt,
+          status: bulkStatus,
+          overtimeHours: bulkStatus === 'DOUBLE_SHIFT' ? 8 : 0,
+          remarks: `Bulk ${bulkStatus.replace('_', ' ')}`,
+        });
+      }
+    }
+    batchMarkAttendance(entries);
+    setIsBulkModalOpen(false);
+    showToast('success', `Marked ${targetEmps.length} staff × ${dates.length} days as ${bulkStatus.replace('_', ' ')}.`);
+  };
+
+  const handleCalendarDayTap = (emp: Employee, dateStr: string, existing?: AttendanceEntry) => {
+    if (calendarBrush === 'CLEAR') {
+      if (existing) {
+        clearAttendanceDates(emp.id, [dateStr]);
+      }
+      return;
+    }
+    if (calendarBrush !== 'CYCLE') {
+      markAttendance(
+        emp.id,
+        dateStr,
+        calendarBrush,
+        calendarBrush === 'DOUBLE_SHIFT' ? 8 : 0,
+        `Calendar mark (${calendarBrush.replace('_', ' ')})`
+      );
+      return;
+    }
+    // Cycle: Unmarked -> PRESENT -> HALF_DAY -> DOUBLE_SHIFT -> ABSENT -> Clear
+    if (!existing) {
+      markAttendance(emp.id, dateStr, 'PRESENT', 0, 'Standard 8h shift');
+    } else if (existing.status === 'PRESENT' || existing.status === 'OVERTIME') {
+      markAttendance(emp.id, dateStr, 'HALF_DAY', 0, 'Half day 4h shift');
+    } else if (existing.status === 'HALF_DAY') {
+      markAttendance(emp.id, dateStr, 'DOUBLE_SHIFT', 8, 'Double shift 16h duty');
+    } else if (existing.status === 'DOUBLE_SHIFT') {
+      markAttendance(emp.id, dateStr, 'ABSENT', 0, 'Absent');
+    } else {
+      clearAttendanceDates(emp.id, [dateStr]);
+    }
+  };
+
+  const handleMarkMonthForEmployee = (emp: Employee, skipSundays: boolean) => {
+    const dates = getDatesInMonth(selectedMonth).filter((dt) => {
+      if (!skipSundays) return true;
+      const [y, m, d] = dt.split('-').map(Number);
+      return new Date(Date.UTC(y, m - 1, d)).getUTCDay() !== 0;
     });
-    setTimeout(() => setFeedbackMsg(null), 3000);
+    batchMarkAttendance(
+      dates.map((dt) => ({
+        employeeId: emp.id,
+        date: dt,
+        status: 'PRESENT',
+        overtimeHours: 0,
+        remarks: skipSundays ? 'Month Mon-Sat Present' : 'Full Month Present',
+      }))
+    );
+    showToast('success', `Marked ${dates.length} days Present for ${emp.fullName} (${selectedMonth}).`);
+  };
+
+  const handleToggleEmployeeActive = (emp: Employee) => {
+    const nextActive = emp.isActive === false;
+    updateEmployee(emp.id, { isActive: nextActive });
+    showToast('success', `${emp.fullName} marked ${nextActive ? 'Active' : 'Inactive'}.`);
   };
 
   const handleOpenAdd = () => {
@@ -275,38 +437,84 @@ export const EmployeesView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <h1 className="text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-            <UserCheck className="w-6 h-6 text-red-600" />
-            <span>Staff Roster, Attendance & Salary Engine</span>
+            <UserCheck className="w-6 h-6 text-red-600 shrink-0" />
+            <span>Staff Roster, Attendance &amp; Salary Engine</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Full CRUD management for employees, flexible shift logging, editable overtime hours, double shift tracking, and automated wage calculations.
+            1-tap daily marking, individual monthly calendars, bulk date-range fill, overtime tracking, and automated wage slips.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Daily Date Selector */}
-          <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200 shadow-xs">
-            <Calendar className="w-4 h-4 text-slate-400" />
-            <span className="text-[11px] font-semibold text-slate-600">Date:</span>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Daily Date Stepper */}
+          <div className="flex items-center gap-1 bg-white px-2 py-1 rounded-xl border border-slate-200 shadow-xs">
+            <button
+              type="button"
+              onClick={() => setSelectedDate(shiftIsoDate(selectedDate, -1))}
+              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 cursor-pointer"
+              title="Previous Day"
+              aria-label="Previous Day"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
             <input
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="text-xs font-bold text-slate-800 outline-none cursor-pointer bg-transparent"
+              className="text-xs font-bold text-slate-800 outline-none cursor-pointer bg-transparent px-1"
             />
+            <button
+              type="button"
+              onClick={() => setSelectedDate(todayIso)}
+              className={`px-2 py-1 rounded-lg text-[11px] font-bold cursor-pointer ${
+                selectedDate === todayIso ? 'bg-red-50 text-red-700' : 'hover:bg-slate-100 text-slate-600'
+              }`}
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedDate(shiftIsoDate(selectedDate, 1))}
+              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-600 cursor-pointer"
+              title="Next Day"
+              aria-label="Next Day"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
           </div>
 
           <button
-            onClick={handleOpenAdd}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all cursor-pointer"
+            type="button"
+            onClick={handleMarkAllPresentForDate}
+            className="flex items-center gap-1.5 px-3 py-2 min-h-[40px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer transition-colors"
+            title="Mark all active employees Present for selected date"
           >
-            <Plus className="w-4 h-4" />
-            <span>+ Add Employee</span>
+            <CheckCheck className="w-4 h-4 shrink-0" />
+            <span>Mark All Present</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsBulkModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 min-h-[40px] bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer transition-colors"
+            title="Mark attendance across a date range without changing date one by one"
+          >
+            <CalendarRange className="w-4 h-4 shrink-0" />
+            <span>Bulk Range</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleOpenAdd}
+            className="flex items-center gap-1.5 px-3.5 py-2 min-h-[40px] bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4 shrink-0" />
+            <span>Add Employee</span>
           </button>
         </div>
       </div>
@@ -329,179 +537,381 @@ export const EmployeesView: React.FC = () => {
         </div>
       )}
 
-      {/* Staff & Attendance Register Table */}
+      {/* Staff & Attendance Roster */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+        <div className="p-3.5 sm:p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-slate-800 block">
-              Daily Shift & Attendance Roster ({selectedDate})
+              Daily Shift &amp; Attendance Roster ({selectedDate})
             </span>
             <span className="text-[11px] text-slate-500">
-              Click individual employee name for full monthly attendance history, editable shift logs, and printable pay slips.
+              Tap any employee or Calendar icon to mark their whole month on an interactive calendar.
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-slate-500 font-medium">Quick Legend:</span>
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">Present</span>
             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800">Half Day</span>
             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">Double Shift</span>
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700">Unmarked</span>
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* Mobile Cards (< 768px) */}
+        <div className="md:hidden divide-y divide-slate-200">
+          {employees.length === 0 ? (
+            <div className="p-8 text-center text-xs text-slate-500">
+              No employees added yet. Tap <strong>Add Employee</strong> above to register your staff.
+            </div>
+          ) : (
+            employees.map((emp) => {
+              const record = attendance.find(
+                (a) => a.employeeId === emp.id && a.attendanceDate === selectedDate
+              );
+              const currentStatus = record?.status;
+              const currentOt = record?.overtimeHours || 0;
+              const stats = getEmployeeStats(emp);
+              const isInactive = emp.isActive === false;
+
+              return (
+                <div key={emp.id} className={`p-3.5 space-y-3 ${isInactive ? 'bg-slate-50/80 opacity-75' : 'bg-white'}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTrackingEmployee(emp);
+                        setActiveTrackingTab('calendar');
+                      }}
+                      className="text-left min-w-0 flex-1 cursor-pointer"
+                    >
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-mono text-[10px] font-bold text-slate-500">{emp.employeeCode}</span>
+                        {isInactive && (
+                          <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded text-[9px] font-bold uppercase">
+                            Inactive
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm font-black text-slate-900 truncate">{emp.fullName}</div>
+                      <div className="text-[11px] text-slate-500">
+                        {emp.designation} · {emp.monthlySalary > 0 ? `${formatINR(emp.monthlySalary)}/mo` : `${formatINR(emp.dailyWageRate)}/day`}
+                      </div>
+                    </button>
+
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      {currentStatus ? (
+                        <StatusBadge status={currentStatus} />
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                          UNMARKED
+                        </span>
+                      )}
+                      {currentOt > 0 && (
+                        <span className="text-[10px] font-mono font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200">
+                          +{currentOt}h OT
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Quick 1-Tap Status Grid */}
+                  <div className="grid grid-cols-5 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleStatusChange(emp.id, 'PRESENT', 0, 'Standard 8h shift')}
+                      className={`py-2 min-h-[40px] rounded-lg text-[11px] font-bold cursor-pointer ${
+                        currentStatus === 'PRESENT' && currentOt === 0
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      Present
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleStatusChange(emp.id, 'HALF_DAY', 0, 'Half day 4h shift')}
+                      className={`py-2 min-h-[40px] rounded-lg text-[11px] font-bold cursor-pointer ${
+                        currentStatus === 'HALF_DAY' ? 'bg-blue-600 text-white shadow-xs' : 'bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      Half
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleStatusChange(emp.id, 'DOUBLE_SHIFT', 8, 'Full 16h double shift duty')}
+                      className={`py-2 min-h-[40px] rounded-lg text-[11px] font-bold cursor-pointer ${
+                        currentStatus === 'DOUBLE_SHIFT'
+                          ? 'bg-purple-600 text-white shadow-xs'
+                          : 'bg-purple-50 text-purple-700 border border-purple-200'
+                      }`}
+                    >
+                      2x
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenCustomShiftModal(emp.id, record)}
+                      className={`py-2 min-h-[40px] rounded-lg text-[11px] font-bold cursor-pointer ${
+                        currentOt > 0 && currentStatus !== 'DOUBLE_SHIFT'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-700 border border-slate-200'
+                      }`}
+                    >
+                      {currentOt > 0 ? `${currentOt}h` : 'OT'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleStatusChange(emp.id, 'ABSENT', 0, 'Unexcused / Absent')}
+                      className={`py-2 min-h-[40px] rounded-lg text-[11px] font-bold cursor-pointer ${
+                        currentStatus === 'ABSENT' ? 'bg-rose-600 text-white shadow-xs' : 'bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      Absent
+                    </button>
+                  </div>
+
+                  {/* Mobile Actions Footer */}
+                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTrackingEmployee(emp);
+                        setActiveTrackingTab('calendar');
+                      }}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-slate-900 text-white rounded-lg text-[11px] font-bold cursor-pointer"
+                    >
+                      <Calendar className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Calendar &amp; Pay ({formatINR(stats.netSalaryPayable)})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleToggleEmployeeActive(emp)}
+                      className={`p-2 rounded-lg cursor-pointer ${
+                        isInactive ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+                      }`}
+                      title={isInactive ? 'Mark Active' : 'Mark Inactive'}
+                    >
+                      <Power className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEdit(emp)}
+                      className="p-2 rounded-lg bg-slate-100 text-slate-700 cursor-pointer"
+                      title="Edit Employee"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(emp)}
+                      className="p-2 rounded-lg bg-rose-50 text-rose-600 cursor-pointer"
+                      title="Delete Employee"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Desktop Table (>= 768px) */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="bg-slate-100/60 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
                 <th className="py-3 px-4">Code</th>
                 <th className="py-3 px-4">Employee Details</th>
-                <th className="py-3 px-4">Designation & Dept</th>
+                <th className="py-3 px-4">Designation &amp; Dept</th>
                 <th className="py-3 px-4">Wage Structure</th>
                 <th className="py-3 px-4 text-center">Status on {selectedDate}</th>
-                <th className="py-3 px-4 text-center">Shift & Overtime Controls</th>
-                <th className="py-3 px-4 text-center">Performance & Net Wages</th>
+                <th className="py-3 px-4 text-center">Shift &amp; Overtime Controls</th>
+                <th className="py-3 px-4 text-center">Calendar &amp; Net Wages</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {employees.map((emp) => {
-                const record = attendance.find(
-                  (a) => a.employeeId === emp.id && a.attendanceDate === selectedDate
-                );
-                const currentStatus: AttendanceStatus = record?.status || 'PRESENT';
-                const currentOt = record?.overtimeHours || 0;
-                const stats = getEmployeeStats(emp);
+              {employees.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-8 text-center text-slate-400 italic">
+                    No employees registered yet. Click &quot;Add Employee&quot; to get started.
+                  </td>
+                </tr>
+              ) : (
+                employees.map((emp) => {
+                  const record = attendance.find(
+                    (a) => a.employeeId === emp.id && a.attendanceDate === selectedDate
+                  );
+                  const currentStatus = record?.status;
+                  const currentOt = record?.overtimeHours || 0;
+                  const stats = getEmployeeStats(emp);
+                  const isInactive = emp.isActive === false;
 
-                return (
-                  <tr key={emp.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="py-3 px-4 font-mono font-bold text-slate-900">{emp.employeeCode}</td>
-                    <td className="py-3 px-4">
-                      <button
-                        onClick={() => {
-                          setTrackingEmployee(emp);
-                          setActiveTrackingTab('overview');
-                        }}
-                        className="font-bold text-slate-900 block hover:text-red-600 text-left transition-colors cursor-pointer"
-                        title="Click to view detailed performance & salary calculation"
-                      >
-                        {emp.fullName}
-                      </button>
-                      <span className="text-[10px] text-slate-500 font-mono">{emp.phone}</span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="font-semibold text-slate-800 block">{emp.designation}</span>
-                      <span className="text-[10px] text-slate-500">{emp.department}</span>
-                    </td>
-                    <td className="py-3 px-4 font-mono text-slate-700">
-                      {emp.monthlySalary > 0
-                        ? `${formatINR(emp.monthlySalary)}/mo`
-                        : `${formatINR(emp.dailyWageRate)}/day`}
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <div className="flex flex-col items-center gap-1">
-                        <StatusBadge status={currentStatus} />
-                        {currentOt > 0 && (
-                          <span className="text-[9.5px] font-mono font-bold text-purple-700 bg-purple-50 px-1.5 py-0.2 rounded border border-purple-200">
-                            +{currentOt}h OT
+                  return (
+                    <tr key={emp.id} className={`hover:bg-slate-50/60 transition-colors ${isInactive ? 'opacity-65 bg-slate-50/40' : ''}`}>
+                      <td className="py-3 px-4 font-mono font-bold text-slate-900">
+                        {emp.employeeCode}
+                        {isInactive && (
+                          <span className="block mt-0.5 px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded text-[9px] font-bold w-fit">
+                            INACTIVE
                           </span>
                         )}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <div className="flex items-center justify-center gap-1">
+                      </td>
+                      <td className="py-3 px-4">
                         <button
-                          onClick={() => handleStatusChange(emp.id, 'PRESENT', 0, 'Standard 8h shift')}
-                          className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-all ${
-                            currentStatus === 'PRESENT' && currentOt === 0
-                              ? 'bg-emerald-600 text-white shadow-xs'
-                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                          }`}
-                          title="Mark Standard Full Day (8 hrs)"
+                          type="button"
+                          onClick={() => {
+                            setTrackingEmployee(emp);
+                            setActiveTrackingTab('calendar');
+                          }}
+                          className="font-bold text-slate-900 block hover:text-red-600 text-left transition-colors cursor-pointer"
+                          title="Open Individual Attendance Calendar & Salary"
                         >
-                          Present
+                          {emp.fullName}
                         </button>
+                        <span className="text-[10px] text-slate-500 font-mono">{emp.phone}</span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="font-semibold text-slate-800 block">{emp.designation}</span>
+                        <span className="text-[10px] text-slate-500">{emp.department}</span>
+                      </td>
+                      <td className="py-3 px-4 font-mono text-slate-700">
+                        {emp.monthlySalary > 0
+                          ? `${formatINR(emp.monthlySalary)}/mo`
+                          : `${formatINR(emp.dailyWageRate)}/day`}
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <div className="flex flex-col items-center gap-1">
+                          {currentStatus ? (
+                            <StatusBadge status={currentStatus} />
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                              UNMARKED
+                            </span>
+                          )}
+                          {currentOt > 0 && (
+                            <span className="text-[9.5px] font-mono font-bold text-purple-700 bg-purple-50 px-1.5 py-0.2 rounded border border-purple-200">
+                              +{currentOt}h OT
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleStatusChange(emp.id, 'PRESENT', 0, 'Standard 8h shift')}
+                            className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-all ${
+                              currentStatus === 'PRESENT' && currentOt === 0
+                                ? 'bg-emerald-600 text-white shadow-xs'
+                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                            }`}
+                            title="Mark Standard Full Day (8 hrs)"
+                          >
+                            Present
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStatusChange(emp.id, 'HALF_DAY', 0, 'Half day 4h shift')}
+                            className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-all ${
+                              currentStatus === 'HALF_DAY'
+                                ? 'bg-blue-600 text-white shadow-xs'
+                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                            }`}
+                            title="Mark Half Day (4 hrs)"
+                          >
+                            Half Day
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStatusChange(emp.id, 'DOUBLE_SHIFT', 8, 'Full 16h double shift duty')}
+                            className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-all flex items-center gap-0.5 ${
+                              currentStatus === 'DOUBLE_SHIFT'
+                                ? 'bg-purple-600 text-white shadow-xs'
+                                : 'bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100'
+                            }`}
+                            title="Mark Double Shift (16 hrs / 2 full shifts)"
+                          >
+                            <Zap className="w-3 h-3 text-amber-300" />
+                            <span>Double Shift</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenCustomShiftModal(emp.id, record)}
+                            className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-all flex items-center gap-1 ${
+                              currentOt > 0 && currentStatus !== 'DOUBLE_SHIFT'
+                                ? 'bg-indigo-600 text-white shadow-xs'
+                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300'
+                            }`}
+                            title="Edit Custom Overtime Hours"
+                          >
+                            <Clock className="w-3 h-3 text-indigo-500" />
+                            <span>{currentOt > 0 ? `OT: ${currentOt}h` : 'Custom OT'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStatusChange(emp.id, 'ABSENT', 0, 'Unexcused / Absent')}
+                            className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-all ${
+                              currentStatus === 'ABSENT'
+                                ? 'bg-rose-600 text-white shadow-xs'
+                                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                            }`}
+                            title="Mark Absent"
+                          >
+                            Absent
+                          </button>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-center">
                         <button
-                          onClick={() => handleStatusChange(emp.id, 'HALF_DAY', 0, 'Half day 4h shift')}
-                          className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-all ${
-                            currentStatus === 'HALF_DAY'
-                              ? 'bg-blue-600 text-white shadow-xs'
-                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                          }`}
-                          title="Mark Half Day (4 hrs)"
+                          type="button"
+                          onClick={() => {
+                            setTrackingEmployee(emp);
+                            setActiveTrackingTab('calendar');
+                          }}
+                          className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-[10px] font-bold transition-all inline-flex items-center gap-1 border border-slate-300 shadow-xs cursor-pointer"
                         >
-                          Half Day
+                          <Calendar className="w-3.5 h-3.5 text-red-600" />
+                          <span>Calendar · {stats.attendancePercentage}%</span>
+                          <span className="text-slate-400">·</span>
+                          <span className="font-mono text-emerald-700 font-bold">{formatINR(stats.netSalaryPayable)}</span>
                         </button>
-                        <button
-                          onClick={() => handleStatusChange(emp.id, 'DOUBLE_SHIFT', 8, 'Full 16h double shift duty')}
-                          className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-all flex items-center gap-0.5 ${
-                            currentStatus === 'DOUBLE_SHIFT'
-                              ? 'bg-purple-600 text-white shadow-xs'
-                              : 'bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100'
-                          }`}
-                          title="Mark Double Shift (16 hrs / 2 full shifts)"
-                        >
-                          <Zap className="w-3 h-3 text-amber-300" />
-                          <span>Double Shift</span>
-                        </button>
-                        <button
-                          onClick={() => handleOpenCustomShiftModal(emp.id, record)}
-                          className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-all flex items-center gap-1 ${
-                            currentOt > 0 && currentStatus !== 'DOUBLE_SHIFT'
-                              ? 'bg-indigo-600 text-white shadow-xs'
-                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300'
-                          }`}
-                          title="Edit Custom Overtime Hours (e.g. 1h, 2h, 4h, 8h, 12h)"
-                        >
-                          <Clock className="w-3 h-3 text-indigo-500" />
-                          <span>{currentOt > 0 ? `OT: ${currentOt}h` : 'Custom OT'}</span>
-                        </button>
-                        <button
-                          onClick={() => handleStatusChange(emp.id, 'ABSENT', 0, 'Unexcused / Absent')}
-                          className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-all ${
-                            currentStatus === 'ABSENT'
-                              ? 'bg-rose-600 text-white shadow-xs'
-                              : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                          }`}
-                          title="Mark Absent"
-                        >
-                          Absent
-                        </button>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 text-center">
-                      <button
-                        onClick={() => {
-                          setTrackingEmployee(emp);
-                          setActiveTrackingTab('overview');
-                        }}
-                        className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-[10px] font-bold transition-all inline-flex items-center gap-1 border border-slate-300 shadow-xs cursor-pointer"
-                      >
-                        <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>{stats.attendancePercentage}% Score</span>
-                        <span className="text-slate-400">·</span>
-                        <span className="font-mono text-emerald-700 font-bold">{formatINR(stats.netSalaryPayable)}</span>
-                      </button>
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <button
-                          onClick={() => handleOpenEdit(emp)}
-                          className="p-1.5 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
-                          title="Edit Employee Profile & Wage"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(emp)}
-                          className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                          title="Delete Employee"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleEmployeeActive(emp)}
+                            className={`p-1.5 rounded transition-colors cursor-pointer ${
+                              isInactive
+                                ? 'text-emerald-600 hover:bg-emerald-50'
+                                : 'text-amber-600 hover:bg-amber-50'
+                            }`}
+                            title={isInactive ? 'Mark Active' : 'Mark Inactive'}
+                          >
+                            <Power className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEdit(emp)}
+                            className="p-1.5 rounded text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+                            title="Edit Employee Profile & Wage"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(emp)}
+                            className="p-1.5 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                            title="Delete Employee"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
@@ -630,69 +1040,355 @@ export const EmployeesView: React.FC = () => {
       </Modal>
 
       {/* ========================================================================= */}
-      {/* INDIVIDUAL EMPLOYEE PERFORMANCE & SALARY TRACKING MODAL                   */}
+      {/* BULK DATE-RANGE ATTENDANCE MODAL                                          */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={isBulkModalOpen}
+        onClose={() => setIsBulkModalOpen(false)}
+        title="Bulk Mark Attendance (Date Range)"
+        subtitle="Mark multiple days at once without changing dates one by one."
+      >
+        <form onSubmit={handleBulkRangeSubmit} className="space-y-4 text-xs">
+          <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-indigo-900 text-[11px] flex items-center gap-2">
+            <CalendarRange className="w-4 h-4 text-indigo-600 shrink-0" />
+            <span>
+              Select a date range and apply Present, Half Day, Double Shift, or Absent to all active staff or a single employee in one tap.
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="sm:col-span-2">
+              <label className="font-bold text-slate-700 block mb-1">Apply To *</label>
+              <select
+                value={bulkTargetEmpId}
+                onChange={(e) => setBulkTargetEmpId(e.target.value)}
+                className="w-full p-2.5 border border-slate-200 rounded-lg bg-white font-bold text-slate-900"
+              >
+                <option value="ALL_ACTIVE">All Active Staff ({employees.filter((e) => e.isActive !== false).length})</option>
+                {employees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.fullName} ({emp.employeeCode})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">From Date *</label>
+              <input
+                type="date"
+                value={bulkFromDate}
+                onChange={(e) => setBulkFromDate(e.target.value)}
+                className="w-full p-2 border border-slate-200 rounded-lg bg-white font-mono font-bold"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">To Date *</label>
+              <input
+                type="date"
+                value={bulkToDate}
+                onChange={(e) => setBulkToDate(e.target.value)}
+                className="w-full p-2 border border-slate-200 rounded-lg bg-white font-mono font-bold"
+                required
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="font-bold text-slate-700 block mb-1">Attendance Status *</label>
+              <select
+                value={bulkStatus}
+                onChange={(e) => setBulkStatus(e.target.value as AttendanceStatus)}
+                className="w-full p-2.5 border border-slate-200 rounded-lg bg-white font-bold"
+              >
+                <option value="PRESENT">Present (Standard 8h Shift)</option>
+                <option value="HALF_DAY">Half Day (4h Shift)</option>
+                <option value="DOUBLE_SHIFT">Double Shift (16h / 2x Pay)</option>
+                <option value="ABSENT">Absent</option>
+              </select>
+            </div>
+
+            <label className="sm:col-span-2 flex items-center gap-2 p-2.5 bg-slate-50 rounded-lg border border-slate-200 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={bulkSkipSundays}
+                onChange={(e) => setBulkSkipSundays(e.target.checked)}
+                className="w-4 h-4 text-indigo-600 rounded"
+              />
+              <span className="font-semibold text-slate-800">Skip Sundays (Mon–Sat working days only)</span>
+            </label>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsBulkModalOpen(false)}
+              className="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg shadow-sm cursor-pointer"
+            >
+              Apply Bulk Attendance
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* INDIVIDUAL EMPLOYEE CALENDAR, PERFORMANCE & SALARY TRACKING MODAL         */}
       {/* ========================================================================= */}
       {trackingEmployee && (
         <Modal
           isOpen={!!trackingEmployee}
           onClose={() => setTrackingEmployee(null)}
-          title={`Performance & Salary: ${trackingEmployee.fullName} (${trackingEmployee.employeeCode})`}
-          subtitle={`Department: ${trackingEmployee.department} · Designation: ${trackingEmployee.designation}`}
+          title={`${trackingEmployee.fullName} (${trackingEmployee.employeeCode})`}
+          subtitle={`${trackingEmployee.department} · ${trackingEmployee.designation}`}
           maxWidth="6xl"
         >
           {(() => {
             const stats = getEmployeeStats(trackingEmployee);
+            const monthDates = getDatesInMonth(selectedMonth);
+            const [yr, mo] = selectedMonth.split('-').map(Number);
+            // Monday-first offset (Mon=0..Sun=6)
+            const firstDow = (new Date(Date.UTC(yr, mo - 1, 1)).getUTCDay() + 6) % 7;
+            const entryByDate = new Map(stats.monthRecords.map((r) => [r.attendanceDate, r]));
 
             return (
-              <div className="space-y-5 text-xs">
+              <div className="space-y-4 text-xs">
                 {/* Navigation Tabs inside Employee Modal */}
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
-                  <div className="flex items-center gap-2">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 pb-3">
+                  <div className="flex items-center gap-1.5 overflow-x-auto touch-pan-x whitespace-nowrap pb-1 sm:pb-0">
                     <button
+                      type="button"
+                      onClick={() => setActiveTrackingTab('calendar')}
+                      className={`shrink-0 px-3 py-2 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                        activeTrackingTab === 'calendar'
+                          ? 'bg-red-600 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      <Calendar className="w-3.5 h-3.5" />
+                      <span>Calendar</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setActiveTrackingTab('overview')}
-                      className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                      className={`shrink-0 px-3 py-2 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                         activeTrackingTab === 'overview'
                           ? 'bg-slate-900 text-white shadow-xs'
                           : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                       }`}
                     >
                       <TrendingUp className="w-3.5 h-3.5" />
-                      <span>Performance & Salary Details</span>
+                      <span>Salary &amp; Stats</span>
                     </button>
                     <button
+                      type="button"
                       onClick={() => setActiveTrackingTab('history')}
-                      className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                      className={`shrink-0 px-3 py-2 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                         activeTrackingTab === 'history'
                           ? 'bg-slate-900 text-white shadow-xs'
                           : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                       }`}
                     >
                       <History className="w-3.5 h-3.5" />
-                      <span>Attendance History ({stats.monthRecords.length} shifts)</span>
+                      <span>Shift Log ({stats.monthRecords.length})</span>
                     </button>
                     <button
+                      type="button"
                       onClick={() => setActiveTrackingTab('payslip')}
-                      className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                      className={`shrink-0 px-3 py-2 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                         activeTrackingTab === 'payslip'
-                          ? 'bg-red-600 text-white shadow-xs'
+                          ? 'bg-slate-900 text-white shadow-xs'
                           : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                       }`}
                     >
                       <Printer className="w-3.5 h-3.5" />
-                      <span>Print Monthly Pay Slip</span>
+                      <span>Pay Slip</span>
                     </button>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-semibold text-slate-500">Period:</span>
+                  {/* Month Stepper */}
+                  <div className="flex items-center gap-1 self-start sm:self-auto bg-slate-50 px-2 py-1 rounded-lg border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMonth(shiftYearMonth(selectedMonth, -1))}
+                      className="p-1 rounded hover:bg-slate-200 text-slate-700 cursor-pointer"
+                      title="Previous Month"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
                     <input
                       type="month"
                       value={selectedMonth}
                       onChange={(e) => setSelectedMonth(e.target.value)}
-                      className="p-1.5 border border-slate-300 rounded-lg bg-white font-bold text-slate-800 text-xs cursor-pointer"
+                      className="px-1 py-0.5 bg-transparent font-bold text-slate-800 text-xs cursor-pointer outline-none"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMonth(shiftYearMonth(selectedMonth, 1))}
+                      className="p-1 rounded hover:bg-slate-200 text-slate-700 cursor-pointer"
+                      title="Next Month"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
+
+                {/* 0. INTERACTIVE MONTHLY CALENDAR TAB */}
+                {activeTrackingTab === 'calendar' && (
+                  <div className="space-y-4">
+                    {/* Quick Brush & 1-Tap Month Actions */}
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                          Tap Mode (Click any day below):
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(
+                            [
+                              { id: 'CYCLE', label: 'Cycle', cls: 'bg-slate-900 text-white' },
+                              { id: 'PRESENT', label: 'Present (P)', cls: 'bg-emerald-600 text-white' },
+                              { id: 'HALF_DAY', label: 'Half (H)', cls: 'bg-blue-600 text-white' },
+                              { id: 'DOUBLE_SHIFT', label: '2x Shift', cls: 'bg-purple-600 text-white' },
+                              { id: 'ABSENT', label: 'Absent (A)', cls: 'bg-rose-600 text-white' },
+                              { id: 'CLEAR', label: 'Erase', cls: 'bg-slate-600 text-white' },
+                            ] as const
+                          ).map((b) => (
+                            <button
+                              key={b.id}
+                              type="button"
+                              onClick={() => setCalendarBrush(b.id)}
+                              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer transition-all ${
+                                calendarBrush === b.id
+                                  ? `${b.cls} shadow-xs`
+                                  : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                              }`}
+                            >
+                              {b.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200/70">
+                        <button
+                          type="button"
+                          onClick={() => handleMarkMonthForEmployee(trackingEmployee, true)}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold cursor-pointer"
+                        >
+                          Mark Mon–Sat Present
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleMarkMonthForEmployee(trackingEmployee, false)}
+                          className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-lg text-[11px] font-bold cursor-pointer"
+                        >
+                          Mark All Days Present
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            clearAttendanceDates(trackingEmployee.id, monthDates);
+                            showToast('success', `Cleared attendance for ${selectedMonth}.`);
+                          }}
+                          className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-[11px] font-bold cursor-pointer"
+                        >
+                          Clear Month
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Mon-Sun Monthly Calendar Grid */}
+                    <div className="border border-slate-200 rounded-xl p-2.5 sm:p-4 bg-white">
+                      <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center text-[10px] font-bold uppercase text-slate-500 pb-2">
+                        <div>Mon</div>
+                        <div>Tue</div>
+                        <div>Wed</div>
+                        <div>Thu</div>
+                        <div>Fri</div>
+                        <div>Sat</div>
+                        <div className="text-rose-500">Sun</div>
+                      </div>
+
+                      <div className="grid grid-cols-7 gap-1 sm:gap-2">
+                        {Array.from({ length: firstDow }).map((_, i) => (
+                          <div key={`pad-${i}`} className="h-12 sm:h-14 rounded-lg bg-slate-50/40" />
+                        ))}
+
+                        {monthDates.map((dateStr) => {
+                          const dayNum = Number(dateStr.slice(8, 10));
+                          const rec = entryByDate.get(dateStr);
+                          const isToday = dateStr === todayIso;
+                          const st = rec?.status;
+
+                          let cellStyle = 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100';
+                          let shortCode = '·';
+                          if (st === 'PRESENT' || st === 'OVERTIME') {
+                            cellStyle = 'bg-emerald-50 border-emerald-400 text-emerald-900 hover:bg-emerald-100';
+                            shortCode = rec?.overtimeHours ? `P+${rec.overtimeHours}h` : 'P';
+                          } else if (st === 'HALF_DAY') {
+                            cellStyle = 'bg-blue-50 border-blue-400 text-blue-900 hover:bg-blue-100';
+                            shortCode = 'H';
+                          } else if (st === 'DOUBLE_SHIFT') {
+                            cellStyle = 'bg-purple-50 border-purple-400 text-purple-900 hover:bg-purple-100';
+                            shortCode = '2x';
+                          } else if (st === 'ABSENT') {
+                            cellStyle = 'bg-rose-50 border-rose-400 text-rose-900 hover:bg-rose-100';
+                            shortCode = 'A';
+                          }
+
+                          return (
+                            <button
+                              key={dateStr}
+                              type="button"
+                              onClick={() => handleCalendarDayTap(trackingEmployee, dateStr, rec)}
+                              className={`h-12 sm:h-14 rounded-lg border flex flex-col items-center justify-center p-1 transition-all cursor-pointer ${cellStyle} ${
+                                isToday ? 'ring-2 ring-red-500 ring-offset-1' : ''
+                              }`}
+                              title={`${dateStr}: ${st || 'Unmarked'} (tap to mark)`}
+                            >
+                              <span className="text-[11px] font-black leading-none">{dayNum}</span>
+                              <span className="text-[10px] font-bold mt-1 leading-none">{shortCode}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Live Month Summary Strip */}
+                    <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-center">
+                      <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-lg">
+                        <span className="text-[10px] text-emerald-700 block font-bold">Present</span>
+                        <span className="text-sm font-black text-emerald-900">{stats.presentDays}</span>
+                      </div>
+                      <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg">
+                        <span className="text-[10px] text-blue-700 block font-bold">Half Day</span>
+                        <span className="text-sm font-black text-blue-900">{stats.halfDays}</span>
+                      </div>
+                      <div className="p-2 bg-purple-50 border border-purple-200 rounded-lg">
+                        <span className="text-[10px] text-purple-700 block font-bold">2x Shift</span>
+                        <span className="text-sm font-black text-purple-900">{stats.doubleShiftDays}</span>
+                      </div>
+                      <div className="p-2 bg-rose-50 border border-rose-200 rounded-lg">
+                        <span className="text-[10px] text-rose-700 block font-bold">Absent</span>
+                        <span className="text-sm font-black text-rose-900">{stats.absentDays}</span>
+                      </div>
+                      <div className="p-2 bg-indigo-50 border border-indigo-200 rounded-lg">
+                        <span className="text-[10px] text-indigo-700 block font-bold">OT Hours</span>
+                        <span className="text-sm font-black text-indigo-900">{stats.totalOtHours}h</span>
+                      </div>
+                      <div className="p-2 bg-slate-900 text-white rounded-lg">
+                        <span className="text-[10px] text-slate-300 block font-bold">Net Pay</span>
+                        <span className="text-sm font-black text-emerald-400 font-mono">{formatINR(stats.netSalaryPayable)}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* 1. OVERVIEW & SALARY ENGINE TAB */}
                 {activeTrackingTab === 'overview' && (
@@ -928,7 +1624,7 @@ export const EmployeesView: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4 py-4 border-b border-slate-200 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 py-4 border-b border-slate-200 text-xs">
                         <div>
                           <p><span className="text-slate-500">Employee Name:</span> <span className="font-bold">{trackingEmployee.fullName}</span></p>
                           <p><span className="text-slate-500">Employee Code:</span> <span className="font-mono font-bold">{trackingEmployee.employeeCode}</span></p>
@@ -1015,7 +1711,7 @@ export const EmployeesView: React.FC = () => {
         subtitle="Yard operators, weighbridge staff, drivers, and supervisory roster."
       >
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="font-bold text-slate-700 block mb-1">Employee Code *</label>
               <input

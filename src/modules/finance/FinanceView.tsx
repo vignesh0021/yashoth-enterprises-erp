@@ -51,7 +51,11 @@ import {
   Calculator,
   ShieldCheck,
   Search,
-  DollarSign
+  DollarSign,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  BarChart3
 } from 'lucide-react';
 
 export const FinanceView: React.FC = () => {
@@ -340,6 +344,89 @@ export const FinanceView: React.FC = () => {
   const [txDate, setTxDate] = useState(todayStr);
   const [txDesc, setTxDesc] = useState('');
   const [txRef, setTxRef] = useState('');
+
+  // 6c. Expense Manager Style Cashflow Filters & Analytics
+  const [cfPeriod, setCfPeriod] = useState<'TODAY' | 'WEEK' | 'MONTH' | 'ALL'>('MONTH');
+  const [cfMonth, setCfMonth] = useState<string>(currentMonthStr);
+  const [cfAccountId, setCfAccountId] = useState<string>('ALL');
+  const [cfDirection, setCfDirection] = useState<'ALL' | 'DEBIT' | 'CREDIT'>('ALL');
+  const [cfSearch, setCfSearch] = useState<string>('');
+  const [cfViewMode, setCfViewMode] = useState<'CARDS' | 'TABLE'>('CARDS');
+
+  const shiftCfMonth = (delta: number) => {
+    const [y, m] = cfMonth.split('-').map(Number);
+    const dt = new Date(Date.UTC(y, m - 1 + delta, 1));
+    setCfMonth(dt.toISOString().slice(0, 7));
+  };
+
+  const cashflowSummary = useMemo(() => {
+    const weekStartDt = new Date(todayStr + 'T00:00:00Z');
+    weekStartDt.setUTCDate(weekStartDt.getUTCDate() - 6);
+    const weekStartStr = weekStartDt.toISOString().slice(0, 10);
+
+    const periodFiltered = accountTransactions.filter((tx) => {
+      if (cfAccountId !== 'ALL' && tx.accountId !== cfAccountId) return false;
+      if (cfPeriod === 'TODAY' && tx.transactionDate !== todayStr) return false;
+      if (cfPeriod === 'WEEK' && (tx.transactionDate < weekStartStr || tx.transactionDate > todayStr)) return false;
+      if (cfPeriod === 'MONTH' && !tx.transactionDate.startsWith(cfMonth)) return false;
+      return true;
+    });
+
+    const totalInflow = periodFiltered
+      .filter((t) => t.direction === 'DEBIT')
+      .reduce((s, t) => s + t.amount, 0);
+    const totalOutflow = periodFiltered
+      .filter((t) => t.direction === 'CREDIT')
+      .reduce((s, t) => s + t.amount, 0);
+    const netFlow = roundTo2(totalInflow - totalOutflow);
+
+    const listFiltered = periodFiltered
+      .filter((tx) => {
+        if (cfDirection !== 'ALL' && tx.direction !== cfDirection) return false;
+        if (cfSearch.trim()) {
+          const q = cfSearch.toLowerCase();
+          const accName = accounts.find((a) => a.id === tx.accountId)?.accountName || '';
+          return (
+            tx.description.toLowerCase().includes(q) ||
+            tx.transactionType.toLowerCase().includes(q) ||
+            accName.toLowerCase().includes(q) ||
+            (tx.referenceNo && tx.referenceNo.toLowerCase().includes(q))
+          );
+        }
+        return true;
+      })
+      .sort((a, b) => b.transactionDate.localeCompare(a.transactionDate));
+
+    // Group by date for Expense-Manager style daily cards
+    const groupedMap = new Map<string, { date: string; inflow: number; outflow: number; items: AccountTransaction[] }>();
+    for (const tx of listFiltered) {
+      const existing = groupedMap.get(tx.transactionDate) || {
+        date: tx.transactionDate,
+        inflow: 0,
+        outflow: 0,
+        items: [],
+      };
+      if (tx.direction === 'DEBIT') existing.inflow += tx.amount;
+      else existing.outflow += tx.amount;
+      existing.items.push(tx);
+      groupedMap.set(tx.transactionDate, existing);
+    }
+    const groupedDays = Array.from(groupedMap.values());
+
+    // Category / Type breakdown for visual bars
+    const catTotals = new Map<string, { type: string; direction: 'DEBIT' | 'CREDIT'; amount: number }>();
+    for (const tx of periodFiltered) {
+      const key = `${tx.direction}_${tx.transactionType}`;
+      const cur = catTotals.get(key) || { type: tx.transactionType, direction: tx.direction, amount: 0 };
+      cur.amount += tx.amount;
+      catTotals.set(key, cur);
+    }
+    const topCategories = Array.from(catTotals.values())
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 5);
+
+    return { totalInflow, totalOutflow, netFlow, listFiltered, groupedDays, topCategories };
+  }, [accountTransactions, accounts, cfAccountId, cfPeriod, cfMonth, cfDirection, cfSearch, todayStr]);
 
   // 7. Guided Daily Cash Closing State
   const [closingDate, setClosingDate] = useState(todayStr);
@@ -661,16 +748,43 @@ export const FinanceView: React.FC = () => {
   };
 
   // Cashflow Transaction CRUD
-  const handleOpenAddTx = () => {
+  const handleOpenAddTx = (presetDirection: 'DEBIT' | 'CREDIT' = 'DEBIT') => {
     setEditingTx(null);
-    setTxAccountId(accounts[0]?.id || '');
-    setTxDirection('DEBIT');
-    setTxType('CUSTOMER_RECEIPT');
+    setTxAccountId(cfAccountId !== 'ALL' ? cfAccountId : accounts[0]?.id || '');
+    setTxDirection(presetDirection);
+    setTxType(presetDirection === 'DEBIT' ? 'CUSTOMER_RECEIPT' : 'OPERATING_EXPENSE');
     setTxAmountStr('');
     setTxDate(todayStr);
     setTxDesc('');
     setTxRef(`CF-${Math.floor(1000 + Math.random() * 9000)}`);
     setIsTxModalOpen(true);
+  };
+
+  const handleExportCashflowCsv = () => {
+    const headers = ['Date', 'Account', 'Direction', 'Type', 'Description', 'Reference', 'Amount'];
+    const rows = cashflowSummary.listFiltered.map((tx) => {
+      const accName = accounts.find((a) => a.id === tx.accountId)?.accountName || tx.accountId;
+      return [
+        tx.transactionDate,
+        `"${accName.replace(/"/g, '""')}"`,
+        tx.direction === 'DEBIT' ? 'INFLOW' : 'OUTFLOW',
+        tx.transactionType,
+        `"${(tx.description || '').replace(/"/g, '""')}"`,
+        `"${(tx.referenceNo || '').replace(/"/g, '""')}"`,
+        String(tx.amount),
+      ].join(',');
+    });
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `YE_Cashflow_${cfPeriod}_${todayStr}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showFeedback('success', `Exported ${cashflowSummary.listFiltered.length} cashflow entries to CSV.`);
   };
 
   const handleOpenEditTx = (tx: AccountTransaction) => {
@@ -1480,193 +1594,497 @@ export const FinanceView: React.FC = () => {
       {/* TAB 6: CASH & BANK MANAGEMENT (CONTRA & LEDGER)               */}
       {/* ------------------------------------------------------------- */}
       {activeTab === 'CASH_BANK' && (
-        <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200">
+        <div className="space-y-5">
+          {/* Top Action Header */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
             <div>
-              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <Coins className="w-4 h-4 text-amber-600" />
-                <span>Cash in Hand & Bank Accounts (ரொக்கம் & வங்கிக் கணக்குகள்)</span>
+              <h2 className="text-base font-black text-slate-900 flex items-center gap-2">
+                <Coins className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Cashflow &amp; Accounts Manager (ரொக்கம் &amp; வங்கி)</span>
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Authorised bank accounts and physical cash box floats. Contra transfers do not affect P&L.
+                Track daily income, expenses, bank balances, category totals, and contra transfers.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button
+                type="button"
+                onClick={() => handleOpenAddTx('DEBIT')}
+                className="flex items-center gap-1.5 px-3 py-2 min-h-[40px] bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
+              >
+                <ArrowDownLeft className="w-4 h-4 shrink-0" />
+                <span>+ Income</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleOpenAddTx('CREDIT')}
+                className="flex items-center gap-1.5 px-3 py-2 min-h-[40px] bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
+              >
+                <ArrowUpRight className="w-4 h-4 shrink-0" />
+                <span>- Expense</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsContraModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-2 min-h-[40px] bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
+              >
+                <ArrowLeftRight className="w-3.5 h-3.5 shrink-0" />
+                <span>Transfer</span>
+              </button>
+              <button
+                type="button"
                 onClick={handleOpenAddAccount}
-                className="px-3 py-2 bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 rounded-xl text-xs font-bold shadow-xs cursor-pointer"
+                className="px-3 py-2 min-h-[40px] bg-white hover:bg-slate-50 border border-slate-300 text-slate-800 rounded-xl text-xs font-bold shadow-xs cursor-pointer"
               >
                 + Add Account
               </button>
               <button
-                onClick={handleOpenAddTx}
-                className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer"
-              >
-                + Cashflow Entry
-              </button>
-              <button
-                onClick={() => setIsContraModalOpen(true)}
-                className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
-              >
-                Cash ⇄ Bank Contra Transfer
-              </button>
-            </div>
-          </div>
-
-          {/* Account Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {accounts.map((acc) => {
-              const balance = calculateReconciledAccountBalance(acc, accountTransactions);
-              const isBank = acc.accountType === 'BANK';
-              const isInactive = acc.isActive === false;
-
-              return (
-                <div
-                  key={acc.id}
-                  className={`p-5 rounded-xl border shadow-xs flex flex-col justify-between ${
-                    isInactive ? 'border-slate-200 bg-slate-50/70 opacity-75' : 'border-slate-200 bg-white'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-                        {isBank ? <Building2 className="w-4 h-4 text-blue-600" /> : <Coins className="w-4 h-4 text-amber-600" />}
-                        <span>{acc.accountType} Account</span>
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        {isInactive && (
-                          <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded text-[9px] font-bold uppercase">
-                            Inactive
-                          </span>
-                        )}
-                        <span className="font-mono text-[10px] text-slate-400 font-semibold">{acc.accountCode}</span>
-                      </div>
-                    </div>
-                    <div className="text-base font-black text-slate-900 mt-2">{acc.accountName}</div>
-                    {isBank && (
-                      <div className="text-xs text-slate-500 mt-1 font-mono break-all">
-                        A/C: {acc.accountNumber || '—'} | IFSC: {acc.ifscCode || '—'}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] text-slate-400 block font-normal">Reconciled Balance</span>
-                      <span className="text-xl font-black text-slate-900">{formatINR(balance)}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        title="Edit Account"
-                        aria-label={`Edit ${acc.accountName}`}
-                        onClick={() => {
-                          setEditingAccount(acc);
-                          setAccCode(acc.accountCode);
-                          setAccName(acc.accountName);
-                          setAccType(acc.accountType);
-                          setBankName(acc.bankName || '');
-                          setAccountNumber(acc.accountNumber || '');
-                          setIfscCode(acc.ifscCode || '');
-                          setOpeningBalanceStr(String(acc.openingBalance ?? 0));
-                          setIsAccountModalOpen(true);
-                        }}
-                        className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 cursor-pointer"
-                      >
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        title="Delete Account"
-                        aria-label={`Delete ${acc.accountName}`}
-                        onClick={() => handleDeleteAccount(acc)}
-                        className="p-2 hover:bg-rose-50 rounded-lg text-rose-600 cursor-pointer"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Transactions Ledger */}
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
-            <div className="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2">
-              <span className="font-bold text-xs text-slate-700">
-                Recent Cash & Bank Transactions (சமீபத்திய ரொக்க & வங்கி பரிவர்த்தனைகள்)
-              </span>
-              <button
                 type="button"
-                onClick={handleOpenAddTx}
-                className="px-2.5 py-1.5 bg-slate-900 text-white rounded-lg text-[11px] font-bold cursor-pointer shrink-0"
+                onClick={handleExportCashflowCsv}
+                className="flex items-center gap-1 px-3 py-2 min-h-[40px] bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+                title="Export filtered cashflow to CSV"
               >
-                + New Entry
+                <Download className="w-3.5 h-3.5 shrink-0" />
+                <span>CSV</span>
               </button>
             </div>
-            <div className="overflow-x-auto touch-pan-x">
-              <table className="w-full min-w-[680px] text-left text-xs">
-                <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
-                  <tr>
-                    <th className="p-3">Date</th>
-                    <th className="p-3">Account</th>
-                    <th className="p-3">Type</th>
-                    <th className="p-3">Description</th>
-                    <th className="p-3">Ref No</th>
-                    <th className="p-3 text-right">Inflow (Debit)</th>
-                    <th className="p-3 text-right">Outflow (Credit)</th>
-                    <th className="p-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {accountTransactions.slice(0, 30).map((tx) => {
-                    const acc = accounts.find((a) => a.id === tx.accountId);
-                    return (
-                      <tr key={tx.id} className="hover:bg-slate-50/50">
-                        <td className="p-3 font-semibold whitespace-nowrap">{tx.transactionDate}</td>
-                        <td className="p-3 font-bold text-slate-900">{acc?.accountName || tx.accountId}</td>
-                        <td className="p-3">
-                          <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded text-[10px] font-bold whitespace-nowrap">
-                            {tx.transactionType}
-                          </span>
-                        </td>
-                        <td className="p-3 text-slate-600">{tx.description}</td>
-                        <td className="p-3 font-mono text-[11px] text-slate-500">{tx.referenceNo || '—'}</td>
-                        <td className="p-3 text-right font-black text-emerald-600 whitespace-nowrap">
-                          {tx.direction === 'DEBIT' ? formatINR(tx.amount) : '—'}
-                        </td>
-                        <td className="p-3 text-right font-black text-rose-600 whitespace-nowrap">
-                          {tx.direction === 'CREDIT' ? formatINR(tx.amount) : '—'}
-                        </td>
-                        <td className="p-3 text-right whitespace-nowrap">
-                          <div className="inline-flex items-center gap-1">
-                            <button
-                              type="button"
-                              title="Edit Transaction"
-                              aria-label={`Edit transaction ${tx.description}`}
-                              onClick={() => handleOpenEditTx(tx)}
-                              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 cursor-pointer"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              title="Delete Transaction"
-                              aria-label={`Delete transaction ${tx.description}`}
-                              onClick={() => handleDeleteTx(tx.id)}
-                              className="p-1.5 hover:bg-rose-50 rounded-lg text-rose-600 cursor-pointer"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+          </div>
+
+          {/* Period Bar + Running Summary Cards (Expense Manager Style) */}
+          <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 overflow-x-auto touch-pan-x whitespace-nowrap">
+                {(
+                  [
+                    { id: 'TODAY', label: 'Today' },
+                    { id: 'WEEK', label: '7 Days' },
+                    { id: 'MONTH', label: 'Monthly' },
+                    { id: 'ALL', label: 'All Time' },
+                  ] as const
+                ).map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setCfPeriod(p.id)}
+                    className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                      cfPeriod === p.id
+                        ? 'bg-slate-900 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              {cfPeriod === 'MONTH' && (
+                <div className="flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => shiftCfMonth(-1)}
+                    className="p-1 rounded hover:bg-slate-200 text-slate-700 cursor-pointer"
+                    title="Previous Month"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <input
+                    type="month"
+                    value={cfMonth}
+                    onChange={(e) => setCfMonth(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer px-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => shiftCfMonth(1)}
+                    className="p-1 rounded hover:bg-slate-200 text-slate-700 cursor-pointer"
+                    title="Next Month"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
             </div>
+
+            {/* 3 Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="p-3.5 rounded-xl bg-emerald-50/70 border border-emerald-200 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 block">
+                    Inflow (Income +)
+                  </span>
+                  <span className="text-lg font-black text-emerald-800 font-mono">
+                    +{formatINR(cashflowSummary.totalInflow)}
+                  </span>
+                </div>
+                <TrendingUp className="w-5 h-5 text-emerald-600 shrink-0" />
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-rose-50/70 border border-rose-200 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-rose-700 block">
+                    Outflow (Expense -)
+                  </span>
+                  <span className="text-lg font-black text-rose-800 font-mono">
+                    -{formatINR(cashflowSummary.totalOutflow)}
+                  </span>
+                </div>
+                <TrendingDown className="w-5 h-5 text-rose-600 shrink-0" />
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-slate-900 text-white flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300 block">
+                    Net Cashflow ({cfAccountId === 'ALL' ? 'All Accounts' : 'Filtered'})
+                  </span>
+                  <span className={`text-lg font-black font-mono ${cashflowSummary.netFlow >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                    {cashflowSummary.netFlow >= 0 ? '+' : ''}
+                    {formatINR(cashflowSummary.netFlow)}
+                  </span>
+                </div>
+                <Wallet className="w-5 h-5 text-amber-400 shrink-0" />
+              </div>
+            </div>
+          </div>
+
+          {/* Account Cards (Tap to Filter Ledger) */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between px-1">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                Accounts ({accounts.length}) · Tap card to filter transactions
+              </span>
+              {cfAccountId !== 'ALL' && (
+                <button
+                  type="button"
+                  onClick={() => setCfAccountId('ALL')}
+                  className="text-[11px] font-bold text-red-600 hover:underline cursor-pointer"
+                >
+                  Show All Accounts
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+              {accounts.map((acc) => {
+                const balance = calculateReconciledAccountBalance(acc, accountTransactions);
+                const isBank = acc.accountType === 'BANK';
+                const isInactive = acc.isActive === false;
+                const isSelected = cfAccountId === acc.id;
+
+                return (
+                  <div
+                    key={acc.id}
+                    onClick={() => setCfAccountId(isSelected ? 'ALL' : acc.id)}
+                    className={`p-4 rounded-xl border shadow-xs flex flex-col justify-between cursor-pointer transition-all ${
+                      isSelected
+                        ? 'border-red-600 ring-2 ring-red-600/20 bg-red-50/20'
+                        : isInactive
+                        ? 'border-slate-200 bg-slate-50/70 opacity-75'
+                        : 'border-slate-200 bg-white hover:border-slate-300'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                          {isBank ? <Building2 className="w-4 h-4 text-blue-600" /> : <Coins className="w-4 h-4 text-amber-600" />}
+                          <span>{acc.accountType} Account</span>
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {isSelected && (
+                            <span className="px-1.5 py-0.5 bg-red-600 text-white rounded text-[9px] font-bold uppercase">
+                              Filtered
+                            </span>
+                          )}
+                          {isInactive && (
+                            <span className="px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded text-[9px] font-bold uppercase">
+                              Inactive
+                            </span>
+                          )}
+                          <span className="font-mono text-[10px] text-slate-400 font-semibold">{acc.accountCode}</span>
+                        </div>
+                      </div>
+                      <div className="text-base font-black text-slate-900 mt-1.5">{acc.accountName}</div>
+                      {isBank && (
+                        <div className="text-xs text-slate-500 mt-0.5 font-mono break-all">
+                          A/C: {acc.accountNumber || '—'} | IFSC: {acc.ifscCode || '—'}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
+                      <div>
+                        <span className="text-[10px] text-slate-400 block font-normal">Reconciled Balance</span>
+                        <span className="text-xl font-black text-slate-900">{formatINR(balance)}</span>
+                      </div>
+                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          title="Edit Account"
+                          aria-label={`Edit ${acc.accountName}`}
+                          onClick={() => {
+                            setEditingAccount(acc);
+                            setAccCode(acc.accountCode);
+                            setAccName(acc.accountName);
+                            setAccType(acc.accountType);
+                            setBankName(acc.bankName || '');
+                            setAccountNumber(acc.accountNumber || '');
+                            setIfscCode(acc.ifscCode || '');
+                            setOpeningBalanceStr(String(acc.openingBalance ?? 0));
+                            setIsAccountModalOpen(true);
+                          }}
+                          className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 cursor-pointer"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          title="Delete Account"
+                          aria-label={`Delete ${acc.accountName}`}
+                          onClick={() => handleDeleteAccount(acc)}
+                          className="p-2 hover:bg-rose-50 rounded-lg text-rose-600 cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Category Breakdown Bars */}
+          {cashflowSummary.topCategories.length > 0 && (
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <BarChart3 className="w-4 h-4 text-indigo-600" />
+                  <span>Top Cashflow Categories</span>
+                </span>
+                <span className="text-[11px] text-slate-500 font-semibold">
+                  {cashflowSummary.listFiltered.length} entries
+                </span>
+              </div>
+              <div className="space-y-2">
+                {cashflowSummary.topCategories.map((cat) => {
+                  const denom = Math.max(1, cashflowSummary.totalInflow + cashflowSummary.totalOutflow);
+                  const pct = Math.min(100, Math.round((cat.amount / denom) * 100));
+                  const isDebit = cat.direction === 'DEBIT';
+                  return (
+                    <div key={`${cat.direction}-${cat.type}`} className="space-y-1 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-700">
+                          {cat.type.replace(/_/g, ' ')}{' '}
+                          <span className={`text-[10px] font-bold ${isDebit ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            ({isDebit ? 'Inflow' : 'Outflow'})
+                          </span>
+                        </span>
+                        <span className="font-mono font-bold text-slate-900">
+                          {formatINR(cat.amount)} ({pct}%)
+                        </span>
+                      </div>
+                      <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${isDebit ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Transactions Feed (Search + Direction + Day-Grouped Cards / Table) */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+            <div className="p-3 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {(
+                  [
+                    { id: 'ALL', label: 'All' },
+                    { id: 'DEBIT', label: 'Income (+)' },
+                    { id: 'CREDIT', label: 'Expense (-)' },
+                  ] as const
+                ).map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => setCfDirection(d.id)}
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer ${
+                      cfDirection === d.id
+                        ? 'bg-slate-900 text-white'
+                        : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    {d.label}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setCfViewMode(cfViewMode === 'CARDS' ? 'TABLE' : 'CARDS')}
+                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 cursor-pointer"
+                >
+                  {cfViewMode === 'CARDS' ? 'Table View' : 'Day Cards'}
+                </button>
+              </div>
+
+              <div className="relative w-full sm:w-64">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                <input
+                  type="text"
+                  value={cfSearch}
+                  onChange={(e) => setCfSearch(e.target.value)}
+                  placeholder="Search description, ref, account..."
+                  className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+                />
+              </div>
+            </div>
+
+            {cashflowSummary.listFiltered.length === 0 ? (
+              <div className="p-8 text-center text-xs text-slate-500">
+                No cashflow transactions match this period or filter. Tap <strong>+ Income</strong> or <strong>- Expense</strong> above to add one.
+              </div>
+            ) : cfViewMode === 'CARDS' ? (
+              <div className="divide-y divide-slate-200">
+                {cashflowSummary.groupedDays.map((day) => (
+                  <div key={day.date}>
+                    <div className="px-3.5 py-2 bg-slate-50/90 flex items-center justify-between text-[11px] font-bold border-b border-slate-100">
+                      <span className="text-slate-800 font-mono">
+                        {day.date === todayStr ? `Today · ${day.date}` : day.date}
+                      </span>
+                      <div className="flex items-center gap-3 font-mono">
+                        {day.inflow > 0 && <span className="text-emerald-700">+{formatINR(day.inflow)}</span>}
+                        {day.outflow > 0 && <span className="text-rose-700">-{formatINR(day.outflow)}</span>}
+                      </div>
+                    </div>
+
+                    <div className="divide-y divide-slate-100">
+                      {day.items.map((tx) => {
+                        const acc = accounts.find((a) => a.id === tx.accountId);
+                        const isDebit = tx.direction === 'DEBIT';
+                        return (
+                          <div key={tx.id} className="p-3 flex items-center justify-between gap-2.5 hover:bg-slate-50/60">
+                            <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                              <div
+                                className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                                  isDebit ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                                }`}
+                              >
+                                {isDebit ? <ArrowDownLeft className="w-4 h-4" /> : <ArrowUpRight className="w-4 h-4" />}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="text-xs font-bold text-slate-900 truncate">{tx.description}</div>
+                                <div className="flex flex-wrap items-center gap-1.5 mt-0.5 text-[10px]">
+                                  <span className="px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded font-bold">
+                                    {tx.transactionType.replace(/_/g, ' ')}
+                                  </span>
+                                  <span className="text-slate-500 font-semibold">{acc?.accountName || tx.accountId}</span>
+                                  {tx.referenceNo && (
+                                    <span className="font-mono text-slate-400">#{tx.referenceNo}</span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <span
+                                className={`text-xs sm:text-sm font-black font-mono whitespace-nowrap ${
+                                  isDebit ? 'text-emerald-600' : 'text-rose-600'
+                                }`}
+                              >
+                                {isDebit ? '+' : '-'}
+                                {formatINR(tx.amount)}
+                              </span>
+                              <button
+                                type="button"
+                                title="Edit Transaction"
+                                aria-label={`Edit transaction ${tx.description}`}
+                                onClick={() => handleOpenEditTx(tx)}
+                                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-500 cursor-pointer"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                title="Delete Transaction"
+                                aria-label={`Delete transaction ${tx.description}`}
+                                onClick={() => handleDeleteTx(tx.id)}
+                                className="p-1.5 hover:bg-rose-50 rounded-lg text-rose-600 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="overflow-x-auto touch-pan-x">
+                <table className="w-full min-w-[680px] text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                    <tr>
+                      <th className="p-3">Date</th>
+                      <th className="p-3">Account</th>
+                      <th className="p-3">Type</th>
+                      <th className="p-3">Description</th>
+                      <th className="p-3">Ref No</th>
+                      <th className="p-3 text-right">Inflow (Debit)</th>
+                      <th className="p-3 text-right">Outflow (Credit)</th>
+                      <th className="p-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                    {cashflowSummary.listFiltered.map((tx) => {
+                      const acc = accounts.find((a) => a.id === tx.accountId);
+                      return (
+                        <tr key={tx.id} className="hover:bg-slate-50/50">
+                          <td className="p-3 font-semibold whitespace-nowrap">{tx.transactionDate}</td>
+                          <td className="p-3 font-bold text-slate-900">{acc?.accountName || tx.accountId}</td>
+                          <td className="p-3">
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded text-[10px] font-bold whitespace-nowrap">
+                              {tx.transactionType}
+                            </span>
+                          </td>
+                          <td className="p-3 text-slate-600">{tx.description}</td>
+                          <td className="p-3 font-mono text-[11px] text-slate-500">{tx.referenceNo || '—'}</td>
+                          <td className="p-3 text-right font-black text-emerald-600 whitespace-nowrap">
+                            {tx.direction === 'DEBIT' ? formatINR(tx.amount) : '—'}
+                          </td>
+                          <td className="p-3 text-right font-black text-rose-600 whitespace-nowrap">
+                            {tx.direction === 'CREDIT' ? formatINR(tx.amount) : '—'}
+                          </td>
+                          <td className="p-3 text-right whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                title="Edit Transaction"
+                                aria-label={`Edit transaction ${tx.description}`}
+                                onClick={() => handleOpenEditTx(tx)}
+                                className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 cursor-pointer"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                title="Delete Transaction"
+                                aria-label={`Delete transaction ${tx.description}`}
+                                onClick={() => handleDeleteTx(tx.id)}
+                                className="p-1.5 hover:bg-rose-50 rounded-lg text-rose-600 cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -3248,6 +3666,18 @@ export const FinanceView: React.FC = () => {
                 placeholder="0"
                 className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs font-black text-slate-900"
               />
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {[100, 500, 1000, 5000].map((inc) => (
+                  <button
+                    key={inc}
+                    type="button"
+                    onClick={() => setTxAmountStr(String((Number(txAmountStr) || 0) + inc))}
+                    className="px-2 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold cursor-pointer"
+                  >
+                    +₹{inc}
+                  </button>
+                ))}
+              </div>
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Reference No</label>
@@ -3270,6 +3700,21 @@ export const FinanceView: React.FC = () => {
               placeholder="e.g. Cash sale deposit or yard petty cash top-up"
               className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900"
             />
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {(txDirection === 'DEBIT'
+                ? ['Scrap Cash Sale', 'Customer Receipt', 'Petty Cash Top-up', 'Owner Capital']
+                : ['Diesel / Fuel', 'Loading / Unloading', 'Tea & Snacks', 'Yard Expense']
+              ).map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setTxDesc(preset)}
+                  className="px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-semibold cursor-pointer"
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2 pt-2">

@@ -127,4 +127,15 @@ describe('Cashflow CRUD, Account Balance Reconciliation & Mobile Backup Fixes', 
     expect(empView).toContain('handleToggleEmployeeActive');
     expect(empView).not.toContain("useState('2026-10')");
   });
+
+  it('provides Expense Manager style Cashflow Hub with period filters, income/expense quick buttons, day-grouped cards, category breakdown, and CSV export', () => {
+    const financeView = readSrc('src/modules/finance/FinanceView.tsx');
+    expect(financeView).toContain('Cashflow &amp; Accounts Manager');
+    expect(financeView).toContain('+ Income');
+    expect(financeView).toContain('- Expense');
+    expect(financeView).toContain('cashflowSummary');
+    expect(financeView).toContain('groupedDays');
+    expect(financeView).toContain('topCategories');
+    expect(financeView).toContain('handleExportCashflowCsv');
+  });
 });

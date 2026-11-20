@@ -24,7 +24,8 @@ import {
   calculateDailyLabourBalance,
   calculateContractorBalance,
   computeDailyCashClosing,
-  calculateProfitAndLoss
+  calculateProfitAndLoss,
+  computeCashBookSummary
 } from '../../../backend/business-rules/financeEngine.ts';
 import { 
   Wallet, 
@@ -428,6 +429,89 @@ export const FinanceView: React.FC = () => {
     return { totalInflow, totalOutflow, netFlow, listFiltered, groupedDays, topCategories };
   }, [accountTransactions, accounts, cfAccountId, cfPeriod, cfMonth, cfDirection, cfSearch, todayStr]);
 
+  // Authoritative Cash Book Reconciliation (Daily / Mon-Sun Weekly / Monthly)
+  const cashBookPeriodSummary = useMemo(() => {
+    const dt = new Date(todayStr + 'T00:00:00Z');
+    const day = dt.getUTCDay(); // 0=Sun..6=Sat
+    const mondayOffset = day === 0 ? -6 : 1 - day;
+    const monDt = new Date(dt);
+    monDt.setUTCDate(dt.getUTCDate() + mondayOffset);
+    const sunDt = new Date(monDt);
+    sunDt.setUTCDate(monDt.getUTCDate() + 6);
+
+    let startDate = todayStr;
+    let endDate = todayStr;
+    if (cfPeriod === 'WEEK') {
+      startDate = monDt.toISOString().slice(0, 10);
+      endDate = sunDt.toISOString().slice(0, 10);
+    } else if (cfPeriod === 'MONTH') {
+      startDate = `${cfMonth}-01`;
+      endDate = `${cfMonth}-31`;
+    } else if (cfPeriod === 'ALL') {
+      startDate = '2000-01-01';
+      endDate = '2099-12-31';
+    }
+
+    return computeCashBookSummary({
+      cashAccounts: accounts.filter((a) => a.accountType === 'CASH'),
+      accountTransactions,
+      expenses,
+      startDate,
+      endDate,
+    });
+  }, [accounts, accountTransactions, expenses, cfPeriod, cfMonth, todayStr]);
+
+  const handleExportCashBookPng = () => {
+    if (typeof document === 'undefined') return;
+    const canvas = document.createElement('canvas');
+    canvas.width = 900;
+    canvas.height = 560;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = 'bold 26px sans-serif';
+    ctx.fillText('YASHOTH ENTERPRISES — CASH BOOK REPORT', 36, 52);
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '16px sans-serif';
+    ctx.fillText(`Period: ${cashBookPeriodSummary.startDate} to ${cashBookPeriodSummary.endDate} | Generated: ${new Date().toLocaleString()}`, 36, 84);
+
+    const rows: [string, string, string][] = [
+      ['Opening Cash (ஆரம்ப இருப்பு)', formatINR(cashBookPeriodSummary.openingCash), '#e2e8f0'],
+      ['+ Receipts & Capital Inflows', formatINR(cashBookPeriodSummary.receipts + cashBookPeriodSummary.capitalAndOtherInflows + cashBookPeriodSummary.refunds), '#34d399'],
+      ['- Paid Expenses (செலவுகள்)', formatINR(cashBookPeriodSummary.paidExpenses), '#fb7185'],
+      ['- Salary / Labour / Contractor', formatINR(cashBookPeriodSummary.salaryLabourContractorPayments), '#fb7185'],
+      ['- Owner Drawings (எடுப்பு)', formatINR(cashBookPeriodSummary.drawings), '#fbbf24'],
+      ['- Other Payments', formatINR(cashBookPeriodSummary.otherPayments), '#fb7185'],
+      ['= Expected Closing Cash (இறுதி இருப்பு)', formatINR(cashBookPeriodSummary.expectedClosingCash), '#38bdf8'],
+      ['Unpaid Expenses (Non-Cash)', `${cashBookPeriodSummary.unpaidExpensesCount} (${formatINR(cashBookPeriodSummary.unpaidExpensesTotal)})`, '#94a3b8'],
+    ];
+
+    let y = 136;
+    for (const [label, val, color] of rows) {
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(36, y - 26, 828, 42);
+      ctx.fillStyle = '#cbd5e1';
+      ctx.font = '18px sans-serif';
+      ctx.fillText(label, 52, y);
+      ctx.fillStyle = color;
+      ctx.font = 'bold 20px monospace';
+      ctx.fillText(val, 640, y);
+      y += 52;
+    }
+
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `YE_CashBook_${cfPeriod}_${todayStr}.png`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showFeedback('success', 'WhatsApp-ready Cash Book PNG downloaded.');
+  };
+
   // 7. Guided Daily Cash Closing State
   const [closingDate, setClosingDate] = useState(todayStr);
   const [countedCash, setCountedCash] = useState<number>(totalCashBalance);
@@ -497,30 +581,46 @@ export const FinanceView: React.FC = () => {
       });
       showFeedback('success', `Expense voucher "${editingExpense.voucherNo}" updated.`);
     } else {
-      const exp = recordExpense({
-        expenseDate,
-        category: expenseCategory,
-        description: expenseDesc,
-        amount: Number(expenseAmount),
-        accountId: expenseAccId,
-        paymentMode: expensePaymentMode,
-        status: expensePaymentMode === 'UNPAID' ? 'UNPAID' : 'PAID',
-        approvalStatus: 'APPROVED',
-        enteredBy: currentUser.fullName,
-        paidTo,
-        billReference: billRef,
-        notes: expenseNotes,
-        createdBy: currentUser.fullName,
-      });
-      showFeedback('success', `Expense voucher "${exp.voucherNo}" recorded.`);
+      try {
+        const exp = recordExpense({
+          expenseDate,
+          category: expenseCategory,
+          description: expenseDesc,
+          amount: Number(expenseAmount),
+          accountId: expenseAccId,
+          paymentMode: expensePaymentMode,
+          status: expensePaymentMode === 'UNPAID' ? 'UNPAID' : 'PAID',
+          approvalStatus: 'APPROVED',
+          enteredBy: currentUser.fullName,
+          paidTo,
+          billReference: billRef,
+          notes: expenseNotes,
+          createdBy: currentUser.fullName,
+        });
+        showFeedback('success', `Expense voucher "${exp.voucherNo}" recorded.`);
+      } catch (err: any) {
+        showFeedback('error', err?.message || 'Failed to record expense.');
+        return;
+      }
     }
     setIsExpenseModalOpen(false);
   };
 
   const handlePayUnpaid = (exp: Expense) => {
-    const acc = accounts[0]?.id || '';
-    payUnpaidExpense(exp.id, acc, 'CASH');
-    showFeedback('success', `Expense "${exp.voucherNo}" paid from cash account.`);
+    const acc =
+      accounts.find((a) => a.accountType === 'CASH' && a.isActive !== false)?.id ||
+      accounts.find((a) => a.isActive !== false)?.id ||
+      '';
+    if (!acc) {
+      showFeedback('error', 'No active cash account available.');
+      return;
+    }
+    try {
+      payUnpaidExpense(exp.id, acc, 'CASH');
+      showFeedback('success', `Expense "${exp.voucherNo}" paid from cash account.`);
+    } catch (err: any) {
+      showFeedback('error', err?.message || 'Failed to pay unpaid expense.');
+    }
   };
 
   const handleReverseExpense = (exp: Expense) => {
@@ -815,32 +915,36 @@ export const FinanceView: React.FC = () => {
       return;
     }
 
-    if (editingTx) {
-      updateAccountTransaction(editingTx.id, {
-        accountId: txAccountId,
-        direction: txDirection,
-        transactionType: txType,
-        amount: parsedAmount,
-        transactionDate: txDate,
-        description: txDesc.trim(),
-        referenceNo: txRef.trim() || undefined,
-      });
-      showFeedback('success', 'Cashflow transaction updated.');
-    } else {
-      addAccountTransaction({
-        accountId: txAccountId,
-        direction: txDirection,
-        transactionType: txType,
-        amount: parsedAmount,
-        transactionDate: txDate,
-        description: txDesc.trim(),
-        referenceNo: txRef.trim() || undefined,
-        createdBy: currentUser?.fullName || 'System Admin',
-        createdAt: new Date().toISOString(),
-      });
-      showFeedback('success', 'Cashflow transaction recorded.');
+    try {
+      if (editingTx) {
+        updateAccountTransaction(editingTx.id, {
+          accountId: txAccountId,
+          direction: txDirection,
+          transactionType: txType,
+          amount: parsedAmount,
+          transactionDate: txDate,
+          description: txDesc.trim(),
+          referenceNo: txRef.trim() || undefined,
+        });
+        showFeedback('success', 'Cashflow transaction updated.');
+      } else {
+        addAccountTransaction({
+          accountId: txAccountId,
+          direction: txDirection,
+          transactionType: txType,
+          amount: parsedAmount,
+          transactionDate: txDate,
+          description: txDesc.trim(),
+          referenceNo: txRef.trim() || undefined,
+          createdBy: currentUser?.fullName || 'System Admin',
+          createdAt: new Date().toISOString(),
+        });
+        showFeedback('success', 'Cashflow transaction recorded & posted to ledger.');
+      }
+      setIsTxModalOpen(false);
+    } catch (err: any) {
+      showFeedback('error', err?.message || 'Failed to record cashflow transaction.');
     }
-    setIsTxModalOpen(false);
   };
 
   const handleDeleteTx = (txId: string) => {
@@ -1852,6 +1956,58 @@ export const FinanceView: React.FC = () => {
             </div>
           </div>
 
+          {/* Authoritative Cash Book Reconciliation Summary (Daily / Weekly Mon-Sun / Monthly) */}
+          <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="text-xs font-extrabold text-slate-900">
+                  Cash Book Reconciliation (ரொக்கப் புத்தகம்) — {cfPeriod}
+                </h4>
+                <p className="text-[11px] text-slate-500">
+                  {cashBookPeriodSummary.startDate} → {cashBookPeriodSummary.endDate} • Unpaid expenses ({cashBookPeriodSummary.unpaidExpensesCount}: {formatINR(cashBookPeriodSummary.unpaidExpensesTotal)}) do not reduce cash
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportCashBookPng}
+                  className="px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white text-[11px] font-bold hover:bg-emerald-700 cursor-pointer"
+                >
+                  WhatsApp PNG
+                </button>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-800 text-white text-[11px] font-bold hover:bg-slate-900 cursor-pointer"
+                >
+                  Print / PDF
+                </button>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                <div className="text-[10px] font-bold text-slate-500">Opening Cash</div>
+                <div className="font-mono font-black text-slate-900">{formatINR(cashBookPeriodSummary.openingCash)}</div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-emerald-50 border border-emerald-200">
+                <div className="text-[10px] font-bold text-emerald-700">+ Receipts &amp; Capital</div>
+                <div className="font-mono font-black text-emerald-700">
+                  +{formatINR(cashBookPeriodSummary.receipts + cashBookPeriodSummary.capitalAndOtherInflows + cashBookPeriodSummary.refunds)}
+                </div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200">
+                <div className="text-[10px] font-bold text-rose-700">- Paid Outflows &amp; Drawings</div>
+                <div className="font-mono font-black text-rose-700">
+                  -{formatINR(cashBookPeriodSummary.paidExpenses + cashBookPeriodSummary.salaryLabourContractorPayments + cashBookPeriodSummary.drawings + cashBookPeriodSummary.otherPayments)}
+                </div>
+              </div>
+              <div className="p-2.5 rounded-lg bg-sky-50 border border-sky-200">
+                <div className="text-[10px] font-bold text-sky-700">= Expected Closing Cash</div>
+                <div className="font-mono font-black text-sky-900">{formatINR(cashBookPeriodSummary.expectedClosingCash)}</div>
+              </div>
+            </div>
+          </div>
+
           {/* Category Breakdown Bars */}
           {cashflowSummary.topCategories.length > 0 && (
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-2.5">
@@ -2860,7 +3016,7 @@ export const FinanceView: React.FC = () => {
                 disabled={expensePaymentMode === 'UNPAID'}
                 className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-900 disabled:opacity-50"
               >
-                {accounts.map((acc) => (
+                {accounts.filter((a) => a.isActive !== false).map((acc) => (
                   <option key={acc.id} value={acc.id}>{acc.accountName} ({acc.accountType})</option>
                 ))}
               </select>
@@ -3601,7 +3757,7 @@ export const FinanceView: React.FC = () => {
                 onChange={(e) => setTxAccountId(e.target.value)}
                 className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900"
               >
-                {accounts.map((acc) => (
+                {accounts.filter((a) => a.isActive !== false).map((acc) => (
                   <option key={acc.id} value={acc.id}>
                     {acc.accountName} ({acc.accountType})
                   </option>
@@ -3631,9 +3787,10 @@ export const FinanceView: React.FC = () => {
               >
                 <option value="CUSTOMER_RECEIPT">Receipt (வரவு)</option>
                 <option value="SUPPLIER_PAYMENT">Supplier Payment (கொடுப்பனவு)</option>
-                <option value="OPERATING_EXPENSE">Operating Expense (செலவு)</option>
-                <option value="OWNER_INJECTION">Owner Injection (முதலீடு)</option>
-                <option value="OWNER_DRAWING">Owner Drawing (எடுப்பு)</option>
+                <option value="OWNER_INJECTION">Owner Capital Injection (முதலீடு - 3010)</option>
+                <option value="OWNER_DRAWING">Owner Drawing (எடுப்பு - 3030)</option>
+                <option value="OWNER_LOAN_IN">Owner Repayable Advance (Due to Owner - 2150)</option>
+                <option value="OWNER_REIMBURSEMENT">Owner Reimbursement Settlement (2150)</option>
                 <option value="CONTRA_TRANSFER_IN">Contra Transfer In</option>
                 <option value="CONTRA_TRANSFER_OUT">Contra Transfer Out</option>
                 <option value="ACCOUNT_ADJUSTMENT">Account Adjustment</option>

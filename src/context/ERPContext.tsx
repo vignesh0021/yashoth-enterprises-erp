@@ -70,6 +70,7 @@ import {
   createPaymentJournal,
   createContraJournal,
   createExpenseJournal,
+  createAccountTransactionJournal,
   createPayUnpaidExpenseJournal,
   createSalaryPaymentJournal,
   createSalaryAccrualJournal,
@@ -1246,10 +1247,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       accountId: expenseData.accountId,
     });
 
-    const isUnpaid = expenseData.status === 'UNPAID' || expenseData.paymentMode === 'UNPAID';
+    const isOwnerPersonal = expenseData.paidByType === 'OWNER_PERSONAL';
+    const isUnpaid = !isOwnerPersonal && (expenseData.status === 'UNPAID' || expenseData.paymentMode === 'UNPAID');
     const acc = expenseData.accountId ? accounts.find((a) => a.id === expenseData.accountId) : undefined;
 
-    if (!isUnpaid && acc) {
+    if (!isUnpaid && !isOwnerPersonal && acc) {
       const curBal = getAccountBalance(acc.id);
       validateCashBankTransaction({
         account: acc,
@@ -1262,43 +1264,71 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const seq = expenses.length + 1;
     const voucherNo = `EXP-26-${String(seq).padStart(4, '0')}`;
     const now = new Date().toISOString();
+    const expId = 'exp-' + Math.random().toString(36).substring(2, 11);
+    const idempotencyKey = expenseData.idempotencyKey || `EXP-${activeCompanyId}-${voucherNo}-${Date.now()}`;
 
     const newExpense: Expense = {
       ...expenseData,
-      id: 'exp-' + Math.random().toString(36).substring(2, 11),
+      id: expId,
       companyId: activeCompanyId,
       voucherNo,
       status: isUnpaid ? 'UNPAID' : 'PAID',
       paymentMode: expenseData.paymentMode || (isUnpaid ? 'UNPAID' : 'CASH'),
+      paidByType: isOwnerPersonal ? 'OWNER_PERSONAL' : 'COMPANY',
       approvalStatus: expenseData.approvalStatus || 'APPROVED',
       enteredBy: expenseData.enteredBy || currentUser.fullName,
+      idempotencyKey,
       createdAt: now,
     };
 
     const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
     const je = createExpenseJournal(newExpense, accCode, activeCompany);
+    newExpense.journalEntryId = je.id;
 
-    if (!isUnpaid && expenseData.accountId) {
+    if (!isUnpaid && !isOwnerPersonal && expenseData.accountId) {
       const accountTx: AccountTransaction = {
         id: 'atx-' + Math.random().toString(36).substring(2, 11),
+        companyId: activeCompanyId,
         accountId: expenseData.accountId,
         transactionDate: expenseData.expenseDate,
         transactionType: 'OPERATING_EXPENSE',
         direction: 'CREDIT',
         amount: expenseData.amount,
+        expenseId: expId,
+        journalEntryId: je.id,
         referenceNo: voucherNo,
         description: `Expense: ${expenseData.category} - ${expenseData.paidTo}`,
         createdBy: currentUser.fullName,
         createdAt: now,
       };
+      newExpense.accountTransactionId = accountTx.id;
       setAccountTransactions((prev) => [accountTx, ...prev]);
     }
 
     setExpenses((prev) => [newExpense, ...prev]);
-    setJournalEntries((prev) => [je, ...prev]);
+    setJournalEntries((prev) =>
+      prev.some((j) => j.sourceType === je.sourceType && j.sourceId === je.sourceId && j.isPosted)
+        ? prev
+        : [je, ...prev]
+    );
 
     if (dbRepository.isRemoteDatabaseAvailable()) {
-      dbRepository.saveExpense(newExpense).catch((e) => console.warn('Sync expense to DB failed', e));
+      dbRepository
+        .postExpenseAtomic({
+          companyId: activeCompanyId,
+          voucherNo,
+          expenseDate: newExpense.expenseDate,
+          category: newExpense.category,
+          amount: newExpense.amount,
+          accountId: newExpense.accountId,
+          paymentMode: newExpense.paymentMode || 'CASH',
+          paidByType: newExpense.paidByType,
+          paidTo: newExpense.paidTo,
+          notes: newExpense.notes,
+          idempotencyKey,
+          actor: currentUser.fullName,
+        })
+        .catch((e) => console.warn('Atomic expense sync to DB failed', e));
     }
 
     logAudit('RECORD_EXPENSE', 'EXPENSE', newExpense.id, null, newExpense);
@@ -2970,19 +3000,87 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteExpense = (id: string): { success: boolean; message?: string } => {
     const existing = expenses.find((e) => e.id === id);
     if (!existing) return { success: false, message: 'Expense voucher not found.' };
+    if (existing.status === 'PAID' || existing.status === 'REVERSED') {
+      return {
+        success: false,
+        message: `Posted/paid expense "${existing.voucherNo}" cannot be hard-deleted. Use Reverse Expense to preserve audit history.`,
+      };
+    }
+    // Reverse any accrual journal for UNPAID expense before removing draft
+    const associatedJournals = journalEntries.filter((j) => j.sourceId === id && j.isPosted);
+    if (associatedJournals.length > 0) {
+      const revs = associatedJournals.map((orig) =>
+        createReversingJournal(orig, `Voided unpaid expense ${existing.voucherNo}`, currentUser.fullName)
+      );
+      setJournalEntries((prev) => [...revs, ...prev]);
+    }
     setExpenses((prev) => prev.filter((e) => e.id !== id));
-    setAccountTransactions((prev) => prev.filter((tx) => tx.referenceNo !== existing.voucherNo));
     logAudit('DELETE_EXPENSE', 'EXPENSE', id, existing, null);
-    return { success: true, message: `Expense voucher "${existing.voucherNo}" deleted and ledger reversed.` };
+    return { success: true, message: `Unpaid expense voucher "${existing.voucherNo}" voided and accrual reversed.` };
   };
 
   const addAccountTransaction = (txData: Omit<AccountTransaction, 'id' | 'companyId'>): AccountTransaction => {
+    const acc = accounts.find((a) => a.id === txData.accountId);
+    if (!acc) throw new Error('Account not found.');
+    const curBal = getAccountBalance(acc.id);
+    validateCashBankTransaction({
+      account: acc,
+      amount: txData.amount,
+      direction: txData.direction,
+      currentBalance: curBal,
+    });
+
+    const txId = 'atx-' + Math.random().toString(36).substring(2, 9);
+    const idempotencyKey = txData.idempotencyKey || `ATX-${activeCompanyId}-${txData.transactionType}-${txId}`;
+    const accCode = acc.accountType === 'BANK' ? '1020' : '1010';
+    const je = createAccountTransactionJournal(
+      {
+        id: txId,
+        transactionDate: txData.transactionDate,
+        transactionType: txData.transactionType,
+        direction: txData.direction,
+        amount: txData.amount,
+        referenceNo: txData.referenceNo,
+        description: txData.description,
+        createdBy: txData.createdBy || currentUser.fullName,
+        createdAt: txData.createdAt,
+      },
+      accCode,
+      activeCompany
+    );
+
     const newTx: AccountTransaction = {
       ...txData,
-      id: 'atx-' + Math.random().toString(36).substring(2, 9),
+      id: txId,
       companyId: activeCompanyId,
+      journalEntryId: je.id,
+      idempotencyKey,
     };
+
     setAccountTransactions((prev) => [newTx, ...prev]);
+    setJournalEntries((prev) =>
+      prev.some((j) => j.sourceType === je.sourceType && j.sourceId === je.sourceId && j.isPosted)
+        ? prev
+        : [je, ...prev]
+    );
+
+    if (dbRepository.isRemoteDatabaseAvailable()) {
+      dbRepository
+        .postAccountTransactionAtomic({
+          companyId: activeCompanyId,
+          accountId: newTx.accountId,
+          txDate: newTx.transactionDate,
+          txType: newTx.transactionType,
+          direction: newTx.direction,
+          amount: newTx.amount,
+          description: newTx.description,
+          referenceNo: newTx.referenceNo,
+          idempotencyKey,
+          actor: currentUser.fullName,
+        })
+        .catch((e) => console.warn('Atomic account transaction sync failed', e));
+    }
+
     logAudit('CREATE_ACCOUNT_TX', 'ACCOUNT_TRANSACTION', newTx.id, null, newTx);
     return newTx;
   };
@@ -2990,6 +3088,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateAccountTransaction = (id: string, updates: Partial<AccountTransaction>) => {
     const existing = accountTransactions.find((tx) => tx.id === id);
     if (!existing) return;
+    if (existing.journalEntryId || existing.expenseId || existing.paymentId) {
+      throw new Error('Posted/linked cashflow transactions cannot be edited directly. Reverse the source voucher instead.');
+    }
     const updated = { ...existing, ...updates };
     setAccountTransactions((prev) => prev.map((tx) => (tx.id === id ? updated : tx)));
     logAudit('UPDATE_ACCOUNT_TX', 'ACCOUNT_TRANSACTION', id, existing, updated);
@@ -2998,6 +3099,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteAccountTransaction = (id: string): { success: boolean; message?: string } => {
     const existing = accountTransactions.find((tx) => tx.id === id);
     if (!existing) return { success: false, message: 'Transaction not found.' };
+    if (existing.journalEntryId || existing.expenseId || existing.paymentId) {
+      return {
+        success: false,
+        message: 'Posted/linked cashflow transactions cannot be deleted. Reverse the source voucher to preserve ledger integrity.',
+      };
+    }
     setAccountTransactions((prev) => prev.filter((tx) => tx.id !== id));
     logAudit('DELETE_ACCOUNT_TX', 'ACCOUNT_TRANSACTION', id, existing, null);
     return { success: true, message: 'Transaction record deleted.' };

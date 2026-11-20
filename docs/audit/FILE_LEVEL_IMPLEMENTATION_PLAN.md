@@ -1,80 +1,50 @@
-# FILE-LEVEL IMPLEMENTATION PLAN
+# CONSOLIDATED 5-PHASE IMPLEMENTATION PLAN
 
 **Repository:** `vignesh0021/yashoth-enterprises-erp`  
-**Audited Commit:** `dc078c16ee6d81790dacb1ea07c352807caca1c4`  
-**Status:** Proposed Plan — **Awaiting Explicit Approval**
+**Branch:** `audit/owner-operator-complete-architecture`  
+**Base Commit:** `0148b7a4a6a1e4a2d2c8272f9c3d3636e8d6f6d9`  
+**Status:** Proposed Roadmap — **Awaiting Explicit Approval (No Code or Migrations Modified)**
 
 ---
 
-## 1. Recommended Implementation Sequence (5 Phases)
+## Phase 1 — Database & Identity Foundation
+- **Scope:** Canonical `persons` multi-role model, company roles, vehicle ownership/driver separation (`owner_party_id`, `default_driver_person_id`, `is_owner_driven`), `vehicle_trips` + multi-load `trip_id` links, `payment_authorizations`, `payments` recipient/beneficiary/status columns, and `ACCOUNT_ADJUSTMENT` / `DOUBLE_SHIFT` CHECK constraint alignment.
+- **Database Changes:** `database/migrations/012_owner_operator_and_trips.sql` (new additive migration with `company_id` RLS using `auth_is_company_member` / `auth_has_company_role`).
+- **Files Affected:** `src/types/index.ts`, `database/migrations/012_owner_operator_and_trips.sql`.
+- **Dependencies:** Existing migrations `001`–`011`.
+- **Risks:** Legacy `Payment` records without `status` must default to `'COMPLETED'`; existing `Vehicle.driverName` free-text must remain readable.
+- **Tests:** Multi-role person resolution, vehicle ownership/driver independence, multi-load trip linkage.
+- **Completion Criteria:** Migration `012` validates cleanly on staging PostgreSQL; TypeScript compiles with 0 errors; existing 312 tests remain green.
 
-1. **Phase 1 — Database Schema & RLS Migration (`012_owner_operator_and_trips.sql`)**
-   - Add `persons` (multi-role identity) + link `person_id` on `parties`, `employees`, `contractors`, `company_memberships`.
-   - Expand `parties.party_type` (`'SUPPLIER' | 'CUSTOMER' | 'BOTH' | 'TRANSPORTER'`) and `employees.is_owner` / `payroll_eligible`.
-   - Add `owner_party_id`, `default_driver_person_id`, `is_owner_driven` on `vehicles`; extend `ownership_type` CHECK.
-   - Create `vehicle_trips` table and add `trip_id` FK on `weighments`, `purchase_headers`, `collection_jobs`, `expenses`.
-   - Create `payment_authorizations` table; add `status`, `recipient_party_id`, `recipient_person_id`, `beneficiary_party_id`, `authorization_id` on `payments`.
-   - Add `paid_by_type`, `paid_by_person_id`, `reimbursement_status` on `expenses`.
-   - Add partial unique index `uq_journal_active_source` on `journal_entries(company_id, source_type, source_id)` and new COA accounts (`2015`, `2150`, `3030`).
-   - Apply `company_id` RLS policies (`auth_is_company_member`, `auth_has_company_role`) and `SECURITY DEFINER` `SET search_path = public, pg_temp` on any new RPCs.
+## Phase 2 — Accounting Integrity
+- **Scope:** COA `2015` (Transporter Payable), `2150` (Due to Owner), `3030` (Owner Drawings); wire `OWNER_INJECTION`/`OWNER_DRAWING` journals in `addAccountTransaction`; owner reimbursement journals; freight duplication guard (`5030`); `FAILED`/`PENDING` UPI payment settlement guard; active `(company_id, source_type, source_id)` unique journal index + `appendJournalIfAbsent`.
+- **Database Changes:** COA seeds + partial unique index `uq_journal_active_source` in `012`.
+- **Files Affected:** `backend/business-rules/accountingEngine.ts`, `backend/business-rules/financeEngine.ts`, `src/context/ERPContext.tsx`.
+- **Dependencies:** Phase 1 types & schema.
+- **Risks:** Existing `mockData.ts` or legacy local storage journals with duplicate `sourceId` must not break on upgrade.
+- **Tests:** `tests/owner_operator_and_trips.test.ts` (journal invariants, owner drawings vs P&L, failed UPI guard, freight deduplication, duplicate journal prevention).
+- **Completion Criteria:** All accounting invariants pass 100%; `SUM(debit) === SUM(credit)` across every new journal type.
 
-2. **Phase 2 — Domain Types & Accounting/Finance Rules (`src/types/index.ts`, `accountingEngine.ts`, `financeEngine.ts`)**
-   - Update TypeScript interfaces (`Person`, `Vehicle`, `VehicleTrip`, `Payment`, `Expense`, `Party`, `Employee`, `PurchaseHeader`, `Weighment`).
-   - Update `accountingEngine.ts`:
-     - Add COA codes `2015`, `2150`, `3030`.
-     - Add `createOwnerCapitalOrDrawingJournal(...)` and `createOwnerReimbursementJournal(...)`.
-     - Update `createPurchaseInvoiceJournal` to prevent freight duplication when `tripId` already carries trip freight expenses.
-     - Update `createPaymentJournal` to route `TRANSPORTER` payables to `2015`, record `recipient` in narration, and reject `FAILED` / `PENDING` payments.
-     - Update `createExpenseJournal` to credit `2150 Due to Owner` when `paidByType === 'OWNER_PERSONAL'`.
-   - Update `financeEngine.ts`:
-     - Guard `postPaymentVoucher` against `status === 'FAILED'` or `'PENDING'` (do not settle `outstandingBalance` or create `AccountTransaction`).
-     - Add `validatePersonRoles` & `preventOwnerPayrollAccrual` guard.
+## Phase 3 — Receipt & Attachment Infrastructure
+- **Scope:** `document_attachments` PostgreSQL table, private Supabase Storage bucket `erp-receipts`, `storage.objects` company-scoped RLS, client-side WebP/JPEG compression + thumbnail generator + SHA-256 checksums, Android/web camera capture (`preview -> retake -> confirm`), multi-photo + PDF upload, 2-phase retry/recovery, and posted-record deletion lock.
+- **Database Changes:** `database/migrations/013_document_attachments_and_storage_rls.sql` (new).
+- **Files Affected:** `src/services/attachmentService.ts` (new), `src/components/common/ReceiptCaptureModal.tsx` (new), `src/services/databaseRepository.ts`, `backend/business-rules/backupEngine.ts`.
+- **Dependencies:** Phase 1 `company_id` RLS helpers.
+- **Risks:** Client compression must preserve readable GSTIN/amounts; interrupted uploads between Storage and PostgreSQL require idempotent retry & orphan cleanup.
+- **Tests:** `tests/receipt_attachments.test.ts` + cross-company Storage RLS test.
+- **Completion Criteria:** Receipts compress to `100–300 KB` (WebP) with readable text; cross-company signed URLs are denied; uploading/deleting attachments never alters financial balances.
 
-3. **Phase 3 — Context, Sync & Repository (`ERPContext.tsx`, `databaseRepository.ts`, `backupEngine.ts`)**
-   - Add `persons`, `vehicleTrips`, `paymentAuthorizations` state + CRUD + `appendJournalIfAbsent` idempotency guard.
-   - Wire `OWNER_INJECTION` (`3010`) and `OWNER_DRAWING` (`3030`) in `addAccountTransaction` to post balanced journals.
-   - Add `reimburseOwnerExpense` action (`Dr. 2150 / Cr. 1010/1020`).
-   - Update `BackupDatabasePayload` in `src/types/index.ts` & `backupEngine.ts` so backups include the new entities safely with backward compatibility for older backups.
+## Phase 4 — ERP Integration (UI Workflows)
+- **Scope:** Wire multi-role Person/Transporter into `PartiesView`, `VehiclesView`, `EmployeesView` (`isOwner` payroll exclusion), `CollectionsView` (Trip + multi-load), `WeighmentView` & `PurchasesView` (`tripId` + freight warning), `PaymentsView` (status + beneficiary vs recipient + authorization), and `FinanceView` (Expense Manager camera/gallery attachments + Owner Reimbursements/Drawings).
+- **Database Changes:** None (uses Phase 1–3 schema).
+- **Files Affected:** `src/modules/vehicles/VehiclesView.tsx`, `src/modules/collections/CollectionsView.tsx`, `src/modules/weighment/WeighmentView.tsx`, `src/modules/purchases/PurchasesView.tsx`, `src/modules/parties/PartiesView.tsx`, `src/modules/employees/EmployeesView.tsx`, `src/modules/payments/PaymentsView.tsx`, `src/modules/finance/FinanceView.tsx`.
+- **Dependencies:** Phases 1–3.
+- **Risks:** Mobile viewport overflow or camera permission denials on Android WebView.
+- **Tests:** Live mobile-viewport browser E2E drills across all updated modules.
+- **Completion Criteria:** All 8 Owner-Operator workflows and Expense Manager receipt capture work end-to-end on mobile viewport with 0 console errors.
 
-4. **Phase 4 — UI Modules**
-   - `VehiclesView.tsx`: Owner Party selector, Default Driver Person selector, `Is Owner Driven` toggle.
-   - `CollectionsView.tsx` / **Trips View**: Multi-load Trip Header (`VehicleTrip`), link multiple weighments & purchases to one trip, log trip fuel/toll with `Paid by Company` vs `Paid by Owner (Personal)`.
-   - `PurchasesView.tsx` & `WeighmentView.tsx`: Optional `tripId` selector + freight-duplication warning when trip already has freight expense.
-   - `PartiesView.tsx`: Support `TRANSPORTER` role + multi-role Person linking.
-   - `EmployeesView.tsx`: `Is Owner (Exclude from Salary)` badge/guard.
-   - `PaymentsView.tsx`: `Payment Status` (`COMPLETED` / `PENDING` / `FAILED`), `Beneficiary Party` vs `Authorized Recipient` selector, and Authorization reference.
-   - `FinanceView.tsx`: Owner Reimbursements queue (`Due to Owner 2150` → 1-tap Reimburse) and Owner Capital/Drawings journal integration.
-
-5. **Phase 5 — Regression & Negative Security Testing**
-   - Add unit, accounting-invariant, and RLS negative tests (detailed in `TEST_COVERAGE_GAP_REPORT.md`).
-
----
-
-## 2. Exact Files Expected to Change
-
-| Layer | Exact File Path | Change Summary |
-| :--- | :--- | :--- |
-| **Database** | `database/migrations/012_owner_operator_and_trips.sql` (new) | Additive schema, COA seeds, partial unique journal index, RLS policies |
-| **Types** | `src/types/index.ts` | Add `Person`, `VehicleTrip`, `PaymentAuthorization`, extend `Vehicle`, `Party`, `Employee`, `Payment`, `Expense`, `PurchaseHeader`, `Weighment`, `BackupDatabasePayload` |
-| **Accounting** | `backend/business-rules/accountingEngine.ts` | COA `2015`/`2150`/`3030`, owner drawings/reimbursement journals, transporter AP routing, failed-payment guard |
-| **Finance** | `backend/business-rules/financeEngine.ts` | Payment status guard (`FAILED`/`PENDING`), freight-duplication check, owner reimbursement validation |
-| **Backup** | `backend/business-rules/backupEngine.ts` | Include `persons`, `vehicleTrips`, `paymentAuthorizations` in backup/restore payload |
-| **State** | `src/context/ERPContext.tsx` | State + CRUD for trips/persons/authorizations, `appendJournalIfAbsent`, GL posting on `OWNER_INJECTION`/`OWNER_DRAWING` |
-| **Repo** | `src/services/databaseRepository.ts` | Read/write mappers for new columns and tables |
-| **UI** | `src/modules/vehicles/VehiclesView.tsx` | Owner party, driver person, owner-driven toggle |
-| **UI** | `src/modules/collections/CollectionsView.tsx` | Multi-load Trip management + trip expenses |
-| **UI** | `src/modules/weighment/WeighmentView.tsx` | Trip linking for multi-load weighments |
-| **UI** | `src/modules/purchases/PurchasesView.tsx` | Trip linking + freight duplication warning |
-| **UI** | `src/modules/parties/PartiesView.tsx` | `TRANSPORTER` type + Person link |
-| **UI** | `src/modules/employees/EmployeesView.tsx` | `isOwner` / `payrollEligible` guard |
-| **UI** | `src/modules/payments/PaymentsView.tsx` | Payment `status` (`COMPLETED`/`PENDING`/`FAILED`), Recipient vs Beneficiary, Authorization |
-| **UI** | `src/modules/finance/FinanceView.tsx` | Owner Reimbursements (`2150`) & Owner Drawings (`3030`) |
-
----
-
-## 3. Potential Breaking Changes & Mitigations
-
-1. **`PartyType` expansion (`'TRANSPORTER'`)**: Existing UI filters in `PartiesView.tsx` (`ALL`, `SUPPLIER`, `CUSTOMER`, `BOTH`) and `PurchasesView.tsx`/`InvoicesView.tsx` must handle `'TRANSPORTER'` gracefully without breaking existing dropdowns.
-2. **`Payment` `status` default**: Existing persisted `Payment` records in `localStorage` and Supabase lack `status`; all readers must default `status ?? 'COMPLETED'` so historical settled invoices/purchases remain settled.
-3. **`BackupDatabasePayload` backward compatibility**: `previewRestore` and `executeSystemRestore` must treat `persons`, `vehicleTrips`, and `paymentAuthorizations` as optional arrays (`?? []`) so older `.yebak`/JSON backups still restore cleanly.
-4. **SQL CHECK constraint updates**: Updating `account_transactions.transaction_type` and `attendance_entries.status` CHECK constraints in `012` must use `DROP CONSTRAINT IF EXISTS ...` followed by `ADD CONSTRAINT ...` idempotently.
+## Phase 5 — Testing & Production Hardening
+- **Scope:** Full regression suite (`node scripts/test-runner.mjs`), staging PostgreSQL RLS + Storage RLS verification, backup/restore backward-compatibility verification, egress/storage consumption validation, and Android APK build verification.
+- **Files Affected:** `tests/owner_operator_and_trips.test.ts`, `tests/receipt_attachments.test.ts`, `tests/backup_and_restore.test.ts`, `tests/staging_pg_integration.test.ts`.
+- **Dependencies:** Phases 1–4.
+- **Completion Criteria:** 0 TypeScript errors, 100% passing unit & staging integration tests, verified cross-tenant isolation, and clean APK build.

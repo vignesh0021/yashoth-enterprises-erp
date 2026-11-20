@@ -65,6 +65,7 @@ export interface CompanySettings {
   isActive?: boolean;
   isDefault?: boolean;
   logoUrl?: string;
+  closedPeriodBefore?: string; // ISO YYYY-MM-DD: blocks posting/editing on or before this date
   createdAt?: string;
   updatedAt?: string;
 }
@@ -113,7 +114,7 @@ export interface MaterialGrade {
   isActive: boolean;
 }
 
-export type PartyType = 'SUPPLIER' | 'CUSTOMER' | 'BOTH';
+export type PartyType = 'SUPPLIER' | 'CUSTOMER' | 'BOTH' | 'TRANSPORTER';
 
 export interface Party {
   id: string;
@@ -400,6 +401,8 @@ export interface PaymentAllocation {
   allocatedAmount: number;
 }
 
+export type PaymentStatus = 'PENDING' | 'COMPLETED' | 'FAILED' | 'REVERSED';
+
 export interface Payment {
   id: string;
   companyId?: string;
@@ -407,10 +410,16 @@ export interface Payment {
   paymentDate: string;
   direction: PaymentDirection;
   partyId: string;
+  beneficiaryPartyId?: string;
+  recipientPersonId?: string;
+  recipientPartyId?: string;
+  authorizationId?: string;
   accountId: string;
   totalAmount: number;
   unallocatedAmount: number;
   paymentMethod: PaymentMethod;
+  status?: PaymentStatus;
+  idempotencyKey?: string;
   referenceNo?: string;
   notes?: string;
   allocations: PaymentAllocation[];
@@ -428,6 +437,8 @@ export type TransactionType =
   | 'EMPLOYEE_ADVANCE'
   | 'OWNER_INJECTION'
   | 'OWNER_DRAWING'
+  | 'OWNER_LOAN_IN'
+  | 'OWNER_REIMBURSEMENT'
   | 'OPENING_BALANCE'
   | 'ACCOUNT_ADJUSTMENT';
 
@@ -455,6 +466,10 @@ export interface AccountTransaction {
   amount: number;
   contraAccountId?: string;
   paymentId?: string;
+  expenseId?: string;
+  journalEntryId?: string;
+  idempotencyKey?: string;
+  externalTxRef?: string;
   referenceNo?: string;
   description: string;
   createdBy: string;
@@ -486,13 +501,18 @@ export interface Expense {
   amount: number;
   accountId: string;
   paymentMode?: 'CASH' | 'BANK' | 'UNPAID';
+  paidByType?: 'COMPANY' | 'OWNER_PERSONAL';
   status?: 'PAID' | 'UNPAID' | 'REVERSED';
   approvalStatus?: 'APPROVED' | 'PENDING' | 'REJECTED';
   enteredBy?: string;
   vehicleId?: string;
+  tripId?: string;
   paidTo: string;
   billReference?: string;
   attachmentUrl?: string;
+  accountTransactionId?: string;
+  journalEntryId?: string;
+  idempotencyKey?: string;
   notes?: string;
   reversalExpenseId?: string;
   reversalReason?: string;
@@ -506,10 +526,135 @@ export interface Vehicle {
   registrationNo: string;
   vehicleType: string;
   ownershipType: 'OWNED' | 'HIRED' | 'CUSTOMER_VEHICLE' | 'SUPPLIER_VEHICLE';
+  ownerPartyId?: string;
+  transporterPartyId?: string;
+  driverPersonId?: string;
+  isOwnerDriven?: boolean;
   driverName?: string;
   driverPhone?: string;
   tareWeight: number;
   isActive: boolean;
+}
+
+export type PersonRoleType =
+  | 'OWNER'
+  | 'DRIVER'
+  | 'SUPPLIER'
+  | 'TRANSPORTER'
+  | 'VEHICLE_OWNER'
+  | 'EMPLOYEE'
+  | 'AUTHORIZED_AGENT';
+
+export interface Person {
+  id: string;
+  companyId?: string;
+  fullName: string;
+  phone?: string;
+  isOwner: boolean;
+  payrollEligible: boolean;
+  linkedEmployeeId?: string;
+  linkedPartyId?: string;
+  isActive: boolean;
+  createdAt: string;
+}
+
+export interface PersonRole {
+  id: string;
+  companyId?: string;
+  personId: string;
+  roleType: PersonRoleType;
+  isActive: boolean;
+}
+
+export interface VehicleTrip {
+  id: string;
+  companyId?: string;
+  tripNo: string;
+  tripDate: string;
+  vehicleId: string;
+  driverPersonId?: string;
+  isOwnerDriven: boolean;
+  transporterPartyId?: string;
+  freightPayableAmount: number;
+  status: 'PLANNED' | 'IN_PROGRESS' | 'COMPLETED' | 'SETTLED' | 'CANCELLED';
+  notes?: string;
+  createdAt: string;
+}
+
+export interface TripStop {
+  id: string;
+  tripId: string;
+  stopSequence: number;
+  supplierPartyId?: string;
+  locationName: string;
+  weighmentId?: string;
+  purchaseHeaderId?: string;
+  materialSummary?: string;
+}
+
+export interface PaymentAuthorization {
+  id: string;
+  companyId?: string;
+  beneficiaryPartyId: string;
+  authorizedRecipientPersonId: string;
+  maxAmount?: number;
+  validFrom: string;
+  validUntil?: string;
+  status: 'DRAFT' | 'ACTIVE' | 'USED' | 'REVOKED' | 'EXPIRED';
+  notes?: string;
+}
+
+export type AttachmentParentEntityType =
+  | 'EXPENSE'
+  | 'PURCHASE'
+  | 'INVOICE'
+  | 'VEHICLE_DOC'
+  | 'TRIP'
+  | 'PAYMENT_AUTH';
+
+export type AttachmentUploadStatus =
+  | 'PENDING_UPLOAD'
+  | 'UPLOAD_FAILED'
+  | 'COMMITTED'
+  | 'REJECTED'
+  | 'EXPIRED';
+
+export interface DocumentAttachment {
+  id: string;
+  companyId: string;
+  parentEntityType: AttachmentParentEntityType;
+  parentEntityId: string;
+  storageBucket: string;
+  storagePath: string;
+  thumbnailPath?: string;
+  originalFilename: string;
+  mimeType: 'image/webp' | 'image/jpeg' | 'application/pdf';
+  fileSizeBytes: number;
+  width?: number;
+  height?: number;
+  sha256Checksum: string;
+  uploadStatus: AttachmentUploadStatus;
+  integrityStatus: 'OK' | 'MISSING_OBJECT';
+  replacedAttachmentId?: string;
+  uploadedBy: string;
+  reservedAt: string;
+  committedAt?: string;
+  deletedAt?: string;
+}
+
+export interface BankImportRecord {
+  externalTxRef: string;
+  txDate: string;
+  direction: 'DEBIT' | 'CREDIT';
+  amount: number;
+  description: string;
+  counterpartyName?: string;
+  paymentMethod?: 'NEFT' | 'RTGS' | 'IMPS' | 'UPI' | 'CHEQUE' | 'BANK';
+}
+
+export interface BankImportAdapter {
+  providerName: string;
+  parseStatement(rawPayload: string): BankImportRecord[];
 }
 
 export interface VehicleDocument {

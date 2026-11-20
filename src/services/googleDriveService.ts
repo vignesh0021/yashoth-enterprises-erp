@@ -262,7 +262,7 @@ class GoogleDriveService {
    * Downloads backup file locally to device Downloads.
    */
   public downloadBackupLocally(filename: string, content: string, mimeType: string = 'application/json'): void {
-    if (typeof document === 'undefined') return;
+    if (typeof document === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') return;
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

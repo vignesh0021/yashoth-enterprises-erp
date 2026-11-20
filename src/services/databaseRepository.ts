@@ -764,6 +764,113 @@ export class DatabaseRepository {
     const res = await supabase.insertRow<DailyCashClosingRecord>('daily_cash_closings', closing, authToken);
     return res.data;
   }
+
+  // --------------------------------------------------------------------------
+  // Atomic Finance & Attachment RPCs (Migration 012 & 013)
+  // --------------------------------------------------------------------------
+  public async postAccountTransactionAtomic(params: {
+    companyId: string;
+    accountId: string;
+    txDate: string;
+    txType: string;
+    direction: 'DEBIT' | 'CREDIT';
+    amount: number;
+    description: string;
+    referenceNo?: string;
+    idempotencyKey?: string;
+    actor?: string;
+    authToken?: string;
+  }): Promise<{ success: boolean; transactionId?: string; journalId?: string; status?: string; error?: string }> {
+    if (!this.isRemoteDatabaseAvailable()) return { success: false, error: 'Remote database unavailable' };
+    const res = await supabase.executeRpc<any>('fn_post_account_transaction_atomic', {
+      p_company_id: params.companyId,
+      p_account_id: params.accountId,
+      p_tx_date: params.txDate,
+      p_tx_type: params.txType,
+      p_direction: params.direction,
+      p_amount: params.amount,
+      p_description: params.description,
+      p_reference_no: params.referenceNo || null,
+      p_idempotency_key: params.idempotencyKey || null,
+      p_actor: params.actor || 'system',
+    }, params.authToken);
+    if (res.error) return { success: false, error: res.error.message || String(res.error) };
+    return {
+      success: true,
+      transactionId: res.data?.transaction_id,
+      journalId: res.data?.journal_id,
+      status: res.data?.status,
+    };
+  }
+
+  public async postExpenseAtomic(params: {
+    companyId: string;
+    voucherNo: string;
+    expenseDate: string;
+    category: string;
+    amount: number;
+    accountId: string;
+    paymentMode: string;
+    paidByType?: string;
+    paidTo: string;
+    notes?: string;
+    idempotencyKey?: string;
+    actor?: string;
+    authToken?: string;
+  }): Promise<{ success: boolean; expenseId?: string; transactionId?: string; journalId?: string; status?: string; error?: string }> {
+    if (!this.isRemoteDatabaseAvailable()) return { success: false, error: 'Remote database unavailable' };
+    const res = await supabase.executeRpc<any>('fn_post_expense_atomic', {
+      p_company_id: params.companyId,
+      p_voucher_no: params.voucherNo,
+      p_expense_date: params.expenseDate,
+      p_category: params.category,
+      p_amount: params.amount,
+      p_account_id: params.accountId || null,
+      p_payment_mode: params.paymentMode,
+      p_paid_by_type: params.paidByType || 'COMPANY',
+      p_paid_to: params.paidTo,
+      p_notes: params.notes || null,
+      p_idempotency_key: params.idempotencyKey || null,
+      p_actor: params.actor || 'system',
+    }, params.authToken);
+    if (res.error) return { success: false, error: res.error.message || String(res.error) };
+    return {
+      success: true,
+      expenseId: res.data?.expense_id,
+      transactionId: res.data?.transaction_id,
+      journalId: res.data?.journal_id,
+      status: res.data?.status,
+    };
+  }
+
+  public async reserveDocumentAttachment(params: {
+    companyId: string;
+    parentEntityType: string;
+    parentEntityId: string;
+    sha256Checksum: string;
+    originalFilename: string;
+    mimeType: string;
+    fileSizeBytes: number;
+    replacedAttachmentId?: string;
+  }, authToken?: string): Promise<{ status: string; attachment_id: string; storage_path: string; thumbnail_path?: string } | null> {
+    if (!this.isRemoteDatabaseAvailable()) return null;
+    const res = await supabase.executeRpc<any>('fn_reserve_document_attachment', {
+      p_company_id: params.companyId,
+      p_parent_type: params.parentEntityType,
+      p_parent_id: params.parentEntityId,
+      p_sha256: params.sha256Checksum,
+      p_filename: params.originalFilename,
+      p_mime_type: params.mimeType,
+      p_file_size: params.fileSizeBytes,
+      p_replaced_id: params.replacedAttachmentId || null,
+    }, authToken);
+    return res.error ? null : res.data;
+  }
+
+  public async markAttachmentUploadFailed(attachmentId: string, authToken?: string): Promise<void> {
+    if (!this.isRemoteDatabaseAvailable()) return;
+    await supabase.executeRpc('fn_mark_attachment_upload_failed', { p_attachment_id: attachmentId }, authToken);
+  }
 }
 
 export const dbRepository = DatabaseRepository.getInstance();

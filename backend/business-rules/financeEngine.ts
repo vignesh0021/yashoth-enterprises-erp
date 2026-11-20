@@ -8,6 +8,7 @@ import type {
   AccountTransaction, 
   CashBankAccount, 
   Party,
+  Expense,
   JournalEntry,
   ContractorWorkEntry,
   ContractorPayment,
@@ -31,9 +32,14 @@ export function postPaymentVoucher(
     paymentDate: string;
     direction: 'INFLOW_RECEIPT' | 'OUTFLOW_PAYMENT';
     party: Party;
+    beneficiaryPartyId?: string;
+    recipientPersonId?: string;
+    authorizationId?: string;
     account: CashBankAccount;
     totalAmount: number;
     paymentMethod: Payment['paymentMethod'];
+    status?: Payment['status'];
+    idempotencyKey?: string;
     referenceNo?: string;
     notes?: string;
     allocations: {
@@ -47,6 +53,16 @@ export function postPaymentVoucher(
   }
 ): PaymentPostingResult {
   const { direction, totalAmount, allocations, allInvoices, allPurchases, actor } = params;
+
+  if (params.account && params.account.isActive === false) {
+    throw new Error(`Account "${params.account.accountName}" is inactive and cannot be used for payments.`);
+  }
+
+  if (params.status && params.status !== 'COMPLETED') {
+    throw new Error(
+      `Payment ${params.paymentNo} has status ${params.status}. Only COMPLETED payments can settle payables/receivables or post cash/bank entries.`
+    );
+  }
 
   if (totalAmount <= 0) {
     throw new Error('Payment amount must be greater than zero.');
@@ -411,6 +427,11 @@ export function validateCashBankTransaction(params: {
   direction: 'DEBIT' | 'CREDIT';
   currentBalance: number;
 }): void {
+  if (params.account.isActive === false) {
+    throw new Error(
+      `Account "${params.account.accountName}" (${params.account.accountCode}) is inactive and cannot accept transactions.`
+    );
+  }
   if (params.amount <= 0) {
     throw new Error('Transaction amount must be greater than zero.');
   }
@@ -997,6 +1018,145 @@ export function validateExpenseInput(
   if (dup) {
     throw new Error(`Expense voucher ${expense.voucherNo} already exists.`);
   }
+}
+
+export interface CashBookPeriodSummary {
+  startDate: string;
+  endDate: string;
+  openingCash: number;
+  receipts: number;
+  capitalAndOtherInflows: number;
+  refunds: number;
+  paidExpenses: number;
+  salaryLabourContractorPayments: number;
+  drawings: number;
+  otherPayments: number;
+  expectedClosingCash: number;
+  unpaidExpensesCount: number;
+  unpaidExpensesTotal: number;
+}
+
+/**
+ * Authoritative Cash Book & Daily Closing reconciliation:
+ * opening cash + receipts + valid capital/other inflows - paid expenses
+ * - salary/labour/contractor payments - drawings - other payments + refunds = expected closing cash.
+ * Unpaid expenses do not reduce cash.
+ */
+export function computeCashBookSummary(params: {
+  cashAccounts: CashBankAccount[];
+  accountTransactions: AccountTransaction[];
+  expenses: Expense[];
+  startDate: string;
+  endDate: string;
+}): CashBookPeriodSummary {
+  const cashIds = new Set(params.cashAccounts.filter((a) => a.accountType === 'CASH').map((a) => a.id));
+  const cashTxs = params.accountTransactions.filter((t) => cashIds.has(t.accountId));
+
+  // Opening cash before startDate (using account.openingBalance if no OPENING_BALANCE tx exists)
+  let openingCash = 0;
+  for (const acc of params.cashAccounts) {
+    if (acc.accountType !== 'CASH') continue;
+    const accTxs = cashTxs.filter((t) => t.accountId === acc.id);
+    const hasOpeningTx = accTxs.some((t) => t.transactionType === 'OPENING_BALANCE');
+    const priorNet = accTxs
+      .filter((t) => t.transactionDate < params.startDate)
+      .reduce((s, t) => s + (t.direction === 'DEBIT' ? t.amount : -t.amount), 0);
+    openingCash += (hasOpeningTx ? 0 : acc.openingBalance) + priorNet;
+  }
+  openingCash = roundTo2(openingCash);
+
+  const periodTxs = cashTxs.filter((t) => t.transactionDate >= params.startDate && t.transactionDate <= params.endDate);
+
+  let receipts = 0;
+  let capitalAndOtherInflows = 0;
+  let refunds = 0;
+  let paidExpenses = 0;
+  let salaryLabourContractorPayments = 0;
+  let drawings = 0;
+  let otherPayments = 0;
+
+  for (const tx of periodTxs) {
+    if (tx.transactionType === 'OPENING_BALANCE') {
+      // Opening balance on or inside period counts into openingCash if dated within [startDate, endDate]
+      openingCash = roundTo2(openingCash + (tx.direction === 'DEBIT' ? tx.amount : -tx.amount));
+      continue;
+    }
+    if (tx.direction === 'DEBIT') {
+      if (tx.transactionType === 'CUSTOMER_RECEIPT') receipts += tx.amount;
+      else if (tx.transactionType === 'ACCOUNT_ADJUSTMENT') refunds += tx.amount;
+      else capitalAndOtherInflows += tx.amount; // OWNER_INJECTION, OWNER_LOAN_IN, CONTRA_TRANSFER_IN
+    } else {
+      if (tx.transactionType === 'OPERATING_EXPENSE') paidExpenses += tx.amount;
+      else if (tx.transactionType === 'EMPLOYEE_ADVANCE') salaryLabourContractorPayments += tx.amount;
+      else if (tx.transactionType === 'OWNER_DRAWING') drawings += tx.amount;
+      else otherPayments += tx.amount; // SUPPLIER_PAYMENT, CONTRA_TRANSFER_OUT, OWNER_REIMBURSEMENT, etc.
+    }
+  }
+
+  // Include period salary/labour/contractor cash payouts if tracked via referenceNo/description in periodTxs
+  // (already captured via EMPLOYEE_ADVANCE or OPERATING_EXPENSE/SUPPLIER_PAYMENT without double-counting)
+  const expectedClosingCash = roundTo2(
+    openingCash +
+      receipts +
+      capitalAndOtherInflows +
+      refunds -
+      paidExpenses -
+      salaryLabourContractorPayments -
+      drawings -
+      otherPayments
+  );
+
+  const unpaidPeriodExpenses = params.expenses.filter(
+    (e) =>
+      e.status === 'UNPAID' &&
+      e.expenseDate >= params.startDate &&
+      e.expenseDate <= params.endDate
+  );
+
+  return {
+    startDate: params.startDate,
+    endDate: params.endDate,
+    openingCash,
+    receipts: roundTo2(receipts),
+    capitalAndOtherInflows: roundTo2(capitalAndOtherInflows),
+    refunds: roundTo2(refunds),
+    paidExpenses: roundTo2(paidExpenses),
+    salaryLabourContractorPayments: roundTo2(salaryLabourContractorPayments),
+    drawings: roundTo2(drawings),
+    otherPayments: roundTo2(otherPayments),
+    expectedClosingCash,
+    unpaidExpensesCount: unpaidPeriodExpenses.length,
+    unpaidExpensesTotal: roundTo2(unpaidPeriodExpenses.reduce((s, e) => s + e.amount, 0)),
+  };
+}
+
+/**
+ * Prevents duplicate 5030 Freight recognition between PurchaseHeader.otherCharges and trip-level freight Expense.
+ */
+export function assertNoDuplicateTripFreight(params: {
+  tripId?: string;
+  purchaseOtherCharges?: number;
+  existingTripFreightExpenses: { tripId?: string; category: string; status?: string }[];
+}): void {
+  if (!params.tripId || !params.purchaseOtherCharges || params.purchaseOtherCharges <= 0) return;
+  const hasTripFreight = params.existingTripFreightExpenses.some(
+    (e) =>
+      e.tripId === params.tripId &&
+      e.status !== 'REVERSED' &&
+      /freight|transport|rent|haulage/i.test(e.category || '')
+  );
+  if (hasTripFreight) {
+    throw new Error(
+      `Trip ${params.tripId} already has a freight expense recorded. Remove PurchaseHeader.otherCharges to prevent duplicate 5030 freight.`
+    );
+  }
+}
+
+/**
+ * Owner-operator payroll exclusion guard: owners/non-payroll-eligible persons accrue ₹0 driver salary.
+ */
+export function isOwnerPayrollExcluded(person: { isOwner?: boolean; payrollEligible?: boolean }): boolean {
+  return Boolean(person.isOwner) || person.payrollEligible === false;
 }
 
 

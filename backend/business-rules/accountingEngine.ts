@@ -76,6 +76,7 @@ export const STANDARD_CHART_OF_ACCOUNTS: ChartOfAccount[] = [
   // Assets (1000 - 1999)
   { code: '1010', name: 'Cash on Hand', category: 'ASSET', normalBalance: 'DEBIT', isSystem: true },
   { code: '1020', name: 'Bank Accounts (Current/OD)', category: 'ASSET', normalBalance: 'DEBIT', isSystem: true },
+  { code: '1025', name: 'UPI / Digital Clearing (Pending Settlement)', category: 'ASSET', normalBalance: 'DEBIT', isSystem: true },
   { code: '1050', name: 'Scrap Metal Inventory', category: 'ASSET', normalBalance: 'DEBIT', isSystem: true },
   { code: '1060', name: 'Employee Advances & Prepayments', category: 'ASSET', normalBalance: 'DEBIT', isSystem: true },
   { code: '1070', name: 'Contractor & Labour Advances', category: 'ASSET', normalBalance: 'DEBIT', isSystem: true },
@@ -87,6 +88,7 @@ export const STANDARD_CHART_OF_ACCOUNTS: ChartOfAccount[] = [
 
   // Liabilities (2000 - 2999)
   { code: '2010', name: 'Sundry Creditors (Suppliers A/P)', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
+  { code: '2015', name: 'Transporter & Freight Payable', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
   { code: '2020', name: 'Unpaid Operational Expenses Payable', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
   { code: '2050', name: 'Output Tax Liability — CGST', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
   { code: '2060', name: 'Output Tax Liability — SGST', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
@@ -94,10 +96,12 @@ export const STANDARD_CHART_OF_ACCOUNTS: ChartOfAccount[] = [
   { code: '2100', name: 'Employee Wages & Advances Payable', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
   { code: '2110', name: 'Contractor & Labour Payable', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
   { code: '2120', name: 'Payroll Deductions Payable', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
+  { code: '2150', name: 'Owner Reimbursement Payable (Due to Owner)', category: 'LIABILITY', normalBalance: 'CREDIT', isSystem: true },
 
   // Equity (3000 - 3999)
   { code: '3010', name: 'Proprietor / Partners Capital', category: 'EQUITY', normalBalance: 'CREDIT', isSystem: true },
   { code: '3020', name: 'Retained Earnings / Prior P&L', category: 'EQUITY', normalBalance: 'CREDIT', isSystem: true },
+  { code: '3030', name: 'Owner Drawings', category: 'EQUITY', normalBalance: 'DEBIT', isSystem: true },
 
   // Revenue / Income (4000 - 4999)
   { code: '4010', name: 'Scrap Sales Revenue', category: 'INCOME', normalBalance: 'CREDIT', isSystem: true },
@@ -117,6 +121,16 @@ export const STANDARD_CHART_OF_ACCOUNTS: ChartOfAccount[] = [
 ];
 
 export const DEFAULT_CHART_OF_ACCOUNTS = STANDARD_CHART_OF_ACCOUNTS;
+
+/**
+ * Enforces closed-period protection: blocks posting/editing on or before closedPeriodBefore.
+ */
+export function assertPeriodNotClosed(entryDate: string, closedPeriodBefore?: string): void {
+  if (!closedPeriodBefore) return;
+  if (entryDate && entryDate <= closedPeriodBefore) {
+    throw new Error(`Accounting period is closed through ${closedPeriodBefore}. Cannot post entry dated ${entryDate}.`);
+  }
+}
 
 /**
  * Validates double-entry mathematical balance.
@@ -459,12 +473,19 @@ export function createPaymentJournal(
   accountCode: string = '1020',
   company: Company
 ): JournalEntry {
+  assertPeriodNotClosed(payment.paymentDate, company.closedPeriodBefore);
+  if (payment.status && payment.status !== 'COMPLETED') {
+    throw new Error(`Cannot post journal for payment ${payment.paymentNo} with non-completed status: ${payment.status}.`);
+  }
   const lines: JournalLine[] = [];
   const amount = roundTo2(payment.totalAmount ?? (payment as any).amount ?? 0);
   const partyName = party?.legalName || (payment as any).partyName || 'Party';
   const isReceipt = payment.direction === 'INFLOW_RECEIPT' || (payment as any).paymentType === 'RECEIVED';
   const method = payment.paymentMethod || (payment as any).paymentMode || 'BANK';
   const paymentNo = payment.paymentNo || (payment as any).referenceNumber || `PAY-${payment.id}`;
+  const payableCode = party?.partyType === 'TRANSPORTER' ? '2015' : '2010';
+  const payableName = payableCode === '2015' ? 'Transporter & Freight Payable' : 'Sundry Creditors (Suppliers A/P)';
+  const effectiveBeneficiaryId = payment.beneficiaryPartyId || payment.partyId;
 
   if (isReceipt) {
     // Dr. Bank/Cash
@@ -483,21 +504,21 @@ export function createPaymentJournal(
       accountName: 'Sundry Debtors (Customers A/R)',
       debit: 0,
       credit: amount,
-      partyId: payment.partyId,
+      partyId: effectiveBeneficiaryId,
       partyName,
       lineNarration: `Payment receipt applied to customer account`,
     });
   } else {
-    // Dr. Sundry Creditors
+    // Dr. Sundry Creditors / Transporter Payable
     lines.push({
       id: `jl-${payment.id}-dr-ap`,
-      accountCode: '2010',
-      accountName: 'Sundry Creditors (Suppliers A/P)',
+      accountCode: payableCode,
+      accountName: payableName,
       debit: amount,
       credit: 0,
-      partyId: payment.partyId,
+      partyId: effectiveBeneficiaryId,
       partyName,
-      lineNarration: `Disbursement to supplier ${partyName}`,
+      lineNarration: `Disbursement for ${partyName}${payment.authorizationId ? ` (Auth: ${payment.authorizationId})` : ''}`,
     });
     // Cr. Bank/Cash
     lines.push({
@@ -534,13 +555,14 @@ export function createPaymentJournal(
 /**
  * Generates double-entry posting for an Operating Expense:
  * Dr. Specific Expense Account (Fuel, Maintenance, Wages, etc.) [Amount]
- *   Cr. Cash or Bank Account [Amount]
+ *   Cr. Cash or Bank Account (or 2020 Payable if UNPAID, or 2150 Due to Owner if OWNER_PERSONAL)
  */
 export function createExpenseJournal(
   expense: Expense, 
   accountCode: string = '1010',
   company: Company
 ): JournalEntry {
+  assertPeriodNotClosed(expense.expenseDate, company.closedPeriodBefore);
   const lines: JournalLine[] = [];
   const amount = roundTo2(expense.amount);
   const voucherNo = expense.voucherNo || (expense as any).expenseNo || expense.id;
@@ -588,10 +610,15 @@ export function createExpenseJournal(
   });
 
   const isUnpaid = expense.status === 'UNPAID' || expense.paymentMode === 'UNPAID';
-  const creditCode = isUnpaid ? '2020' : accountCode;
-  const creditName = isUnpaid 
-    ? 'Unpaid Operational Expenses Payable' 
-    : (creditCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)');
+  const isOwnerPersonal = expense.paidByType === 'OWNER_PERSONAL';
+  const creditCode = isOwnerPersonal ? '2150' : isUnpaid ? '2020' : accountCode;
+  const creditName = isOwnerPersonal
+    ? 'Owner Reimbursement Payable (Due to Owner)'
+    : isUnpaid
+      ? 'Unpaid Operational Expenses Payable'
+      : creditCode === '1010'
+        ? 'Cash on Hand'
+        : 'Bank Accounts (Current/OD)';
 
   lines.push({
     id: `jl-${expense.id}-cr-cb`,
@@ -599,7 +626,11 @@ export function createExpenseJournal(
     accountName: creditName,
     debit: 0,
     credit: amount,
-    lineNarration: isUnpaid ? `Unpaid liability to ${paidTo}` : `Paid to ${paidTo}`,
+    lineNarration: isOwnerPersonal
+      ? `Paid personally by owner for ${paidTo}`
+      : isUnpaid
+        ? `Unpaid liability to ${paidTo}`
+        : `Paid to ${paidTo}`,
   });
 
   const entry: JournalEntry = {
@@ -617,6 +648,132 @@ export function createExpenseJournal(
     isPosted: true,
     createdBy: expense.createdBy || 'system',
     createdAt: expense.createdAt || new Date().toISOString(),
+  };
+
+  validateJournalEntry(entry);
+  return entry;
+}
+
+/**
+ * Generates double-entry posting for Cashbook / Capital / Drawings / Owner Loan / Opening entries:
+ * - OWNER_INJECTION / OPENING_BALANCE: Dr. 1010/1020 Cash/Bank | Cr. 3010 Proprietor Capital
+ * - OWNER_DRAWING: Dr. 3030 Owner Drawings | Cr. 1010/1020 Cash/Bank
+ * - OWNER_LOAN_IN: Dr. 1010/1020 Cash/Bank | Cr. 2150 Due to Owner (repayable)
+ * - OWNER_REIMBURSEMENT: Dr. 2150 Due to Owner | Cr. 1010/1020 Cash/Bank
+ * - CUSTOMER_RECEIPT: Dr. 1010/1020 Cash/Bank | Cr. 1100 Sundry Debtors
+ * - SUPPLIER_PAYMENT: Dr. 2010 Sundry Creditors | Cr. 1010/1020 Cash/Bank
+ * - ACCOUNT_ADJUSTMENT: Dr./Cr. 1010/1020 vs 5090 Round-Off / Variance
+ */
+export function createAccountTransactionJournal(
+  tx: {
+    id: string;
+    transactionDate: string;
+    transactionType: string;
+    direction: 'DEBIT' | 'CREDIT';
+    amount: number;
+    referenceNo?: string;
+    description: string;
+    createdBy?: string;
+    createdAt?: string;
+  },
+  accountCode: string = '1010',
+  company: Company
+): JournalEntry {
+  assertPeriodNotClosed(tx.transactionDate, company.closedPeriodBefore);
+  const amount = roundTo2(tx.amount);
+  const cashBankName = accountCode === '1010' ? 'Cash on Hand' : 'Bank Accounts (Current/OD)';
+  const ref = tx.referenceNo || tx.id;
+
+  let counterCode = '5090';
+  let counterName = 'Round-Off & Decimal Variance';
+
+  switch (tx.transactionType) {
+    case 'OWNER_INJECTION':
+    case 'OPENING_BALANCE':
+      counterCode = '3010';
+      counterName = 'Proprietor / Partners Capital';
+      break;
+    case 'OWNER_DRAWING':
+      counterCode = '3030';
+      counterName = 'Owner Drawings';
+      break;
+    case 'OWNER_LOAN_IN':
+    case 'OWNER_REIMBURSEMENT':
+      counterCode = '2150';
+      counterName = 'Owner Reimbursement Payable (Due to Owner)';
+      break;
+    case 'CUSTOMER_RECEIPT':
+      counterCode = '1100';
+      counterName = 'Sundry Debtors (Customers A/R)';
+      break;
+    case 'SUPPLIER_PAYMENT':
+      counterCode = '2010';
+      counterName = 'Sundry Creditors (Suppliers A/P)';
+      break;
+    case 'OPERATING_EXPENSE':
+      counterCode = '5040';
+      counterName = 'Yard Utilities & Maintenance';
+      break;
+    default:
+      counterCode = '5090';
+      counterName = 'Round-Off & Decimal Variance';
+      break;
+  }
+
+  const lines: JournalLine[] =
+    tx.direction === 'DEBIT'
+      ? [
+          {
+            id: `jl-${tx.id}-dr`,
+            accountCode,
+            accountName: cashBankName,
+            debit: amount,
+            credit: 0,
+            lineNarration: tx.description,
+          },
+          {
+            id: `jl-${tx.id}-cr`,
+            accountCode: counterCode,
+            accountName: counterName,
+            debit: 0,
+            credit: amount,
+            lineNarration: tx.description,
+          },
+        ]
+      : [
+          {
+            id: `jl-${tx.id}-dr`,
+            accountCode: counterCode,
+            accountName: counterName,
+            debit: amount,
+            credit: 0,
+            lineNarration: tx.description,
+          },
+          {
+            id: `jl-${tx.id}-cr`,
+            accountCode,
+            accountName: cashBankName,
+            debit: 0,
+            credit: amount,
+            lineNarration: tx.description,
+          },
+        ];
+
+  const entry: JournalEntry = {
+    id: `je-atx-${tx.id}`,
+    companyId: company.id,
+    entryNo: `JV-CF-${ref.replace(/[^A-Za-z0-9]/g, '') || tx.id}`,
+    entryDate: tx.transactionDate,
+    sourceType: tx.transactionType === 'OPENING_BALANCE' ? 'OPENING_BALANCE' : 'MANUAL',
+    sourceId: tx.id,
+    referenceNo: ref,
+    narration: `${tx.transactionType}: ${tx.description}`,
+    lines,
+    totalDebit: amount,
+    totalCredit: amount,
+    isPosted: true,
+    createdBy: tx.createdBy || 'system',
+    createdAt: tx.createdAt || new Date().toISOString(),
   };
 
   validateJournalEntry(entry);
@@ -1866,7 +2023,7 @@ export function generateBalanceSheet(
   }
 
   // 1. Assets (Normal Debit: amount = debit - credit)
-  const assetCodes = ['1010', '1020', '1050', '1100', '1150', '1160', '1170', '1200'];
+  const assetCodes = ['1010', '1020', '1025', '1050', '1060', '1070', '1100', '1150', '1160', '1170', '1200'];
   const assets = assetCodes.map((code) => {
     const coa = STANDARD_CHART_OF_ACCOUNTS.find((a) => a.code === code);
     const amount = roundTo2(accountTotals[code] || 0);
@@ -1876,7 +2033,7 @@ export function generateBalanceSheet(
   const totalAssets = roundTo2(assets.reduce((s, a) => s + a.amount, 0));
 
   // 2. Liabilities (Normal Credit: amount = credit - debit = -accountTotals)
-  const liabCodes = ['2010', '2050', '2060', '2070', '2100'];
+  const liabCodes = ['2010', '2015', '2020', '2050', '2060', '2070', '2100', '2110', '2120', '2150'];
   const liabilities = liabCodes.map((code) => {
     const coa = STANDARD_CHART_OF_ACCOUNTS.find((a) => a.code === code);
     const amount = roundTo2(-(accountTotals[code] || 0));
@@ -1885,8 +2042,8 @@ export function generateBalanceSheet(
 
   const totalLiabilities = roundTo2(liabilities.reduce((s, l) => s + l.amount, 0));
 
-  // 3. Equity
-  const equityCodes = ['3010', '3020'];
+  // 3. Equity (3030 Drawings has normal debit balance so -accountTotals[3030] reduces equity)
+  const equityCodes = ['3010', '3020', '3030'];
   const equity = equityCodes.map((code) => {
     const coa = STANDARD_CHART_OF_ACCOUNTS.find((a) => a.code === code);
     const amount = roundTo2(-(accountTotals[code] || 0));
@@ -1934,7 +2091,7 @@ export interface PartyStatementItem {
 export interface PartyStatementReport {
   partyId: string;
   partyName: string;
-  partyType: 'CUSTOMER' | 'SUPPLIER' | 'BOTH';
+  partyType: Party['partyType'];
   openingBalance: number;
   items: PartyStatementItem[];
   totalDebit: number;

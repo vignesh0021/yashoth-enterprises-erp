@@ -42,4 +42,18 @@
 3. **Migration Risks**:
    - `001_initial_schema.sql#L436-L440` CHECK constraint on `account_transactions.transaction_type` does not include `'ACCOUNT_ADJUSTMENT'` (even though `src/types/index.ts#L432` has it).
    - `001_initial_schema.sql#L164` CHECK constraint on `attendance_entries.status` does not include `'DOUBLE_SHIFT'` (even though `src/types/index.ts#L544` has it).
-   - New tables (`persons`, `vehicle_trips`, `payment_authorizations`) MUST include `company_id UUID NOT NULL REFERENCES companies(id)` and RLS policies using `auth_is_company_member(company_id)` / `auth_has_company_role(...)` matching `007` and `009`, plus `SECURITY DEFINER` RPCs with `SET search_path = public, pg_temp`.
+   - New tables (`persons`, `person_roles`, `vehicle_trips`, `trip_stops`, `payment_authorizations`, `document_attachments`) MUST include `company_id UUID NOT NULL REFERENCES companies(id)` and RLS policies using `auth_is_company_member(company_id)` / `auth_has_company_role(...)` matching `007` and `009`, plus `SECURITY DEFINER` RPCs with `SET search_path = public, pg_temp`.
+
+---
+
+## 4. Target Canonical Person Identity & Vehicle-Trip Architecture
+
+### 4.1 Canonical Person & Role Separation (No Duplicate Person Records)
+- **`persons`** (`id UUID PK`, `company_id`, `full_name`, `phone`, `email`, `pan`, `auth_user_id UUID NULL REFERENCES auth.users(id)`, `is_active`): Single canonical human identity.
+- **`person_roles`** (`id UUID PK`, `company_id`, `person_id FK`, `role_type IN ('OWNER','DRIVER','SUPPLIER','TRANSPORTER','VEHICLE_OWNER','AGENT','EMPLOYEE')`, `UNIQUE (company_id, person_id, role_type)`): One person can hold any combination of roles without implying payroll or liability automatically.
+- **Role-Specific Links**: `parties.person_id`, `employees.person_id` (+ `employees.is_owner`, `employees.payroll_eligible`), `vehicles.owner_party_id`, `vehicles.default_driver_person_id`, `vehicles.is_owner_driven`.
+
+### 4.2 Trip → Stops → Loads → Weighments → Purchases → Expenses → Payments Traceability
+- **`vehicle_trips`**: `id`, `company_id`, `trip_no`, `trip_date`, `vehicle_id FK`, `driver_person_id FK`, `is_owner_driven`, `transporter_party_id FK`, `freight_liability_party_id FK`, `status ('PLANNED'|'IN_TRANSIT'|'COMPLETED'|'CLOSED')`.
+- **`trip_stops`**: `id`, `company_id`, `trip_id FK`, `stop_order INT`, `supplier_party_id FK`, `pickup_location`, `collection_job_id FK NULL`.
+- **Multi-Load Linkage**: `weighments.trip_id` + `weighments.trip_stop_id`, `purchase_headers.trip_id` + `purchase_headers.trip_stop_id`, `expenses.trip_id` — allowing 1 trip to contain N stops, N weighments, N purchases, N expenses, and N payments without forcing `1 trip = 1 purchase`.

@@ -2,64 +2,51 @@
 
 **Repository:** `vignesh0021/yashoth-enterprises-erp`  
 **Branch:** `audit/owner-operator-complete-architecture`  
-**Base Commit:** `0148b7a4a6a1e4a2d2c8272f9c3d3636e8d6f6d9`
+**Base Commit:** `cdf563461d513f9206c39f34651d63a80d1f0b52`
 
 ---
 
-## 1. Verified Supabase Free-Plan Quotas
+## 1. Verified Supabase Free-Plan Quotas & App Restrictions
 
-Per Supabase Free Plan specifications:
-- **Database Size:** `500 MB` per project
-- **File Storage Size:** `1 GB` (`1,024 MB`)
-- **Uncached Egress:** `5 GB / month`
-- **Cached Egress:** `5 GB / month`
-- **Active Projects:** Up to `2` per organization
-- **Inactivity Policy:** Free projects pause after `7 days` of inactivity
-
----
-
-## 2. Storage Growth Assumptions (Transparent Model)
-
-| Asset Class | Format | Assumed Average Size | Notes |
-| :--- | :--- | :---: | :--- |
-| **Receipt Photo (Standard)** | WebP (`1280px` max) | `180 KB` | Fuel, toll, tea/loading thermal receipts (target `100–300 KB`) |
-| **Complex Invoice Photo** | WebP (`1600px` max) | `320 KB` | Multi-line scrap supplier bills (target `200–500 KB`) |
-| **Preview Thumbnail** | WebP (`320px` max) | `15 KB` | Used in list views & expense cards |
-| **Scanned PDF** | Original PDF | `450 KB` | E-Way Bills, GST invoices (assumed 10% of total volume) |
-| **PostgreSQL Metadata Row** | Relational + Index | `~1.2 KB / row` | `document_attachments` + `audit_logs` entry |
-
-*Blended average per photographic receipt (80% standard @ 180 KB + 20% complex @ 320 KB): `208 KB` + `15 KB` thumbnail = **`223 KB` per photo**.*
+| Quota / Limit | Supabase Free-Plan Limit (Official) | Application Restriction (Proposed) | Rationale |
+| :--- | :---: | :---: | :--- |
+| **Max Single File Upload** | **`50 MB`** (cannot be increased on Free tier) | **`5 MB` (`5,242,880` bytes)** per attachment | Prevents raw phone camera photos (5–12 MB) or unoptimized scans from exhausting the 1 GB project cap. |
+| **Total File Storage** | **`1 GB` (`1,024 MiB`)** | Alert at 75% (`768 MiB`); archive >12-month closed years | Protects active operational uploads from hitting hard quota. |
+| **Database Size** | **`500 MB`** | Relational metadata only (`~1.2 KB/row`), zero Base64 blobs | Keeps DB well under 50 MB even at 10,000+ receipts. |
+| **Uncached / Cached Egress** | **`5 GB / mo` + `5 GB / mo`** | Load `~15 KiB` thumbnails in lists; 5-min signed URL cache | Keeps monthly egress under ~400 MiB across 3 devices. |
+| **Active Projects / Pause** | `2` projects; pauses after `7 days` inactivity | N/A | Standard daily ERP sync keeps project active. |
 
 ---
 
-## 3. Storage Estimates (1,000 / 5,000 / 10,000 Receipts)
+## 2. Storage Growth Calculations (Binary Units: `1 MiB = 1,024 KiB`, `1 GiB = 1,024 MiB`)
 
-| Volume Scenario | Receipt Photos (WebP) | Thumbnails (WebP) | PDFs (10% extra count) | Total Object Storage | PostgreSQL Metadata | Free-Tier Status (`1 GB` Storage / `500 MB` DB) |
+| Asset Class | Format | Assumed Average Size |
+| :--- | :--- | :---: |
+| **Standard Receipt Photo** (80% of photos) | WebP (`1280px` max) | `180 KiB` |
+| **Complex Invoice Photo** (20% of photos) | WebP (`1600px` max) | `320 KiB` |
+| **Blended Photo Average** | WebP | `208 KiB` |
+| **Preview Thumbnail** (1 per photo) | WebP (`320px` max) | `15 KiB` |
+| **Scanned PDF** (10% extra volume) | Original PDF | `450 KiB` |
+| **PostgreSQL Metadata + Index** | Relational row | `1.2 KiB / attachment` |
+
+### Volume Scenarios (Exact Binary Math)
+
+| Scenario | Receipt Photos (`208 KiB`) | Thumbnails (`15 KiB`) | PDFs (`450 KiB`) | Total Object Storage | PostgreSQL Metadata | Free-Tier Status (`1,024 MiB` Storage) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| **1,000 Receipts** (+100 PDFs) | `208 MB` | `15 MB` | `45 MB` | **`268 MB`** | `~1.3 MB` | **PASS** (26% of 1 GB Storage; <1% DB) |
-| **5,000 Receipts** (+500 PDFs) | `1,040 MB` | `75 MB` | `225 MB` | **`1,340 MB` (`1.31 GB`)** | `~6.6 MB` | **EXCEEDS 1 GB FREE LIMIT** (+316 MB over) |
-| **10,000 Receipts** (+1,000 PDFs) | `2,080 MB` | `150 MB` | `450 MB` | **`2,680 MB` (`2.62 GB`)** | `~13.2 MB` | **EXCEEDS 1 GB FREE LIMIT** (2.6× Free quota) |
+| **1,000 Receipts** (+100 PDFs) | `203.1 MiB` | `14.6 MiB` | `43.9 MiB` | **`261.7 MiB`** (`0.26 GiB`) | `~1.3 MiB` | **PASS** (25.6% of 1 GiB) |
+| **5,000 Receipts** (+500 PDFs) | `1,015.6 MiB` | `73.2 MiB` | `219.7 MiB` | **`1,308.6 MiB`** (`1.28 GiB`) | `~6.4 MiB` | **EXCEEDS 1 GiB FREE LIMIT** (+284.6 MiB over) |
+| **10,000 Receipts** (+1,000 PDFs) | `2,031.3 MiB` | `146.5 MiB` | `439.5 MiB` | **`2,617.2 MiB`** (`2.56 GiB`) | `~12.9 MiB` | **EXCEEDS 1 GiB FREE LIMIT** (2.56× Free quota) |
 
-### 6-Month & 12-Month Growth Projection (Scrap Yard Baseline: ~350 receipts/month + 35 PDFs/month)
-- **Monthly Object Storage Growth:** `(350 × 223 KB) + (35 × 450 KB)` ≈ **`93.8 MB / month`**
-- **Monthly Database Growth:** Core relational rows (`purchases`, `weighments`, `trips`, `journals`, `attachments` metadata) ≈ **`2.5–4 MB / month`**
-- **6 Months:** `~563 MB` Storage (within 1 GB), `~20 MB` DB (well within 500 MB).
-- **12 Months:** `~1,126 MB` (`1.10 GB`) Storage (**hits 1 GB Free cap around Month 10–11**), `~45 MB` DB.
-- **Monthly Egress Estimate:** Viewing `350` thumbnails (`5.2 MB`) + `150` full previews (`33 MB`) + sync/API queries (`~150 MB`) across 3 devices ≈ **`200–400 MB / month`** (well within `5 GB / month` Free egress, provided thumbnails are used in lists and full images load only on tap).
+### 6-Month & 12-Month Projection (Baseline: 350 receipts/mo + 35 PDFs/mo)
+- **Monthly Object Growth:** `(350 × 223 KiB + 35 × 450 KiB) / 1,024` = **`91.6 MiB / month`**
+- **Monthly DB Growth:** `~3.0 MiB / month` (relational rows + attachment metadata)
+- **6 Months:** `~549.6 MiB` Storage (53.7% of 1 GiB), `~18 MiB` DB.
+- **12 Months:** `~1,099.2 MiB` (`1.07 GiB`) Storage — **crosses 1 GiB Free cap at Month 11** without cold archival or Pro upgrade; `~36 MiB` DB.
+- **Monthly Egress:** `350` list thumbnails (`5.1 MiB`) + `150` full previews (`30.5 MiB`) + API sync (`~150 MiB`) ≈ **`186–350 MiB / month`** (well within `5 GB` Free egress).
 
 ---
 
-## 4. Concrete Optimization Strategy (Zero Audit/Security Compromise)
+## 3. Backup & Restore Consistency for Storage + DB
 
-1. **Database Storage**:
-   - Never store Base64 images in PostgreSQL (`uploaded_documents.fileDataUrl` must NOT be migrated as a DB column).
-   - Store normalized relational tables with `NUMERIC(15,2)`, `DATE`, `TIMESTAMPTZ`, `UUID` — reserve `JSONB` strictly for flexible metadata/audit snapshots.
-   - Avoid duplicate indexes on already-unique columns.
-2. **Object Storage**:
-   - Client-side WebP compression (`100–300 KB` receipts) + SHA-256 deduplication so re-uploading the same photo reuses or skips duplicate storage.
-   - Archive prior closed fiscal-year receipt binaries (>12 months old) to Google Drive / cold backup while keeping PostgreSQL metadata + checksums intact.
-3. **Network Bandwidth (Egress)**:
-   - List/card views load **`_thumb.webp` (~15 KB)** only; full-resolution receipt downloads only on explicit user preview/download tap.
-   - Cache signed URLs client-side within their short TTL (e.g., 5 minutes) during a session.
-4. **Backup Size**:
-   - Database backups (`pg_dump -Fc` / compressed JSON) exclude Storage binaries and reference `storage_path` + `sha256_checksum`, keeping DB backups under `10–25 MB`.
+- **Backup:** `pg_dump -Fc` (metadata) + `attachment_manifest.json` (`id`, `storage_path`, `sha256_checksum`, `file_size_bytes`) + companion object tarball of `erp-receipts/{company_id}/...`.
+- **Restore Verification:** After restoring DB and objects, `fn_reconcile_attachments()` flags DB rows lacking Storage objects as `integrity_status = 'MISSING_OBJECT'` (preserving financial records) and lists unreferenced Storage objects in `orphan_report` for safe grace-period cleanup.

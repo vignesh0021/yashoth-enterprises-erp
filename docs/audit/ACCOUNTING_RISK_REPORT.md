@@ -33,3 +33,18 @@
 3. **Payment Failure & Reversal Guard**:
    - Require `status: 'PENDING' | 'COMPLETED' | 'FAILED' | 'REVERSED'` on `Payment`.
    - `FAILED` or `PENDING` UPI payments must **NOT** reduce `outstandingBalance` on `Invoice`/`PurchaseHeader` and must **NOT** post `AccountTransaction` or `JournalEntry` until marked `COMPLETED`.
+
+---
+
+## 4. Target Double-Entry Journal Posting Matrix
+
+| Transaction Scenario | Debit (Dr.) | Credit (Cr.) | Accounting Invariant |
+| :--- | :--- | :--- | :--- |
+| **Owner Capital Injection (`OWNER_INJECTION`)** | `1010/1020` Cash/Bank | `3010` Proprietor Capital | Never touches `4xxx` Revenue |
+| **Owner Drawing (`OWNER_DRAWING`)** | `3030` Owner Drawings | `1010/1020` Cash/Bank | Never touches `5xxx` P&L Expenses |
+| **Owner-Paid Fuel/Toll (`OWNER_PERSONAL`)** | `5060`/`5030` Fuel/Freight | `2150` Due to Owner | Company `1010/1020` untouched |
+| **Owner Reimbursement Settlement** | `2150` Due to Owner | `1010/1020` Cash/Bank | Clears owner payable; no double expense |
+| **Scrap Purchase (with/without freight)** | `5010` Purchases + `1150/60/70` ITC + (`5030` only if not on trip) | `2010` Sundry Creditors (`supplierPartyId`) | `5030` blocked if trip already carries freight |
+| **Outsourced Transporter Hire Bill** | `5030` Freight & Haulage | `2015` Transporter Payable (`transporterPartyId`) | Separate from `2010` Scrap Supplier AP |
+| **Authorized Payment to Driver/Owner on Behalf of Supplier/Transporter** | `2010` or `2015` (`beneficiaryPartyId`) | `1010/1020` Cash/Bank | Settles `beneficiaryPartyId`; `recipient` + `authorizationId` logged |
+| **Failed / Pending UPI Payment** | *None* | *None* | `status IN ('FAILED','PENDING')` never settles AP/AR |

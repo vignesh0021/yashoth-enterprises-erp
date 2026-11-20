@@ -46,7 +46,21 @@
 
 ---
 
-## 3. Backup & Restore Consistency for Storage + DB
+## 3. Complete Repeatable Backup & Restore Drill (PostgreSQL + Storage)
 
-- **Backup:** `pg_dump -Fc` (metadata) + `attachment_manifest.json` (`id`, `storage_path`, `sha256_checksum`, `file_size_bytes`) + companion object tarball of `erp-receipts/{company_id}/...`.
-- **Restore Verification:** After restoring DB and objects, `fn_reconcile_attachments()` flags DB rows lacking Storage objects as `integrity_status = 'MISSING_OBJECT'` (preserving financial records) and lists unreferenced Storage objects in `orphan_report` for safe grace-period cleanup.
+### Backup Artifact Bundle
+1. **PostgreSQL Dump**: `pg_dump -Fc --no-owner --no-acl` (includes `companies`, `document_attachments`, financial tables, and RLS policies).
+2. **Attachment Manifest (`attachment_manifest.json`)**: Exported from `document_attachments` (`WHERE upload_status = 'COMMITTED' AND deleted_at IS NULL`) containing `{ id, company_id, parent_entity_type, parent_entity_id, storage_bucket, storage_path, thumbnail_path, sha256_checksum, file_size_bytes, mime_type }`.
+3. **Storage Object Archive**: Companion compressed archive of `erp-receipts/{company_id}/...` downloaded via server-side `service_role`.
+
+### Repeatable Restore Drill Steps
+1. **Step 1 — Restore PostgreSQL**: Restore `pg_dump -Fc` into a clean target PostgreSQL/Supabase instance and verify schema, triggers (`trg_validate_attachment_parent`), and RLS policies are active.
+2. **Step 2 — Restore Storage Objects**: Upload objects from the Storage archive to `erp-receipts` at their exact `storage_path` / `thumbnail_path` keys.
+3. **Step 3 — Per-Object SHA-256 Verification**: For every `COMMITTED` row in `attachment_manifest.json` / `document_attachments`:
+   - Fetch object metadata and compute/compare SHA-256 of the restored Storage object against `document_attachments.sha256_checksum`.
+   - Any checksum mismatch is flagged as `CORRUPTED_OBJECT` in the drill report and quarantined for manual re-upload.
+4. **Step 4 — Missing & Orphaned Object Report**:
+   - **Missing Objects**: DB `COMMITTED` rows with no object in `erp-receipts` are updated to `integrity_status = 'MISSING_OBJECT'` via `fn_reconcile_attachments()`.
+   - **Orphaned Objects**: Objects in `erp-receipts` with no matching `COMMITTED` or `< 24h` `PENDING_UPLOAD` row in `document_attachments` are emitted in `orphan_report.json` (purged only after grace period / admin sign-off).
+5. **Step 5 — Post-Restore Company Isolation Verification**: Execute authenticated test queries as Company A user against Company B `document_attachments` rows and `{company_b_id}/...` signed URLs; confirm `0` rows returned and `403`/denied on Storage access.
+6. **Step 6 — Financial Record Preservation Guarantee**: Confirm that even when `integrity_status = 'MISSING_OBJECT'` is flagged on attachments, all `purchase_headers`, `expenses`, `invoices`, `payments`, and `journal_entries` remain 100% intact and balanced; UI displays a non-destructive "Receipt binary missing — re-upload" prompt.

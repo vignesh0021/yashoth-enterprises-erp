@@ -36,11 +36,15 @@
 14. **Duplicate Journal Prevention**: Re-submitting `postPurchase` / `recordPayment` / `recordExpense` for the same `(sourceType, sourceId)` is idempotent / rejected; SQL `uq_journal_active_source` rejects duplicate DB inserts.
 
 ### C. Receipt & Attachment Lifecycle (`tests/receipt_attachments.test.ts` + Mobile/Staging)
-15. **Camera Capture & Gallery Upload**: Capturing photo via camera or selecting from gallery produces valid compressed WebP/JPEG attachment.
+15. **Camera Capture & Gallery Upload**: Capturing photo via camera or selecting from gallery produces valid compressed WebP/JPEG attachment (`PENDING_UPLOAD` -> `COMMITTED`).
 16. **Multiple Photos & PDF Upload**: Attaching 3+ photos to one expense/bill and uploading original PDF (`application/pdf`) succeed; financial balances remain unchanged.
 17. **Compression Readability**: Compressed receipt (`100–300 KB`) / invoice (`200–500 KB`) preserves readable dimensions (`>= 1000px` long edge for invoices).
-18. **Duplicate Detection**: Re-uploading identical file (`sha256_checksum` match for same parent) is detected and deduplicated.
-19. **Interrupted Upload & Retry / Partial Failure**: Metadata-without-object (`UPLOAD_FAILED`) retries cleanly; object-without-metadata recovers or cleans up orphan.
-20. **Attachment Replacement & Posted Retention**: Replacing attachment creates versioned row (`replaced_attachment_id`) + `audit_logs`; deleting attachment on `POSTED` bill / `PAID` expense is rejected.
-21. **Cross-Company Storage & DB RLS Denial**: Company A user cannot read Company B `document_attachments` or generate/fetch signed URLs for `{company_b_id}/...` paths.
-22. **Backup/Restore & Android Low-Storage Handling**: Legacy backups without new fields restore cleanly; low-storage / camera permission denial falls back gracefully with clear user message.
+18. **Duplicate Detection**: Re-uploading identical file (`sha256_checksum` match for same parent) is detected and deduplicated (`COMMITTED` row returned; upload skipped).
+19. **5-State Machine Transitions & Recovery**:
+    - Storage upload failure transitions `PENDING_UPLOAD` -> `UPLOAD_FAILED`; retry reuses same `attachment_id` & `storage_path` and resets to `PENDING_UPLOAD`.
+    - Invalid magic bytes or `> 5 MB` payload transitions to `REJECTED` and deletes Storage object.
+    - Unfinished `PENDING_UPLOAD` / `UPLOAD_FAILED` rows `> 24h` transition to `EXPIRED` and partial Storage objects are purged.
+20. **Polymorphic Parent Validation (`VEHICLE_DOC` & Cross-Company)**: `trg_validate_attachment_parent` accepts `VEHICLE_DOC` only when `vehicle_documents.vehicle_id` belongs to `vehicles.company_id = NEW.company_id`, and rejects cross-company or nonexistent parent IDs.
+21. **Attachment Replacement & Concurrent Financial Lock**: Replacing attachment creates versioned row (`replaced_attachment_id`) + `audit_logs`; deleting attachment on `POSTED` purchase, `PAID`/`REVERSED` expense, `PAID`/`PARTIALLY_PAID` invoice, `SETTLED` trip, or `USED` payment authorization is rejected, and `FOR UPDATE` serializes concurrent posting vs deletion.
+22. **Cross-Company & Role Storage/DB RLS Denial**: Company A user cannot read Company B `document_attachments` or `storage.objects` (`{company_b_id}/...`); `viewer`/`driver` roles are denied `INSERT`/`DELETE`; `PENDING_UPLOAD` row is readable by own-company uploader during `storage.objects` `INSERT` check.
+23. **Backup/Restore Drill & Android Low-Storage Handling**: Complete restore drill restores PostgreSQL + Storage objects, verifies SHA-256 per object, reports missing/orphaned objects, verifies post-restore `company_id` RLS isolation, and preserves financial records when binaries are missing (`MISSING_OBJECT`). Legacy backups without new fields restore cleanly; low-storage/camera permission denial falls back gracefully.

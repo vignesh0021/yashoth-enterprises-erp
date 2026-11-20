@@ -700,10 +700,18 @@ function mergeByIdNonDestructive<T extends { id?: string }>(
   incoming: T[] = [],
   preventOverwrite: boolean
 ): T[] {
-  if (!preventOverwrite) return incoming;
-  const seen = new Set(existing.map((x) => x.id).filter(Boolean));
-  const additions = incoming.filter((x) => !x.id || !seen.has(x.id));
-  return [...existing, ...additions];
+  const seen = new Set<string>(
+    preventOverwrite ? (existing.map((x) => x.id).filter((id): id is string => typeof id === 'string')) : []
+  );
+  const dedupedIncoming: T[] = [];
+  for (const item of incoming) {
+    if (typeof item.id === 'string') {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+    }
+    dedupedIncoming.push(item);
+  }
+  return preventOverwrite ? [...existing, ...dedupedIncoming] : dedupedIncoming;
 }
 
 export function executeRestore(
@@ -712,7 +720,13 @@ export function executeRestore(
   options: ExecuteRestoreOptions
 ): { restoredState: BackupDatabasePayload; restoreLog: RestoreLog } {
   const { backupId, preRestoreBackupId, restoreMode, actor, companyId, preventOverwrite = false } = options;
-  const backupData = migrateBackupPayload(backupArchive.data || {}, backupArchive.manifest?.version || '1.0.0');
+  const schemaVersion = backupArchive.manifest?.version;
+  if (!schemaVersion || !SUPPORTED_SCHEMA_VERSIONS.includes(schemaVersion)) {
+    throw new Error(
+      `Incompatible backup schema version "${schemaVersion || 'UNKNOWN'}". Supported versions: ${SUPPORTED_SCHEMA_VERSIONS.join(', ')}.`
+    );
+  }
+  const backupData = migrateBackupPayload(backupArchive.data || {}, schemaVersion);
 
   let restoredState: BackupDatabasePayload;
   let recordsRestored: Record<string, number> = {};
@@ -721,9 +735,8 @@ export function executeRestore(
     const mergeOrReplace = <T extends { id?: string }>(cur: T[] | undefined, inc: T[] | undefined): T[] =>
       mergeByIdNonDestructive(cur || [], inc || [], preventOverwrite);
     const optMerge = <T extends { id?: string }>(cur: T[] | undefined, inc: T[] | undefined): T[] | undefined => {
-      if (!preventOverwrite) return inc;
       if (cur === undefined && inc === undefined) return undefined;
-      return mergeByIdNonDestructive(cur || [], inc || [], true);
+      return mergeByIdNonDestructive(cur || [], inc || [], preventOverwrite);
     };
 
     restoredState = {
@@ -927,6 +940,55 @@ export function verifyRestoreReconciliation(
     sourceFinancialTotals,
     restoredFinancialTotals,
     financialDiffs,
+  };
+}
+
+/**
+ * Verifies real attachment binaries (SHA-256 of embedded fileDataUrl) and external Storage references
+ * against manifest.attachmentChecksums.
+ */
+export async function verifyBackupAttachmentBinaries(backupArchive: BackupArchive): Promise<{
+  totalChecked: number;
+  verifiedCount: number;
+  checksumMismatches: string[];
+  missingReferences: string[];
+}> {
+  const checksums = backupArchive.manifest?.attachmentChecksums || {};
+  const data = backupArchive.data || {};
+  const checksumMismatches: string[] = [];
+  const missingReferences: string[] = [];
+  let totalChecked = 0;
+
+  for (const doc of data.uploadedDocuments || []) {
+    totalChecked++;
+    if (!doc.fileDataUrl) {
+      missingReferences.push(`updoc:${doc.id}`);
+      continue;
+    }
+    const actualSha = await calculateSHA256(doc.fileDataUrl);
+    const expectedSha = checksums[`updoc:${doc.id}`];
+    if (expectedSha && actualSha !== expectedSha) {
+      checksumMismatches.push(`updoc:${doc.id}`);
+    }
+  }
+
+  for (const att of data.documentAttachments || []) {
+    totalChecked++;
+    if (!att.storagePath || !/^[0-9a-f]{64}$/i.test(att.sha256Checksum || '')) {
+      missingReferences.push(`att:${att.id}`);
+      continue;
+    }
+    const expectedSha = checksums[`att:${att.id}`];
+    if (expectedSha && expectedSha !== att.sha256Checksum) {
+      checksumMismatches.push(`att:${att.id}`);
+    }
+  }
+
+  return {
+    totalChecked,
+    verifiedCount: Math.max(0, totalChecked - checksumMismatches.length - missingReferences.length),
+    checksumMismatches,
+    missingReferences,
   };
 }
 

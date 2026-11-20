@@ -1,32 +1,33 @@
-# RECONCILIATION, BACKUP COMPATIBILITY & TEST REPORT
+# RECONCILIATION, BACKUP COMPATIBILITY & PRODUCTION-READINESS GATE REPORT
 
 **Branch:** `audit/owner-operator-complete-architecture`  
-**Verification Date:** `2026-11-20`
+**Verification Date:** `2026-11-20`  
+**Final Gate Status:** **`STAGING READY`**
 
 ---
 
-## 1. Exact Commands Executed & Observed Results
+## 1. Exact Commands Executed & Observed Evidence
 
-| Check | Command | Result | Scope / Counts |
+| Gate Check | Command | Result | Observed Output |
 | :--- | :--- | :---: | :--- |
-| **TypeScript Type-Check** | `pnpm typecheck` (`tsc --noEmit`) | **PASS** | `0` errors across entire codebase |
-| **Full Vitest Suite** | `pnpm test:vitest` (`vitest run`) | **PASS** | **31 / 31** test files passed; **324 / 324** tests passed (`0` failed, `0` skipped) |
-| **Production Build** | `pnpm build` (`tsc && vite build`) | **PASS** | `2171` modules transformed; built in `15.43s` (`dist/index.html`, `dist/assets/index-*.js`) |
+| **TypeScript Type-Check** | `pnpm typecheck` (`tsc --noEmit`) | **PASS** | `0` errors |
+| **Full Vitest Suite** | `pnpm test:vitest` (`vitest run`) | **PASS** | **31 / 31** test files passed; **327 / 327** tests passed (`0` failed, `0` skipped) |
+| **Production Build** | `pnpm build` (`tsc && vite build`) | **PASS** | `2171` modules transformed; built in `18.04s` (`dist/index.html`, `dist/assets/index-*.js`) |
+| **Live Staging CLI / APK Tools** | `which psql adb supabase` | **NOT AVAILABLE** | `missing-live-tools` in current Termux workspace |
 
 ---
 
-## 2. Backup & Restore Compatibility Matrix (`1.0.0` -> `2.0.0`)
+## 2. Backup & Restore Gate Hardening Verified (`327/327`)
 
-Verified in `tests/backup_backward_compatibility_and_reconciliation.test.ts` (3/3 passed) and `tests/phase8_master_verification.test.ts` (9/9 passed):
+- **Duplicate-ID Deduplication Across All Collections:** `mergeByIdNonDestructive` deduplicates incoming records by `id` even when `preventOverwrite: false` and preserves newer local records when `preventOverwrite: true` (verified in `tests/backup_backward_compatibility_and_reconciliation.test.ts` #4).
+- **Unsupported Schema Rejection During Restore:** `executeRestore` and `executeRestoreWithRollback` explicitly reject missing or unsupported `manifest.version` (e.g. `9.9.0`) and return `rolledBack: true, status: 'ROLLED_BACK'` (verified in test #5).
+- **Real Attachment Binary SHA-256 Verification:** `verifyBackupAttachmentBinaries` computes SHA-256 on embedded `uploadedDocuments[].fileDataUrl` and checks `documentAttachments` storage paths & 64-hex checksums against `manifest.attachmentChecksums`, flagging tampered payloads (verified in test #6).
+- **1.0.0 -> 2.0.0 Backward Compatibility & Rollback:** Verified `migrateBackupPayload`, `verifyRestoreReconciliation` (`isExactMatch === true`, `financialDiffs === 0`), and automatic rollback on unbalanced journals (tests #1–#3).
 
-| Data Category | Legacy `1.0.0` Support | Restored `2.0.0` Behaviour | Missing / Mismatch |
-| :--- | :---: | :--- | :---: |
-| `companies`, `companySettings`, `yards` | **Yes** | Preserved with exact `id` and `companyId` | `0` |
-| `materials`, `materialGrades`, `parties`, `vehicles`, `vehicleDocuments` | **Yes** | Preserved; `vehicles.isOwnerDriven` defaults to `false` | `0` |
-| `accounts`, `accountTransactions`, `expenses`, `payments`, `journalEntries` | **Yes** | Exact totals; `expenses.paidByType` -> `'COMPANY'`, `payments.status` -> `'COMPLETED'` | `0` |
-| `weighments`, `collectionJobs`, `purchases`, `inventoryLots`, `stockMovements`, `sales`, `invoices` | **Yes** | Preserved with all voucher numbers & FK IDs intact | `0` |
-| `salaryRecords`, `employeeAdvances`, `dailyLabourEntries`, `labourPayments`, `contractors`, `contractorWorkEntries`, `contractorPayments`, `dailyCashClosings` | **Yes** | Previously dropped in `executeRestore` — **now 100% preserved** | `0` |
-| `persons`, `personRoles`, `vehicleTrips`, `tripStops`, `paymentAuthorizations`, `documentAttachments`, `uploadedDocuments` | **Yes** | Preserved with `attachmentChecksums` SHA-256 verification | `0` |
+---
 
-- **Duplicate Prevention & Rollback:** Verified `preventOverwrite: true` skips duplicate IDs, `generateRestorePreview` reports `conflicts` & `attachmentVerification`, and `executeRestoreWithRollback` rolls back to `currentState` (`status: 'ROLLED_BACK'`) on unbalanced journals.
-- **Note on Live Production Backup:** No live production backup file was present on disk in this workspace; testing against an actual export from the currently installed production app in staging is listed as a mandatory pre-production gate in `IMPLEMENTATION_REPORT.md`.
+## 3. Incomplete Live Gates (Why Status is `STAGING READY`, Not `PRODUCTION READY`)
+
+1. **Installed Production APK Backup Export:** Not executed (no `adb` / installed APK backup file present in this workspace).
+2. **Clean Staging Restore & Live Reconciliation:** Not executed against a live Supabase staging database (`psql` / `supabase` CLI unavailable here).
+3. **Live Execution of Migrations `012`/`013` & Edge Function:** Authored and structurally tested, but not yet applied to a live staging Supabase project.

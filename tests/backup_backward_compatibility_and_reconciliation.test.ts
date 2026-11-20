@@ -4,8 +4,10 @@ import {
   SUPPORTED_SCHEMA_VERSIONS,
   generateBackup,
   generateRestorePreview,
+  executeRestore,
   executeRestoreWithRollback,
   verifyRestoreReconciliation,
+  verifyBackupAttachmentBinaries,
 } from '../backend/business-rules/backupEngine.ts';
 import type { BackupArchive, BackupDatabasePayload } from '../src/types/index.ts';
 
@@ -288,5 +290,128 @@ describe('Full Backward-Compatible Backup & Restore Verification', () => {
     expect(res.rolledBack).toBe(true);
     expect(res.restoreLog.status).toBe('ROLLED_BACK');
     expect(res.restoredState.journalEntries).toHaveLength(0);
+  });
+
+  it('deduplicates duplicate IDs inside incoming payload and across repeated restores without overwriting newer data', () => {
+    const newerLocalExpense = {
+      id: 'exp-1',
+      companyId: 'comp-1',
+      voucherNo: 'EXP-NEWER',
+      expenseDate: '2026-10-10',
+      category: 'Office Expenses',
+      amount: 999,
+      accountId: 'acc-1',
+      paymentMode: 'CASH' as const,
+      status: 'PAID' as const,
+      paidTo: 'Newer Vendor',
+      createdBy: 'Admin',
+      createdAt: '2026-10-10T10:00:00Z',
+    };
+    const duplicateArchive: BackupArchive = {
+      manifest: {
+        version: '2.0.0',
+        generatedAt: '2026-10-05T10:00:00Z',
+        type: 'FULL_DATABASE',
+        sha256: 'dup',
+        recordCounts: { expenses: 2 },
+        financialTotals: {},
+        appVersion: '2.0.0',
+        actor: 'Admin',
+      },
+      data: {
+        expenses: [
+          { ...newerLocalExpense, amount: 100, paidTo: 'Older Duplicate 1' },
+          { ...newerLocalExpense, amount: 200, paidTo: 'Older Duplicate 2' },
+        ],
+      },
+    };
+
+    const res = executeRestore(duplicateArchive, { expenses: [newerLocalExpense] }, {
+      backupId: 'dup',
+      preRestoreBackupId: 'snap-4',
+      restoreMode: 'FULL',
+      actor: 'Admin',
+      preventOverwrite: true,
+    });
+    expect(res.restoredState.expenses).toHaveLength(1);
+    expect(res.restoredState.expenses?.[0].amount).toBe(999);
+    expect(res.restoredState.expenses?.[0].paidTo).toBe('Newer Vendor');
+
+    const replaceRes = executeRestore(duplicateArchive, {}, {
+      backupId: 'dup',
+      preRestoreBackupId: 'snap-5',
+      restoreMode: 'FULL',
+      actor: 'Admin',
+      preventOverwrite: false,
+    });
+    expect(replaceRes.restoredState.expenses).toHaveLength(1);
+    expect(replaceRes.restoredState.expenses?.[0].amount).toBe(100);
+  });
+
+  it('rejects unsupported backup schema versions during actual restore execution and rolls back cleanly', () => {
+    const unsupportedArchive: BackupArchive = {
+      manifest: {
+        version: '9.9.0',
+        generatedAt: '2026-10-05T10:00:00Z',
+        type: 'FULL_DATABASE',
+        sha256: 'bad-ver',
+        recordCounts: {},
+        financialTotals: {},
+        appVersion: '9.9.0',
+        actor: 'Admin',
+      },
+      data: {},
+    };
+
+    expect(() =>
+      executeRestore(unsupportedArchive, {}, {
+        backupId: 'bad-ver',
+        preRestoreBackupId: 'snap-6',
+        restoreMode: 'FULL',
+        actor: 'Admin',
+      })
+    ).toThrow(/Incompatible backup schema version/);
+
+    const rb = executeRestoreWithRollback(unsupportedArchive, { expenses: [] }, {
+      backupId: 'bad-ver',
+      preRestoreBackupId: 'snap-6',
+      restoreMode: 'FULL',
+      actor: 'Admin',
+    });
+    expect(rb.rolledBack).toBe(true);
+    expect(rb.restoreLog.status).toBe('ROLLED_BACK');
+  });
+
+  it('verifies real attachment binaries (SHA-256) and catches tampered data URLs', async () => {
+    const payload: BackupDatabasePayload = {
+      uploadedDocuments: [
+        {
+          id: 'doc-real-1',
+          companyId: 'comp-1',
+          category: 'VEHICLE_DOC',
+          referenceNo: 'RC-TN04-1',
+          title: 'Truck RC',
+          documentDate: '2026-10-05',
+          fileName: 'diesel.webp',
+          fileType: 'image/webp',
+          fileSize: 24,
+          fileDataUrl: 'data:image/webp;base64,UklGRh4AAABXRUJQVlA4',
+          createdAt: '2026-10-05T10:00:00Z',
+        },
+      ],
+    };
+
+    const generated = await generateBackup(payload, { actor: 'Admin' });
+    const archive = generated.archive as BackupArchive;
+    const ok = await verifyBackupAttachmentBinaries(archive);
+    expect(ok.totalChecked).toBe(1);
+    expect(ok.verifiedCount).toBe(1);
+    expect(ok.checksumMismatches).toHaveLength(0);
+
+    // Tamper with embedded binary
+    archive.data.uploadedDocuments![0].fileDataUrl = 'data:image/webp;base64,TAMPERED';
+    const tampered = await verifyBackupAttachmentBinaries(archive);
+    expect(tampered.verifiedCount).toBe(0);
+    expect(tampered.checksumMismatches).toEqual(['updoc:doc-real-1']);
   });
 });

@@ -1,43 +1,30 @@
-# FINANCE IMPLEMENTATION REPORT — YASHOTH ENTERPRISES ERP
+# FINANCE & BACKUP IMPLEMENTATION REPORT — YASHOTH ENTERPRISES ERP
 
 **Repository:** `vignesh0021/yashoth-enterprises-erp`  
 **Branch:** `audit/owner-operator-complete-architecture`  
-**Starting HEAD:** `06ff091e6829518ba24b7dec9275adc4f61292a0`  
-**Final Status:** **`STAGING READY`** *(Production Ready requires executing migrations `012` & `013`, deploying `verify-and-commit-attachment`, running the live production ₹27,000 pre-flight SQL check, and completing the staging restore drill).*
+**Verified Base:** `15b05176326846e2519b6118d8984ff7c429f109`  
+**Final Status:** **`STAGING READY`** *(NOT yet `PRODUCTION READY`: `supabase` CLI is not installed in this Termux environment, and migrations `012`/`013`, Edge Function `verify-and-commit-attachment`, live ₹27,000 SQL pre-flight check, and live staging restore drill remain to be executed against a live Supabase project).*
 
 ---
 
-## 1. Summary of Implemented Changes
+## 1. Post-Implementation Verification & Defect Fixes Applied
 
-### Changed / Created Source & Database Files
-1. **`src/types/index.ts`**:
-   - Added `closedPeriodBefore` on `CompanySettings`, `'TRANSPORTER'` on `PartyType`, `PaymentStatus` (`'PENDING' | 'COMPLETED' | 'FAILED' | 'REVERSED'`), `beneficiaryPartyId` / `recipientPersonId` / `authorizationId` / `idempotencyKey` on `Payment`.
-   - Added `paidByType` (`'COMPANY' | 'OWNER_PERSONAL'`), `tripId`, `accountTransactionId`, `journalEntryId`, `idempotencyKey` on `Expense` and `AccountTransaction` (`OWNER_LOAN_IN`, `OWNER_REIMBURSEMENT`, `externalTxRef`).
-   - Added canonical owner-operator & attachment types: `Person`, `PersonRole`, `VehicleTrip`, `TripStop`, `PaymentAuthorization`, `DocumentAttachment`, `BankImportRecord`, `BankImportAdapter`.
-2. **`backend/business-rules/accountingEngine.ts`**:
-   - Added COA codes `1025` (UPI Clearing), `2015` (Transporter & Freight Payable), `2150` (Owner Reimbursement Payable), `3030` (Owner Drawings) to `STANDARD_CHART_OF_ACCOUNTS` and `generateBalanceSheet`.
-   - Added `assertPeriodNotClosed`, `createAccountTransactionJournal`, `OWNER_PERSONAL` (`2150`) support in `createExpenseJournal`, and `status !== 'COMPLETED'` + `TRANSPORTER` (`2015`) support in `createPaymentJournal`.
-3. **`backend/business-rules/financeEngine.ts`**:
-   - Blocked `isActive === false` accounts in `validateCashBankTransaction` and `postPaymentVoucher`.
-   - Blocked non-`COMPLETED` (failed/pending/reversed) UPI payments from settling invoices/purchases in `postPaymentVoucher`.
-   - Added `computeCashBookSummary`, `assertNoDuplicateTripFreight`, and `isOwnerPayrollExcluded`.
-4. **`database/migrations/012_finance_hardening_and_owner_operator.sql`**:
-   - Additive migration adding `1025`, `2015`, `2150`, `3030`, `uq_journal_active_source`, `idempotency_key` indexes, `closed_period_before`, `persons`, `person_roles`, `vehicle_trips`, `trip_stops`, `payment_authorizations`, RLS policies, `fn_assert_period_open`, `fn_post_account_transaction_atomic`, and `fn_post_expense_atomic`.
-5. **`database/migrations/013_receipt_attachments_and_storage_rls.sql`** & **`supabase/functions/verify-and-commit-attachment/index.ts`**:
-   - `document_attachments` table with 5-state machine (`PENDING_UPLOAD`, `UPLOAD_FAILED`, `COMMITTED`, `REJECTED`, `EXPIRED`), `fn_validate_attachment_parent` (joining `vehicle_documents -> vehicles`), `fn_is_parent_financial_locked` (`FOR UPDATE`), `storage.objects` RLS on private `erp-receipts` bucket, and server-side Edge Function magic-byte + `<= 5 MB` verification.
-6. **`src/services/attachmentService.ts`, `src/services/databaseRepository.ts`, `src/services/googleDriveService.ts`**:
-   - Client 3-step idempotent attachment upload service + `csvBankImportAdapter` for future bank imports.
-   - Atomic RPC wrappers (`postAccountTransactionAtomic`, `postExpenseAtomic`, `reserveDocumentAttachment`, `markAttachmentUploadFailed`).
-   - Fixed `URL.createObjectURL` guard in `googleDriveService.downloadBackupLocally`.
-7. **`src/context/ERPContext.tsx` & `src/modules/finance/FinanceView.tsx`**:
-   - `addAccountTransaction` now validates active accounts, posts `JournalEntry`, and syncs via `postAccountTransactionAtomic`.
-   - `deleteExpense` blocks hard-deletion of `PAID`/`REVERSED` expenses; `updateAccountTransaction`/`deleteAccountTransaction` block editing/deleting journal-linked cashflow rows.
-   - `FinanceView.tsx` filters inactive accounts out of payment/cashflow dropdowns, enforces Daily Expenses Register as single manual expense-entry point, and renders the **Cash Book Reconciliation Card** (Daily / Mon–Sun Weekly / Monthly + WhatsApp PNG & Print/PDF).
-8. **`tests/finance_hardening_and_owner_operator.test.ts`**:
-   - Added 8 comprehensive test suites covering all mandatory finance, owner-operator, and attachment invariants.
+1. **Cash Book `009` Salary / Labour / Contractor Separation (`backend/business-rules/financeEngine.ts`)**:
+   - Post-verification revealed `009_finance_atomic_and_advance_integrity.sql` inserts salary, daily labour, and contractor payouts into `account_transactions` with `transaction_type = 'OPERATING_EXPENSE'`.
+   - Fixed [`computeCashBookSummary`](file:///data/user/0/com.termux/files/home/YE/backend/business-rules/financeEngine.ts#L1044-L1139) to route `Salary Disbursement`, `Daily Labour`, `Contractor`, and `Employee Advance` descriptions into `salaryLabourContractorPayments` instead of `paidExpenses`.
+2. **Atomic Unpaid Expense Settlement & Reversal (`012`, `databaseRepository.ts`, `ERPContext.tsx`)**:
+   - Added [`fn_pay_unpaid_expense_atomic`](file:///data/user/0/com.termux/files/home/YE/database/migrations/012_finance_hardening_and_owner_operator.sql#L435-L505) (`FOR UPDATE` row lock, double-settlement block, `2020 -> 1010/1020` clearing) and [`fn_reverse_expense_atomic`](file:///data/user/0/com.termux/files/home/YE/database/migrations/012_finance_hardening_and_owner_operator.sql#L508-L577) (`FOR UPDATE`, refund `account_transactions`, balanced reversing journals).
+   - Wired `payUnpaidExpenseAtomic` and `reverseExpenseAtomic` into `databaseRepository.ts` and `ERPContext.tsx`.
+3. **Full Backward-Compatible Backup & Restore (`backend/business-rules/backupEngine.ts`, `src/types/index.ts`, `ERPContext.tsx`)**:
+   - Bumped `CURRENT_SCHEMA_VERSION` to `'2.0.0'` while preserving `'1.0.0'` and `'1.1.0'` in `SUPPORTED_SCHEMA_VERSIONS`.
+   - Added [`migrateBackupPayload`](file:///data/user/0/com.termux/files/home/YE/backend/business-rules/backupEngine.ts#L35-L62) to upgrade legacy `1.0.0` backups cleanly without losing primary keys, foreign keys, `companyId`, `voucherNo`, or financial totals.
+   - Updated `filterDatabaseForCompany` and `executeRestore` (`FULL` & `COMPANY_SCOPED`) to preserve all extended collections (`dailyTasks`, `workNotes`, `uploadedDocuments`, `salaryRecords`, `employeeAdvances`, `dailyLabourEntries`, `labourPayments`, `contractors`, `contractorWorkEntries`, `contractorPayments`, `dailyCashClosings`, `persons`, `personRoles`, `vehicleTrips`, `tripStops`, `paymentAuthorizations`, `documentAttachments`) with exact key parity.
+   - Added `attachmentChecksums` in `BackupManifest`, conflict detection + `attachmentVerification` in `generateRestorePreview`, non-destructive `preventOverwrite` merge by `id`, [`executeRestoreWithRollback`](file:///data/user/0/com.termux/files/home/YE/backend/business-rules/backupEngine.ts#L789-L824), and [`verifyRestoreReconciliation`](file:///data/user/0/com.termux/files/home/YE/backend/business-rules/backupEngine.ts#L829-L867).
 
 ---
 
-## 2. Known Defects / Remaining Staging Gates
-- **₹27,000 Entry Not Auto-Posted:** Per safety rules, the ₹27,000 entry was **not** posted and production balances were **not** altered. Confirm non-repayable (`3010`) vs. repayable (`2150`) and run the pre-flight SQL check before posting once.
-- **Live Supabase Execution:** Migrations `012` & `013` and Edge Function `verify-and-commit-attachment` must be deployed and tested in staging before production cutover.
+## 2. Remaining Blockers Before `PRODUCTION READY`
+
+1. **Live Supabase Staging Execution:** Install/run `supabase` CLI (or Supabase SQL Editor) on a staging instance to apply `012_finance_hardening_and_owner_operator.sql` and `013_receipt_attachments_and_storage_rls.sql`, deploy `verify-and-commit-attachment`, and run the live Storage RLS + restore drill.
+2. **Production ₹27,000 Pre-Flight Check:** Run read-only SQL check on production `account_transactions` / `journal_entries` and obtain owner confirmation (`3010` non-repayable Capital vs. `2150` repayable) before posting once via `fn_post_account_transaction_atomic`.
+3. **Installed-App Backup Verification:** Generate an actual JSON/encrypted backup from the currently installed production build and execute `previewRestore` + `executeRestoreWithRollback` in staging against live production-exported records.

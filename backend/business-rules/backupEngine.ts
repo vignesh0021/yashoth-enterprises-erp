@@ -25,8 +25,57 @@ import type {
   RestorePreviewResult,
 } from '../../src/types/index.ts';
 
-export const CURRENT_SCHEMA_VERSION = '1.0.0';
-export const SUPPORTED_SCHEMA_VERSIONS = ['1.0.0'];
+export const CURRENT_SCHEMA_VERSION = '2.0.0';
+export const SUPPORTED_SCHEMA_VERSIONS = ['1.0.0', '1.1.0', '2.0.0'];
+
+/**
+ * Version-aware backward-compatible migration for older backup payloads (1.0.0 / 1.1.0 -> 2.0.0).
+ * Preserves all primary keys, foreign keys, companyIds, voucher numbers, and financial balances.
+ */
+export function migrateBackupPayload(
+  raw: BackupDatabasePayload,
+  fromVersion: string
+): BackupDatabasePayload {
+  const migrated: BackupDatabasePayload = {
+    ...raw,
+    expenses: (raw.expenses || []).map((e) => ({
+      ...e,
+      paidByType: e.paidByType || 'COMPANY',
+      status: e.status || (e.paymentMode === 'UNPAID' ? 'UNPAID' : 'PAID'),
+    })),
+    payments: (raw.payments || []).map((p) => ({
+      ...p,
+      status: p.status || 'COMPLETED',
+      beneficiaryPartyId: p.beneficiaryPartyId || p.partyId,
+    })),
+    vehicles: (raw.vehicles || []).map((v) => ({
+      ...v,
+      isOwnerDriven: v.isOwnerDriven ?? false,
+    })),
+  };
+
+  if (fromVersion === '1.0.0' || fromVersion === '1.1.0') {
+    return migrated;
+  }
+  return migrated;
+}
+
+export async function computeAttachmentChecksums(
+  payload: BackupDatabasePayload
+): Promise<Record<string, string>> {
+  const checksums: Record<string, string> = {};
+  for (const att of payload.documentAttachments || []) {
+    if (att.sha256Checksum) {
+      checksums[`att:${att.id}`] = att.sha256Checksum;
+    }
+  }
+  for (const doc of payload.uploadedDocuments || []) {
+    if (doc.fileDataUrl) {
+      checksums[`updoc:${doc.id}`] = await calculateSHA256(doc.fileDataUrl);
+    }
+  }
+  return checksums;
+}
 
 // ============================================================================
 // CRYPTOGRAPHIC UTILITIES (Web Crypto API - Cross-platform Node 20+ & Browser)
@@ -256,6 +305,23 @@ export function filterDatabaseForCompany(
     auditLogs: (payload.auditLogs || []).filter(isMatch),
     commercialDocuments: (payload.commercialDocuments || []).filter(isMatch),
     journalEntries: (payload.journalEntries || []).filter(isMatch),
+    dailyTasks: (payload.dailyTasks || []).filter(isMatch),
+    workNotes: (payload.workNotes || []).filter(isMatch),
+    uploadedDocuments: (payload.uploadedDocuments || []).filter(isMatch),
+    salaryRecords: (payload.salaryRecords || []).filter(isMatch),
+    employeeAdvances: (payload.employeeAdvances || []).filter(isMatch),
+    dailyLabourEntries: (payload.dailyLabourEntries || []).filter(isMatch),
+    labourPayments: (payload.labourPayments || []).filter(isMatch),
+    contractors: (payload.contractors || []).filter(isMatch),
+    contractorWorkEntries: (payload.contractorWorkEntries || []).filter(isMatch),
+    contractorPayments: (payload.contractorPayments || []).filter(isMatch),
+    dailyCashClosings: (payload.dailyCashClosings || []).filter(isMatch),
+    persons: (payload.persons || []).filter(isMatch),
+    personRoles: (payload.personRoles || []).filter(isMatch),
+    vehicleTrips: (payload.vehicleTrips || []).filter(isMatch),
+    tripStops: (payload.tripStops || []).filter(isMatch),
+    paymentAuthorizations: (payload.paymentAuthorizations || []).filter(isMatch),
+    documentAttachments: (payload.documentAttachments || []).filter(isMatch),
   };
 }
 
@@ -295,6 +361,7 @@ export async function generateBackup(
   const recordCounts = computeRecordCounts(scopedData);
   const financialTotals = computeFinancialTotals(scopedData);
   const totalRecords = Object.values(recordCounts).reduce((a, b) => a + b, 0);
+  const attachmentChecksums = await computeAttachmentChecksums(scopedData);
 
   // Compute preliminary checksum on data payload
   const rawDataPayloadString = JSON.stringify(scopedData);
@@ -309,7 +376,8 @@ export async function generateBackup(
     sha256: payloadChecksum,
     recordCounts,
     financialTotals,
-    appVersion: '1.0.0',
+    attachmentChecksums,
+    appVersion: '2.0.0',
     actor: options.actor || 'System Admin',
   };
 
@@ -481,7 +549,8 @@ export async function validateBackupIntegrity(
 
 export function generateRestorePreview(
   backupArchive: BackupArchive,
-  targetCompanyId?: string
+  targetCompanyId?: string,
+  currentState?: BackupDatabasePayload
 ): RestorePreviewResult {
   const warnings: string[] = [];
   const errors: string[] = [];
@@ -505,6 +574,10 @@ export function generateRestorePreview(
     errors.push(
       `Incompatible schema version: Backup is ${manifest.version}, but supported versions are: ${SUPPORTED_SCHEMA_VERSIONS.join(', ')}`
     );
+  } else if (manifest.version !== CURRENT_SCHEMA_VERSION) {
+    warnings.push(
+      `Legacy backup schema (${manifest.version}) will be automatically migrated to ${CURRENT_SCHEMA_VERSION} during restore.`
+    );
   }
 
   if (manifest.type === 'COMPANY_SCOPED' && targetCompanyId && manifest.companyId !== targetCompanyId) {
@@ -513,12 +586,70 @@ export function generateRestorePreview(
     );
   }
 
-  const recordCounts = manifest.recordCounts || computeRecordCounts(backupArchive.data || {});
-  const financialTotals = manifest.financialTotals || computeFinancialTotals(backupArchive.data || {});
+  const migratedData = migrateBackupPayload(backupArchive.data || {}, manifest.version);
+  const recordCounts = manifest.recordCounts || computeRecordCounts(migratedData);
+  const financialTotals = manifest.financialTotals || computeFinancialTotals(migratedData);
 
   const totalRecords = Object.values(recordCounts).reduce((a, b) => a + b, 0);
   if (totalRecords === 0) {
     warnings.push('The backup archive contains 0 records.');
+  }
+
+  // Conflict report against currentState (prevents silent overwrite)
+  const conflicts: { table: string; duplicateIds: string[]; existingCount: number; incomingCount: number }[] = [];
+  if (currentState) {
+    const keysToCheck: (keyof BackupDatabasePayload)[] = [
+      'companies', 'parties', 'vehicles', 'accounts', 'accountTransactions',
+      'expenses', 'purchases', 'invoices', 'payments', 'journalEntries',
+      'salaryRecords', 'dailyLabourEntries', 'contractorWorkEntries', 'dailyCashClosings',
+    ];
+    for (const key of keysToCheck) {
+      const existingArr = (currentState[key] as { id?: string }[] | undefined) || [];
+      const incomingArr = (migratedData[key] as { id?: string }[] | undefined) || [];
+      if (existingArr.length === 0 || incomingArr.length === 0) continue;
+      const existingIds = new Set(existingArr.map((x) => x.id).filter(Boolean) as string[]);
+      const duplicateIds = incomingArr
+        .map((x) => x.id)
+        .filter((id): id is string => typeof id === 'string' && existingIds.has(id));
+      if (duplicateIds.length > 0) {
+        conflicts.push({
+          table: String(key),
+          duplicateIds,
+          existingCount: existingArr.length,
+          incomingCount: incomingArr.length,
+        });
+      }
+    }
+    if (conflicts.length > 0) {
+      warnings.push(
+        `${conflicts.reduce((s, c) => s + c.duplicateIds.length, 0)} existing record ID(s) detected across ${conflicts.length} table(s); non-destructive idempotent merge will skip duplicates.`
+      );
+    }
+  }
+
+  // Attachment binary/metadata verification
+  const expectedAtts = migratedData.documentAttachments || [];
+  const expectedDocs = migratedData.uploadedDocuments || [];
+  const missingOrMismatched: string[] = [];
+  const manifestChecksums = manifest.attachmentChecksums || {};
+  for (const att of expectedAtts) {
+    if (att.uploadStatus === 'COMMITTED' && (!att.sha256Checksum || (manifestChecksums[`att:${att.id}`] && manifestChecksums[`att:${att.id}`] !== att.sha256Checksum))) {
+      missingOrMismatched.push(`att:${att.id}`);
+    }
+  }
+  for (const doc of expectedDocs) {
+    if (!doc.fileDataUrl) {
+      missingOrMismatched.push(`updoc:${doc.id}`);
+    }
+  }
+  const totalAttachments = expectedAtts.length + expectedDocs.length;
+  const attachmentVerification = {
+    total: totalAttachments,
+    verified: Math.max(0, totalAttachments - missingOrMismatched.length),
+    missingOrMismatched,
+  };
+  if (missingOrMismatched.length > 0) {
+    warnings.push(`${missingOrMismatched.length} attachment binary/checksum reference(s) require re-upload or storage reconciliation.`);
   }
 
   return {
@@ -529,6 +660,8 @@ export function generateRestorePreview(
     recordCounts,
     financialTotals,
     targetCompany: targetCompanyId,
+    conflicts,
+    attachmentVerification,
     warnings,
     errors,
   };
@@ -550,7 +683,7 @@ export async function createPreRestoreSafetySnapshot(
 }
 
 // ============================================================================
-// RESTORE EXECUTION
+// RESTORE EXECUTION (ALL COLLECTIONS + IDEMPOTENT MERGE + ROLLBACK)
 // ============================================================================
 
 export interface ExecuteRestoreOptions {
@@ -559,6 +692,18 @@ export interface ExecuteRestoreOptions {
   actor: string;
   preRestoreBackupId: string;
   backupId: string;
+  preventOverwrite?: boolean;
+}
+
+function mergeByIdNonDestructive<T extends { id?: string }>(
+  existing: T[] = [],
+  incoming: T[] = [],
+  preventOverwrite: boolean
+): T[] {
+  if (!preventOverwrite) return incoming;
+  const seen = new Set(existing.map((x) => x.id).filter(Boolean));
+  const additions = incoming.filter((x) => !x.id || !seen.has(x.id));
+  return [...existing, ...additions];
 }
 
 export function executeRestore(
@@ -566,54 +711,82 @@ export function executeRestore(
   currentState: BackupDatabasePayload,
   options: ExecuteRestoreOptions
 ): { restoredState: BackupDatabasePayload; restoreLog: RestoreLog } {
-  const { backupId, preRestoreBackupId, restoreMode, actor, companyId } = options;
-  const backupData = backupArchive.data || {};
+  const { backupId, preRestoreBackupId, restoreMode, actor, companyId, preventOverwrite = false } = options;
+  const backupData = migrateBackupPayload(backupArchive.data || {}, backupArchive.manifest?.version || '1.0.0');
 
   let restoredState: BackupDatabasePayload;
   let recordsRestored: Record<string, number> = {};
 
   if (restoreMode === 'FULL') {
-    // Complete database replacement
+    const mergeOrReplace = <T extends { id?: string }>(cur: T[] | undefined, inc: T[] | undefined): T[] =>
+      mergeByIdNonDestructive(cur || [], inc || [], preventOverwrite);
+    const optMerge = <T extends { id?: string }>(cur: T[] | undefined, inc: T[] | undefined): T[] | undefined => {
+      if (!preventOverwrite) return inc;
+      if (cur === undefined && inc === undefined) return undefined;
+      return mergeByIdNonDestructive(cur || [], inc || [], true);
+    };
+
     restoredState = {
-      companies: backupData.companies || currentState.companies,
+      companies: mergeOrReplace(currentState.companies, backupData.companies || currentState.companies),
       activeCompanyId: backupData.activeCompanyId || currentState.activeCompanyId,
       companySettings: backupData.companySettings || currentState.companySettings,
-      yards: backupData.yards || [],
-      materials: backupData.materials || [],
-      materialGrades: backupData.materialGrades || [],
-      parties: backupData.parties || [],
-      vehicles: backupData.vehicles || [],
-      vehicleDocuments: backupData.vehicleDocuments || [],
-      employees: backupData.employees || [],
-      attendance: backupData.attendance || [],
-      accounts: backupData.accounts || [],
-      accountTransactions: backupData.accountTransactions || [],
-      expenses: backupData.expenses || [],
-      weighments: backupData.weighments || [],
-      collectionJobs: backupData.collectionJobs || [],
-      purchases: backupData.purchases || [],
-      inventoryLots: backupData.inventoryLots || [],
-      stockMovements: backupData.stockMovements || [],
-      sales: backupData.sales || [],
-      invoices: backupData.invoices || [],
-      payments: backupData.payments || [],
-      stockCounts: backupData.stockCounts || [],
-      auditLogs: backupData.auditLogs || [],
-      commercialDocuments: backupData.commercialDocuments || [],
-      journalEntries: backupData.journalEntries || [],
+      yards: mergeOrReplace(currentState.yards, backupData.yards),
+      materials: mergeOrReplace(currentState.materials, backupData.materials),
+      materialGrades: mergeOrReplace(currentState.materialGrades, backupData.materialGrades),
+      parties: mergeOrReplace(currentState.parties, backupData.parties),
+      vehicles: mergeOrReplace(currentState.vehicles, backupData.vehicles),
+      vehicleDocuments: mergeOrReplace(currentState.vehicleDocuments, backupData.vehicleDocuments),
+      employees: mergeOrReplace(currentState.employees, backupData.employees),
+      attendance: mergeOrReplace(currentState.attendance, backupData.attendance),
+      accounts: mergeOrReplace(currentState.accounts, backupData.accounts),
+      accountTransactions: mergeOrReplace(currentState.accountTransactions, backupData.accountTransactions),
+      expenses: mergeOrReplace(currentState.expenses, backupData.expenses),
+      weighments: mergeOrReplace(currentState.weighments, backupData.weighments),
+      collectionJobs: mergeOrReplace(currentState.collectionJobs, backupData.collectionJobs),
+      purchases: mergeOrReplace(currentState.purchases, backupData.purchases),
+      inventoryLots: mergeOrReplace(currentState.inventoryLots, backupData.inventoryLots),
+      stockMovements: mergeOrReplace(currentState.stockMovements, backupData.stockMovements),
+      sales: mergeOrReplace(currentState.sales, backupData.sales),
+      invoices: mergeOrReplace(currentState.invoices, backupData.invoices),
+      payments: mergeOrReplace(currentState.payments, backupData.payments),
+      stockCounts: mergeOrReplace(currentState.stockCounts, backupData.stockCounts),
+      auditLogs: mergeOrReplace(currentState.auditLogs, backupData.auditLogs),
+      commercialDocuments: mergeOrReplace(currentState.commercialDocuments, backupData.commercialDocuments),
+      journalEntries: mergeOrReplace(currentState.journalEntries, backupData.journalEntries),
+      ...(optMerge(currentState.dailyTasks, backupData.dailyTasks) !== undefined ? { dailyTasks: optMerge(currentState.dailyTasks, backupData.dailyTasks) } : {}),
+      ...(optMerge(currentState.workNotes, backupData.workNotes) !== undefined ? { workNotes: optMerge(currentState.workNotes, backupData.workNotes) } : {}),
+      ...(optMerge(currentState.uploadedDocuments, backupData.uploadedDocuments) !== undefined ? { uploadedDocuments: optMerge(currentState.uploadedDocuments, backupData.uploadedDocuments) } : {}),
+      ...(optMerge(currentState.salaryRecords, backupData.salaryRecords) !== undefined ? { salaryRecords: optMerge(currentState.salaryRecords, backupData.salaryRecords) } : {}),
+      ...(optMerge(currentState.employeeAdvances, backupData.employeeAdvances) !== undefined ? { employeeAdvances: optMerge(currentState.employeeAdvances, backupData.employeeAdvances) } : {}),
+      ...(optMerge(currentState.dailyLabourEntries, backupData.dailyLabourEntries) !== undefined ? { dailyLabourEntries: optMerge(currentState.dailyLabourEntries, backupData.dailyLabourEntries) } : {}),
+      ...(optMerge(currentState.labourPayments, backupData.labourPayments) !== undefined ? { labourPayments: optMerge(currentState.labourPayments, backupData.labourPayments) } : {}),
+      ...(optMerge(currentState.contractors, backupData.contractors) !== undefined ? { contractors: optMerge(currentState.contractors, backupData.contractors) } : {}),
+      ...(optMerge(currentState.contractorWorkEntries, backupData.contractorWorkEntries) !== undefined ? { contractorWorkEntries: optMerge(currentState.contractorWorkEntries, backupData.contractorWorkEntries) } : {}),
+      ...(optMerge(currentState.contractorPayments, backupData.contractorPayments) !== undefined ? { contractorPayments: optMerge(currentState.contractorPayments, backupData.contractorPayments) } : {}),
+      ...(optMerge(currentState.dailyCashClosings, backupData.dailyCashClosings) !== undefined ? { dailyCashClosings: optMerge(currentState.dailyCashClosings, backupData.dailyCashClosings) } : {}),
+      ...(optMerge(currentState.persons, backupData.persons) !== undefined ? { persons: optMerge(currentState.persons, backupData.persons) } : {}),
+      ...(optMerge(currentState.personRoles, backupData.personRoles) !== undefined ? { personRoles: optMerge(currentState.personRoles, backupData.personRoles) } : {}),
+      ...(optMerge(currentState.vehicleTrips, backupData.vehicleTrips) !== undefined ? { vehicleTrips: optMerge(currentState.vehicleTrips, backupData.vehicleTrips) } : {}),
+      ...(optMerge(currentState.tripStops, backupData.tripStops) !== undefined ? { tripStops: optMerge(currentState.tripStops, backupData.tripStops) } : {}),
+      ...(optMerge(currentState.paymentAuthorizations, backupData.paymentAuthorizations) !== undefined ? { paymentAuthorizations: optMerge(currentState.paymentAuthorizations, backupData.paymentAuthorizations) } : {}),
+      ...(optMerge(currentState.documentAttachments, backupData.documentAttachments) !== undefined ? { documentAttachments: optMerge(currentState.documentAttachments, backupData.documentAttachments) } : {}),
     };
     recordsRestored = computeRecordCounts(restoredState);
   } else {
-    // Scoped restoration: keep records of other companies, replace target company records
+    // Scoped restoration: keep records of other companies, restore target company records
     const targetCompId = companyId || backupArchive.manifest.companyId;
     if (!targetCompId) {
       throw new Error('Target company ID must be specified for COMPANY_SCOPED restore.');
     }
 
-    const mergeArrays = <T extends { companyId?: string }>(currentArr: T[] = [], incomingArr: T[] = []): T[] => {
-      const retained = currentArr.filter((item) => item.companyId && item.companyId !== targetCompId);
+    const mergeArrays = <T extends { id?: string; companyId?: string }>(currentArr: T[] = [], incomingArr: T[] = []): T[] => {
+      const retainedOtherCompanies = currentArr.filter((item) => item.companyId && item.companyId !== targetCompId);
+      const currentTarget = currentArr.filter((item) => !item.companyId || item.companyId === targetCompId);
       const incoming = incomingArr.map((item) => ({ ...item, companyId: targetCompId }));
-      return [...retained, ...incoming];
+      const targetMerged = preventOverwrite
+        ? mergeByIdNonDestructive(currentTarget, incoming, true)
+        : incoming;
+      return [...retainedOtherCompanies, ...targetMerged];
     };
 
     restoredState = {
@@ -637,6 +810,23 @@ export function executeRestore(
       stockCounts: mergeArrays(currentState.stockCounts, backupData.stockCounts),
       commercialDocuments: mergeArrays(currentState.commercialDocuments, backupData.commercialDocuments),
       journalEntries: mergeArrays(currentState.journalEntries, backupData.journalEntries),
+      dailyTasks: mergeArrays(currentState.dailyTasks, backupData.dailyTasks),
+      workNotes: mergeArrays(currentState.workNotes, backupData.workNotes),
+      uploadedDocuments: mergeArrays(currentState.uploadedDocuments, backupData.uploadedDocuments),
+      salaryRecords: mergeArrays(currentState.salaryRecords, backupData.salaryRecords),
+      employeeAdvances: mergeArrays(currentState.employeeAdvances, backupData.employeeAdvances),
+      dailyLabourEntries: mergeArrays(currentState.dailyLabourEntries, backupData.dailyLabourEntries),
+      labourPayments: mergeArrays(currentState.labourPayments, backupData.labourPayments),
+      contractors: mergeArrays(currentState.contractors, backupData.contractors),
+      contractorWorkEntries: mergeArrays(currentState.contractorWorkEntries, backupData.contractorWorkEntries),
+      contractorPayments: mergeArrays(currentState.contractorPayments, backupData.contractorPayments),
+      dailyCashClosings: mergeArrays(currentState.dailyCashClosings, backupData.dailyCashClosings),
+      persons: mergeArrays(currentState.persons, backupData.persons),
+      personRoles: mergeArrays(currentState.personRoles, backupData.personRoles),
+      vehicleTrips: mergeArrays(currentState.vehicleTrips, backupData.vehicleTrips),
+      tripStops: mergeArrays(currentState.tripStops, backupData.tripStops),
+      paymentAuthorizations: mergeArrays(currentState.paymentAuthorizations, backupData.paymentAuthorizations),
+      documentAttachments: mergeArrays(currentState.documentAttachments, backupData.documentAttachments),
     };
 
     recordsRestored = computeRecordCounts(filterDatabaseForCompany(restoredState, targetCompId));
@@ -657,6 +847,87 @@ export function executeRestore(
   };
 
   return { restoredState, restoreLog };
+}
+
+/**
+ * Executes restore with automatic rollback to currentState if any post-restore invariant fails.
+ */
+export function executeRestoreWithRollback(
+  backupArchive: BackupArchive,
+  currentState: BackupDatabasePayload,
+  options: ExecuteRestoreOptions
+): { restoredState: BackupDatabasePayload; restoreLog: RestoreLog; rolledBack: boolean } {
+  try {
+    const { restoredState, restoreLog } = executeRestore(backupArchive, currentState, options);
+
+    // Post-restore integrity verification: every posted journal must be balanced
+    for (const je of restoredState.journalEntries || []) {
+      const dr = je.lines.reduce((s, l) => s + (l.debit || 0), 0);
+      const cr = je.lines.reduce((s, l) => s + (l.credit || 0), 0);
+      if (Math.abs(dr - cr) > 0.05) {
+        throw new Error(`Unbalanced journal entry ${je.entryNo || je.id} detected during restore (Dr=${dr}, Cr=${cr}).`);
+      }
+    }
+
+    return { restoredState, restoreLog, rolledBack: false };
+  } catch (err: any) {
+    const rollbackLog: RestoreLog = {
+      id: `RST-RB-${Date.now()}`,
+      backupId: options.backupId,
+      preRestoreBackupId: options.preRestoreBackupId,
+      companyId: options.companyId || null,
+      restoredBy: options.actor,
+      restorationType: options.restoreMode === 'FULL' ? 'FULL_RESTORE' : 'COMPANY_RESTORE',
+      recordsRestoredJson: {},
+      sha256Verified: false,
+      status: 'ROLLED_BACK',
+      errorMessage: err?.message || 'Restore failed midway and was rolled back.',
+      restoredAt: new Date().toISOString(),
+    };
+    return { restoredState: currentState, restoreLog: rollbackLog, rolledBack: true };
+  }
+}
+
+/**
+ * Reconciles source backup payload vs restored state (counts, financial totals, balances).
+ */
+export function verifyRestoreReconciliation(
+  source: BackupDatabasePayload,
+  restored: BackupDatabasePayload
+): {
+  isExactMatch: boolean;
+  sourceCounts: Record<string, number>;
+  restoredCounts: Record<string, number>;
+  mismatchedTables: string[];
+  sourceFinancialTotals: Record<string, number>;
+  restoredFinancialTotals: Record<string, number>;
+  financialDiffs: Record<string, number>;
+} {
+  const sourceCounts = computeRecordCounts(source);
+  const restoredCounts = computeRecordCounts(restored);
+  const mismatchedTables: string[] = [];
+  for (const key of Object.keys(sourceCounts)) {
+    if ((restoredCounts[key] || 0) < (sourceCounts[key] || 0)) {
+      mismatchedTables.push(key);
+    }
+  }
+  const sourceFinancialTotals = computeFinancialTotals(source);
+  const restoredFinancialTotals = computeFinancialTotals(restored);
+  const financialDiffs: Record<string, number> = {};
+  for (const k of Object.keys(sourceFinancialTotals)) {
+    financialDiffs[k] = Math.round(((restoredFinancialTotals[k] || 0) - (sourceFinancialTotals[k] || 0)) * 100) / 100;
+  }
+
+  const hasDiff = Object.values(financialDiffs).some((d) => Math.abs(d) > 0.01);
+  return {
+    isExactMatch: mismatchedTables.length === 0 && !hasDiff,
+    sourceCounts,
+    restoredCounts,
+    mismatchedTables,
+    sourceFinancialTotals,
+    restoredFinancialTotals,
+    financialDiffs,
+  };
 }
 
 // ============================================================================

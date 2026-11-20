@@ -871,6 +871,42 @@ export class DatabaseRepository {
     if (!this.isRemoteDatabaseAvailable()) return;
     await supabase.executeRpc('fn_mark_attachment_upload_failed', { p_attachment_id: attachmentId }, authToken);
   }
+
+  public async payUnpaidExpenseAtomic(params: {
+    companyId: string;
+    expenseId: string;
+    accountId: string;
+    paymentMode: 'CASH' | 'BANK';
+    actor?: string;
+    authToken?: string;
+  }): Promise<{ success: boolean; error?: string }> {
+    if (!this.isRemoteDatabaseAvailable()) return { success: false, error: 'Remote database unavailable' };
+    const res = await supabase.executeRpc<any>('fn_pay_unpaid_expense_atomic', {
+      p_company_id: params.companyId,
+      p_expense_id: params.expenseId,
+      p_account_id: params.accountId,
+      p_payment_mode: params.paymentMode,
+      p_actor: params.actor || 'system',
+    }, params.authToken);
+    return res.error ? { success: false, error: res.error.message || String(res.error) } : { success: true };
+  }
+
+  public async reverseExpenseAtomic(params: {
+    companyId: string;
+    expenseId: string;
+    reason: string;
+    actor?: string;
+    authToken?: string;
+  }): Promise<{ success: boolean; error?: string }> {
+    if (!this.isRemoteDatabaseAvailable()) return { success: false, error: 'Remote database unavailable' };
+    const res = await supabase.executeRpc<any>('fn_reverse_expense_atomic', {
+      p_company_id: params.companyId,
+      p_expense_id: params.expenseId,
+      p_reason: params.reason,
+      p_actor: params.actor || 'system',
+    }, params.authToken);
+    return res.error ? { success: false, error: res.error.message || String(res.error) } : { success: true };
+  }
 }
 
 export const dbRepository = DatabaseRepository.getInstance();

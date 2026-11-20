@@ -1086,10 +1086,19 @@ export function computeCashBookSummary(params: {
       else if (tx.transactionType === 'ACCOUNT_ADJUSTMENT') refunds += tx.amount;
       else capitalAndOtherInflows += tx.amount; // OWNER_INJECTION, OWNER_LOAN_IN, CONTRA_TRANSFER_IN
     } else {
-      if (tx.transactionType === 'OPERATING_EXPENSE') paidExpenses += tx.amount;
-      else if (tx.transactionType === 'EMPLOYEE_ADVANCE') salaryLabourContractorPayments += tx.amount;
-      else if (tx.transactionType === 'OWNER_DRAWING') drawings += tx.amount;
-      else otherPayments += tx.amount; // SUPPLIER_PAYMENT, CONTRA_TRANSFER_OUT, OWNER_REIMBURSEMENT, etc.
+      if (tx.transactionType === 'EMPLOYEE_ADVANCE') {
+        salaryLabourContractorPayments += tx.amount;
+      } else if (tx.transactionType === 'OPERATING_EXPENSE') {
+        if (/^(salary disbursement|daily labour|contractor|employee advance)/i.test(tx.description || '')) {
+          salaryLabourContractorPayments += tx.amount;
+        } else {
+          paidExpenses += tx.amount;
+        }
+      } else if (tx.transactionType === 'OWNER_DRAWING') {
+        drawings += tx.amount;
+      } else {
+        otherPayments += tx.amount; // SUPPLIER_PAYMENT, CONTRA_TRANSFER_OUT, OWNER_REIMBURSEMENT, etc.
+      }
     }
   }
 

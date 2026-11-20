@@ -870,6 +870,7 @@ export interface BackupManifest {
   sha256: string;
   recordCounts: Record<string, number>;
   financialTotals: Record<string, number>;
+  attachmentChecksums?: Record<string, string>;
   appVersion: string;
   actor: string;
 }
@@ -912,6 +913,12 @@ export interface BackupDatabasePayload {
   contractorWorkEntries?: ContractorWorkEntry[];
   contractorPayments?: ContractorPayment[];
   dailyCashClosings?: DailyCashClosingRecord[];
+  persons?: Person[];
+  personRoles?: PersonRole[];
+  vehicleTrips?: VehicleTrip[];
+  tripStops?: TripStop[];
+  paymentAuthorizations?: PaymentAuthorization[];
+  documentAttachments?: DocumentAttachment[];
 }
 
 export interface BackupArchive {
@@ -987,6 +994,8 @@ export interface RestorePreviewResult {
   recordCounts: Record<string, number>;
   financialTotals: Record<string, number>;
   targetCompany?: string;
+  conflicts?: { table: string; duplicateIds: string[]; existingCount: number; incomingCount: number }[];
+  attachmentVerification?: { total: number; verified: number; missingOrMismatched: string[] };
   warnings: string[];
   errors: string[];
 }

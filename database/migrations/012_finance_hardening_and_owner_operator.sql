@@ -430,3 +430,148 @@ BEGIN
     RETURN jsonb_build_object('status', 'POSTED', 'expense_id', v_exp_id, 'transaction_id', v_tx_id, 'journal_id', v_je_id);
 END;
 $$;
+
+-- 10. Atomic RPC: Pay Unpaid Expense (Clears 2020 Payable -> 1010/1020 Cash/Bank; FOR UPDATE lock)
+CREATE OR REPLACE FUNCTION fn_pay_unpaid_expense_atomic(
+    p_company_id UUID,
+    p_expense_id UUID,
+    p_account_id UUID,
+    p_payment_mode VARCHAR,
+    p_actor VARCHAR DEFAULT 'system'
+) RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+    v_exp RECORD;
+    v_acc RECORD;
+    v_tx_id UUID := uuid_generate_v4();
+    v_je_id UUID := uuid_generate_v4();
+    v_cr_code VARCHAR;
+    v_cr_name VARCHAR;
+    v_entry_no VARCHAR;
+BEGIN
+    IF NOT auth_has_company_role(p_company_id, 'owner_admin', 'accounts_operator') THEN
+        RAISE EXCEPTION 'Unauthorized role for settling unpaid expenses';
+    END IF;
+
+    SELECT * INTO v_exp FROM expenses
+    WHERE id = p_expense_id AND company_id = p_company_id FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION 'Expense % not found', p_expense_id; END IF;
+    IF v_exp.status <> 'UNPAID' THEN
+        RAISE EXCEPTION 'Expense % is already % (double settlement blocked)', v_exp.voucher_no, v_exp.status;
+    END IF;
+
+    PERFORM fn_assert_period_open(p_company_id, CURRENT_DATE);
+
+    SELECT * INTO v_acc FROM cash_bank_accounts
+    WHERE id = p_account_id AND company_id = p_company_id FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION 'Payment account not found'; END IF;
+    IF v_acc.is_active = false THEN RAISE EXCEPTION 'Selected payment account is inactive'; END IF;
+    IF v_acc.account_type = 'CASH' AND (COALESCE(v_acc.current_balance, 0) - v_exp.amount) < -0.01 THEN
+        RAISE EXCEPTION 'Insufficient cash balance in "%"', v_acc.account_name;
+    END IF;
+
+    v_cr_code := CASE WHEN v_acc.account_type = 'BANK' THEN '1020' ELSE '1010' END;
+    v_cr_name := CASE WHEN v_acc.account_type = 'BANK' THEN 'Bank Accounts (Current/OD)' ELSE 'Cash on Hand' END;
+    v_entry_no := 'JV-CLR-' || UPPER(REGEXP_REPLACE(v_exp.voucher_no, '[^A-Za-z0-9]', '', 'g'));
+
+    INSERT INTO journal_entries (
+        id, company_id, entry_no, entry_date, source_type, source_id, reference_no,
+        narration, total_debit, total_credit, is_posted, status
+    ) VALUES (
+        v_je_id, p_company_id, v_entry_no, CURRENT_DATE, 'PAYMENT', v_exp.id::TEXT,
+        v_exp.voucher_no, 'Pay accrued expense ' || v_exp.voucher_no,
+        v_exp.amount, v_exp.amount, true, 'POSTED'
+    );
+
+    INSERT INTO journal_lines (journal_id, account_code, account_name, debit, credit, line_narration) VALUES
+        (v_je_id, '2020', 'Unpaid Operational Expenses Payable', v_exp.amount, 0, 'Clear payable ' || v_exp.voucher_no),
+        (v_je_id, v_cr_code, v_cr_name, 0, v_exp.amount, v_exp.paid_to);
+
+    INSERT INTO account_transactions (
+        id, company_id, account_id, transaction_date, transaction_type, direction,
+        amount, reference_no, description, expense_id, journal_entry_id
+    ) VALUES (
+        v_tx_id, p_company_id, p_account_id, CURRENT_DATE, 'OPERATING_EXPENSE', 'CREDIT',
+        v_exp.amount, v_exp.voucher_no, 'Payment for unpaid expense: ' || v_exp.category || ' - ' || v_exp.paid_to,
+        v_exp.id, v_je_id
+    );
+
+    UPDATE expenses
+    SET status = 'PAID', payment_mode = p_payment_mode, account_id = p_account_id,
+        account_transaction_id = v_tx_id
+    WHERE id = v_exp.id;
+
+    RETURN jsonb_build_object('status', 'PAID', 'expense_id', v_exp.id, 'transaction_id', v_tx_id, 'journal_id', v_je_id);
+END;
+$$;
+
+-- 11. Atomic RPC: Reverse Expense (Marks REVERSED, refunds account if PAID, posts reversing journal)
+CREATE OR REPLACE FUNCTION fn_reverse_expense_atomic(
+    p_company_id UUID,
+    p_expense_id UUID,
+    p_reason TEXT,
+    p_actor VARCHAR DEFAULT 'system'
+) RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+    v_exp RECORD;
+    v_tx_id UUID := NULL;
+    v_rev_je_id UUID;
+    v_orig_je RECORD;
+BEGIN
+    IF NOT auth_has_company_role(p_company_id, 'owner_admin', 'accounts_operator') THEN
+        RAISE EXCEPTION 'Unauthorized role for reversing expenses';
+    END IF;
+
+    SELECT * INTO v_exp FROM expenses
+    WHERE id = p_expense_id AND company_id = p_company_id FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION 'Expense % not found', p_expense_id; END IF;
+    IF v_exp.status = 'REVERSED' THEN
+        RAISE EXCEPTION 'Expense % is already REVERSED', v_exp.voucher_no;
+    END IF;
+
+    PERFORM fn_assert_period_open(p_company_id, CURRENT_DATE);
+
+    IF v_exp.status = 'PAID' AND v_exp.account_id IS NOT NULL THEN
+        v_tx_id := uuid_generate_v4();
+        INSERT INTO account_transactions (
+            id, company_id, account_id, transaction_date, transaction_type, direction,
+            amount, reference_no, description, expense_id
+        ) VALUES (
+            v_tx_id, p_company_id, v_exp.account_id, CURRENT_DATE, 'ACCOUNT_ADJUSTMENT', 'DEBIT',
+            v_exp.amount, 'REV-' || v_exp.voucher_no, 'Reversal of expense ' || v_exp.voucher_no || ': ' || COALESCE(p_reason, ''),
+            v_exp.id
+        );
+    END IF;
+
+    FOR v_orig_je IN
+        SELECT * FROM journal_entries
+        WHERE company_id = p_company_id AND source_id = v_exp.id::TEXT AND status = 'POSTED'
+    LOOP
+        v_rev_je_id := uuid_generate_v4();
+        INSERT INTO journal_entries (
+            id, company_id, entry_no, entry_date, source_type, source_id, reference_no,
+            narration, total_debit, total_credit, is_posted, status
+        ) VALUES (
+            v_rev_je_id, p_company_id, 'REV-' || v_orig_je.entry_no, CURRENT_DATE,
+            v_orig_je.source_type, 'REV-' || v_orig_je.id::TEXT, 'REV-' || COALESCE(v_orig_je.reference_no, v_exp.voucher_no),
+            'Reversal: ' || COALESCE(p_reason, v_orig_je.narration),
+            v_orig_je.total_credit, v_orig_je.total_debit, true, 'POSTED'
+        );
+
+        INSERT INTO journal_lines (journal_id, account_code, account_name, party_id, debit, credit, line_narration)
+        SELECT v_rev_je_id, account_code, account_name, party_id, credit, debit, 'Reversal: ' || COALESCE(line_narration, '')
+        FROM journal_lines WHERE journal_id = v_orig_je.id;
+
+        UPDATE journal_entries SET status = 'REVERSED' WHERE id = v_orig_je.id;
+    END LOOP;
+
+    UPDATE expenses
+    SET status = 'REVERSED', reversal_reason = p_reason
+    WHERE id = v_exp.id;
+
+    INSERT INTO audit_logs (company_id, action_type, entity_type, entity_id, new_value, performed_by)
+    VALUES (p_company_id, 'REVERSE_EXPENSE', 'EXPENSE', v_exp.id::TEXT,
+            jsonb_build_object('reason', p_reason, 'refund_tx_id', v_tx_id), p_actor);
+
+    RETURN jsonb_build_object('status', 'REVERSED', 'expense_id', v_exp.id, 'refund_transaction_id', v_tx_id);
+END;
+$$;

@@ -458,6 +458,8 @@ describe('Finance Hardening, Owner-Operator & Receipt Attachment Suite', () => {
     expect(m12).toContain('uq_journal_active_source');
     expect(m12).toContain('fn_post_account_transaction_atomic');
     expect(m12).toContain('fn_post_expense_atomic');
+    expect(m12).toContain('fn_pay_unpaid_expense_atomic');
+    expect(m12).toContain('fn_reverse_expense_atomic');
     expect(m12).toContain('vehicle_trips');
     expect(m12).toContain('payment_authorizations');
 
@@ -471,5 +473,53 @@ describe('Finance Hardening, Owner-Operator & Receipt Attachment Suite', () => {
     expect(edgeFn).toContain('SUPABASE_SERVICE_ROLE_KEY');
     expect(edgeFn).toContain("upload_status: 'REJECTED'");
     expect(edgeFn).toContain("upload_status: 'COMMITTED'");
+  });
+
+  it('separates 009 salary/labour/contractor OPERATING_EXPENSE rows into salaryLabourContractorPayments in Cash Book', () => {
+    const txs: AccountTransaction[] = [
+      {
+        id: 'tx-sal',
+        accountId: activeCash.id,
+        transactionDate: '2026-10-05',
+        transactionType: 'OPERATING_EXPENSE',
+        direction: 'CREDIT',
+        amount: 6000,
+        description: 'Salary Disbursement: Ravi (2026-10)',
+        createdBy: 'Admin',
+        createdAt: '2026-10-05T10:00:00Z',
+      },
+      {
+        id: 'tx-lab',
+        accountId: activeCash.id,
+        transactionDate: '2026-10-05',
+        transactionType: 'OPERATING_EXPENSE',
+        direction: 'CREDIT',
+        amount: 1500,
+        description: 'Daily Labour Settlement: Crew A',
+        createdBy: 'Admin',
+        createdAt: '2026-10-05T11:00:00Z',
+      },
+      {
+        id: 'tx-tea',
+        accountId: activeCash.id,
+        transactionDate: '2026-10-05',
+        transactionType: 'OPERATING_EXPENSE',
+        direction: 'CREDIT',
+        amount: 200,
+        description: 'Expense: Tea / Drinking Water - Stall',
+        createdBy: 'Admin',
+        createdAt: '2026-10-05T12:00:00Z',
+      },
+    ];
+    const summary = computeCashBookSummary({
+      cashAccounts: [activeCash],
+      accountTransactions: txs,
+      expenses: [],
+      startDate: '2026-10-01',
+      endDate: '2026-10-31',
+    });
+    expect(summary.salaryLabourContractorPayments).toBe(7500);
+    expect(summary.paidExpenses).toBe(200);
+    expect(summary.expectedClosingCash).toBe(-7700);
   });
 });

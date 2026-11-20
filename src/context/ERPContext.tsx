@@ -126,6 +126,7 @@ import {
   generateRestorePreview,
   createPreRestoreSafetySnapshot,
   executeRestore,
+  executeRestoreWithRollback,
   calculateNextScheduledRun,
   exportRegistryAsCSV
 } from '../../backend/business-rules/backupEngine.ts';
@@ -1376,10 +1377,22 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setExpenses((prev) => prev.map((e) => (e.id === expenseId ? updated : e)));
     setAccountTransactions((prev) => [accountTx, ...prev]);
-    setJournalEntries((prev) => [je, ...prev]);
+    setJournalEntries((prev) =>
+      prev.some((j) => j.sourceType === je.sourceType && j.sourceId === je.sourceId && j.isPosted)
+        ? prev
+        : [je, ...prev]
+    );
 
     if (dbRepository.isRemoteDatabaseAvailable()) {
-      dbRepository.updateExpense(expenseId, { status: 'PAID', paymentMode, accountId }).catch((e) => console.warn('Sync payUnpaidExpense failed', e));
+      dbRepository
+        .payUnpaidExpenseAtomic({
+          companyId: activeCompanyId,
+          expenseId,
+          accountId,
+          paymentMode,
+          actor: currentUser.fullName,
+        })
+        .catch((e) => console.warn('Atomic payUnpaidExpense failed', e));
     }
 
     logAudit('PAY_UNPAID_EXPENSE', 'EXPENSE', expenseId, existing, updated);
@@ -1388,6 +1401,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const reverseExpense = (expenseId: string, reason: string): Expense => {
     const existing = expenses.find((e) => e.id === expenseId);
     if (!existing) throw new Error('Expense not found');
+    if (existing.status === 'REVERSED') throw new Error(`Expense "${existing.voucherNo}" is already reversed.`);
 
     const now = new Date().toISOString();
     const reversalVoucherNo = `REV-${existing.voucherNo}`;
@@ -1404,11 +1418,13 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (existing.status === 'PAID' && existing.accountId) {
       const refundTx: AccountTransaction = {
         id: 'atx-rev-' + Math.random().toString(36).substring(2, 11),
+        companyId: activeCompanyId,
         accountId: existing.accountId,
         transactionDate: new Date().toISOString().split('T')[0],
         transactionType: 'ACCOUNT_ADJUSTMENT',
         direction: 'DEBIT', // Money refunded back
         amount: existing.amount,
+        expenseId: existing.id,
         referenceNo: reversalVoucherNo,
         description: `Reversal of expense ${existing.voucherNo}: ${reason}`,
         createdBy: currentUser.fullName,
@@ -1418,7 +1434,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // Reversing journal entries for any journals posted for this expense
-    const associatedJournals = journalEntries.filter((j) => j.sourceId === expenseId);
+    const associatedJournals = journalEntries.filter((j) => j.sourceId === expenseId && j.isPosted);
     const reversalJournals: JournalEntry[] = associatedJournals.map((orig) =>
       createReversingJournal(orig, `Reversal of expense ${existing.voucherNo}: ${reason}`, currentUser.fullName)
     );
@@ -1428,7 +1444,14 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setExpenses((prev) => prev.map((e) => (e.id === expenseId ? updatedExisting : e)));
     if (dbRepository.isRemoteDatabaseAvailable()) {
-      dbRepository.updateExpense(expenseId, { status: 'REVERSED', notes: reason }).catch((e) => console.warn('Update expense reversed in DB failed', e));
+      dbRepository
+        .reverseExpenseAtomic({
+          companyId: activeCompanyId,
+          expenseId,
+          reason,
+          actor: currentUser.fullName,
+        })
+        .catch((e) => console.warn('Atomic reverseExpense failed', e));
     }
     logAudit('REVERSE_EXPENSE', 'EXPENSE', expenseId, existing, updatedExisting);
     return updatedExisting;
@@ -3667,7 +3690,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     }
 
-    return generateRestorePreview(valResult.parsedArchive, activeCompanyId);
+    return generateRestorePreview(valResult.parsedArchive, activeCompanyId, getCurrentDatabasePayload());
   };
 
   const executeSystemRestore = async (
@@ -3689,8 +3712,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const safetySnapshot = await createPreRestoreSafetySnapshot(currentState, currentUser.fullName || 'System Safety Automator');
       setBackupHistory((prev) => [safetySnapshot.historyItem, ...prev]);
 
-      // Step 2: Execute Restore
-      const { restoredState, restoreLog } = executeRestore(valResult.parsedArchive, currentState, {
+      // Step 2: Execute Restore with automatic rollback on failure
+      const { restoredState, restoreLog, rolledBack } = executeRestoreWithRollback(valResult.parsedArchive, currentState, {
         backupId: valResult.parsedArchive.manifest.sha256,
         preRestoreBackupId: safetySnapshot.historyItem.id,
         restoreMode: mode,
@@ -3698,11 +3721,17 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         companyId: activeCompanyId,
       });
 
+      setRestoreLogs((prev) => [restoreLog, ...prev]);
+      if (rolledBack) {
+        return {
+          success: false,
+          recordsRestored: 0,
+          error: restoreLog.errorMessage || 'Restore failed integrity check and was rolled back.',
+        };
+      }
+
       // Step 3: Apply Restored State
       applyRestoredPayload(restoredState);
-
-      // Step 4: Record restore log
-      setRestoreLogs((prev) => [restoreLog, ...prev]);
 
       const totalRestored = Object.values(restoreLog.recordsRestoredJson).reduce((a, b) => a + b, 0);
 

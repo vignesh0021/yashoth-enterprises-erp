@@ -414,4 +414,57 @@ describe('Full Backward-Compatible Backup & Restore Verification', () => {
     expect(tampered.verifiedCount).toBe(0);
     expect(tampered.checksumMismatches).toEqual(['updoc:doc-real-1']);
   });
+
+  it('validates and restores the actual 1.0.0 production backup file (when present on device) with 1:1 counts and ₹6,020 Petty Cash', async () => {
+    const fs = await import('node:fs');
+    const realPath = '/data/user/0/com.termux/files/home/storage/downloads/YE_FULL_BACKUP_2026-11-20T02-14-42.json';
+    if (!fs.existsSync(realPath)) return;
+
+    const { validateBackupIntegrity } = await import('../backend/business-rules/backupEngine.ts');
+    const { calculateReconciledAccountBalance } = await import('../backend/business-rules/financeEngine.ts');
+
+    const raw = fs.readFileSync(realPath, 'utf8');
+    const integrity = await validateBackupIntegrity(raw);
+    expect(integrity.isValid).toBe(true);
+    expect(integrity.parsedArchive?.manifest.version).toBe('1.0.0');
+
+    const archive = integrity.parsedArchive!;
+    const preview = generateRestorePreview(archive, archive.data.activeCompanyId, {});
+    expect(preview.isValid).toBe(true);
+    expect(preview.isCompatible).toBe(true);
+
+    const { restoredState, restoreLog, rolledBack } = executeRestoreWithRollback(archive, {}, {
+      backupId: archive.manifest.sha256,
+      preRestoreBackupId: 'snap-real-1',
+      restoreMode: 'FULL',
+      actor: 'Validation Gate',
+    });
+    expect(rolledBack).toBe(false);
+    expect(restoreLog.status).toBe('COMPLETED');
+
+    const recon = verifyRestoreReconciliation(archive.data, restoredState);
+    expect(recon.isExactMatch).toBe(true);
+    expect(recon.mismatchedTables).toHaveLength(0);
+
+    // Petty Cash balance check
+    const pettyCash = restoredState.accounts![0];
+    expect(calculateReconciledAccountBalance(pettyCash, restoredState.accountTransactions || [])).toBe(6020);
+
+    // Attachment binary verification
+    const attCheck = await verifyBackupAttachmentBinaries(archive);
+    expect(attCheck.totalChecked).toBe(1);
+    expect(attCheck.verifiedCount).toBe(1);
+    expect(attCheck.checksumMismatches).toHaveLength(0);
+
+    // Repeat restore with preventOverwrite: true must not duplicate
+    const repeat = executeRestoreWithRollback(archive, restoredState, {
+      backupId: archive.manifest.sha256,
+      preRestoreBackupId: 'snap-real-2',
+      restoreMode: 'FULL',
+      actor: 'Validation Gate',
+      preventOverwrite: true,
+    });
+    expect(repeat.restoredState.accountTransactions).toHaveLength(19);
+    expect(calculateReconciledAccountBalance(repeat.restoredState.accounts![0], repeat.restoredState.accountTransactions || [])).toBe(6020);
+  });
 });

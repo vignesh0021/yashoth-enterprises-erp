@@ -38,11 +38,6 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Provision Staging Environment Configuration
-        run: |
-          cp .env.staging.example .env.staging
-          cp .env.staging.example .env
-
       - name: Run Typecheck & Automated Test Suite
         run: |
           pnpm typecheck
@@ -58,6 +53,11 @@ jobs:
           else
             echo "YE_REAL_BACKUP_B64 secret not configured; skipping optional CI real-backup run."
           fi
+
+      - name: Provision Staging Environment Configuration
+        run: |
+          cp .env.staging.example .env.staging
+          cp .env.staging.example .env
 
       - name: Build Production Web Bundle & Sync Capacitor Android
         run: |

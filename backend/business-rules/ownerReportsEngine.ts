@@ -25,8 +25,61 @@ import type {
 } from '../../src/types/index.ts';
 import { calculateReconciledAccountBalance } from './financeEngine.ts';
 import { generateProfitAndLoss } from './accountingEngine.ts';
+import { buildXlsxArchive, type ExcelWorkbook } from './excelEngine.ts';
 
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+function dedupeById<T extends { id?: string }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const item of items) {
+    if (item.id) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+    }
+    out.push(item);
+  }
+  return out;
+}
+
+function scopeCollection<T extends { id?: string; companyId?: string }>(
+  items: T[],
+  companyId?: string
+): T[] {
+  const deduped = dedupeById(items);
+  if (!companyId) return deduped;
+  return deduped.filter((item) => !item.companyId || item.companyId === companyId);
+}
+
+export function scopeOwnerReportInput(input: OwnerReportInput): OwnerReportInput {
+  const cid = input.companyId;
+  const scopedEmployees = scopeCollection(input.employees, cid);
+  const empIds = new Set(scopedEmployees.map((e) => e.id));
+  const scopedContractors = scopeCollection(input.contractors, cid);
+  const conIds = new Set(scopedContractors.map((c) => c.id));
+
+  return {
+    ...input,
+    accounts: scopeCollection(input.accounts, cid),
+    accountTransactions: scopeCollection(input.accountTransactions, cid),
+    expenses: scopeCollection(input.expenses, cid),
+    invoices: scopeCollection(input.invoices, cid),
+    purchases: scopeCollection(input.purchases, cid),
+    sales: scopeCollection(input.sales, cid),
+    payments: scopeCollection(input.payments, cid),
+    parties: scopeCollection(input.parties, cid),
+    employees: scopedEmployees,
+    attendance: scopeCollection(input.attendance, cid).filter((a) => !cid || !a.employeeId || empIds.size === 0 || empIds.has(a.employeeId)),
+    salaryRecords: scopeCollection(input.salaryRecords, cid).filter((s) => !cid || !s.employeeId || empIds.size === 0 || empIds.has(s.employeeId)),
+    dailyLabourEntries: scopeCollection(input.dailyLabourEntries, cid),
+    labourPayments: scopeCollection(input.labourPayments, cid),
+    contractors: scopedContractors,
+    contractorWorkEntries: scopeCollection(input.contractorWorkEntries, cid).filter((w) => !cid || !w.contractorId || conIds.size === 0 || conIds.has(w.contractorId)),
+    contractorPayments: scopeCollection(input.contractorPayments, cid).filter((p) => !cid || !p.contractorId || conIds.size === 0 || conIds.has(p.contractorId)),
+    journalEntries: scopeCollection(input.journalEntries, cid),
+    yards: scopeCollection(input.yards, cid),
+  };
+}
 
 export interface OwnerReportInput {
   companyId?: string;
@@ -64,6 +117,14 @@ export interface OwnerBusinessOverview {
   ownerCapitalInjected: number;
   ownerDrawings: number;
   dataWarnings: string[];
+  reconciliationCheck: {
+    journalRevenue: number;
+    journalExpenses: number;
+    invoiceRevenueInPeriod: number;
+    expenseTotalInPeriod: number;
+    accountLedgerCashBank: number;
+    reconciled: boolean;
+  };
 }
 
 export interface OwnerPeriodBreakdown {
@@ -139,10 +200,11 @@ export function getPeriodDateRange(
 }
 
 export function computeOwnerBusinessOverview(
-  input: OwnerReportInput,
+  rawInput: OwnerReportInput,
   fromDate = '2000-01-01',
   toDate = '2099-12-31'
 ): OwnerBusinessOverview {
+  const input = scopeOwnerReportInput(rawInput);
   const dataWarnings: string[] = [];
 
   // 1. Cash & Bank balances from reconciled account ledger
@@ -162,15 +224,28 @@ export function computeOwnerBusinessOverview(
     (j) => j.isPosted && j.entryDate >= fromDate && j.entryDate <= toDate
   );
 
+  const periodInvoices = input.invoices.filter(
+    (i) => !i.isCancelled && i.invoiceDate >= fromDate && i.invoiceDate <= toDate
+  );
+  const periodExpenses = input.expenses.filter(
+    (e) => e.status !== 'REVERSED' && e.expenseDate >= fromDate && e.expenseDate <= toDate
+  );
+  const invoiceRevenueInPeriod = r2(periodInvoices.reduce((s, i) => s + (i.grandTotal || 0), 0));
+  const expenseTotalInPeriod = r2(periodExpenses.reduce((s, e) => s + (e.amount || 0), 0));
+
   let totalBusinessIncome = 0;
   let totalBusinessExpenses = 0;
   let ownerCapitalInjected = 0;
   let ownerDrawings = 0;
+  let journalRevenue = 0;
+  let journalExpenses = 0;
 
   if (postedJournals.length > 0) {
     const pnl = generateProfitAndLoss(postedJournals, fromDate, toDate);
-    totalBusinessIncome = r2(pnl.totalRevenue);
-    totalBusinessExpenses = r2(pnl.totalCOGS + pnl.totalOperatingExpenses);
+    journalRevenue = r2(pnl.totalRevenue);
+    journalExpenses = r2(pnl.totalCOGS + pnl.totalOperatingExpenses);
+    totalBusinessIncome = journalRevenue;
+    totalBusinessExpenses = journalExpenses;
 
     for (const je of postedJournals) {
       for (const line of je.lines) {
@@ -178,19 +253,25 @@ export function computeOwnerBusinessOverview(
         if (line.accountCode === '3030') ownerDrawings += line.debit - line.credit;
       }
     }
+
+    const journalSourceIds = new Set(postedJournals.map((j) => j.sourceId).filter(Boolean));
+    const journalRefs = new Set(postedJournals.map((j) => j.referenceNo).filter(Boolean));
+    const unpostedInvoices = periodInvoices.filter(
+      (i) => !journalSourceIds.has(i.id) && !journalRefs.has(i.invoiceNo)
+    );
+    const unpostedExpenses = periodExpenses.filter(
+      (e) => !journalSourceIds.has(e.id) && !journalRefs.has(e.voucherNo)
+    );
+    if (unpostedInvoices.length > 0 || unpostedExpenses.length > 0) {
+      dataWarnings.push(
+        `Partial journal coverage: ${unpostedInvoices.length} invoice(s) and ${unpostedExpenses.length} expense(s) in range lack posted journal entries.`
+      );
+    }
   } else {
     // Fallback when legacy 1.0.0 data has 0 journal entries: derive strictly from non-cancelled invoices & non-reversed expenses
     dataWarnings.push('No posted journal entries found in range; Income/Expense derived from Invoices & Expenses.');
-    totalBusinessIncome = r2(
-      input.invoices
-        .filter((i) => !i.isCancelled && i.invoiceDate >= fromDate && i.invoiceDate <= toDate)
-        .reduce((s, i) => s + (i.grandTotal || 0), 0)
-    );
-    totalBusinessExpenses = r2(
-      input.expenses
-        .filter((e) => e.status !== 'REVERSED' && e.expenseDate >= fromDate && e.expenseDate <= toDate)
-        .reduce((s, e) => s + (e.amount || 0), 0)
-    );
+    totalBusinessIncome = invoiceRevenueInPeriod;
+    totalBusinessExpenses = expenseTotalInPeriod;
     for (const tx of input.accountTransactions) {
       if (tx.transactionDate < fromDate || tx.transactionDate > toDate) continue;
       if (tx.transactionType === 'OWNER_INJECTION' || tx.transactionType === 'OPENING_BALANCE') {
@@ -256,17 +337,30 @@ export function computeOwnerBusinessOverview(
     ownerCapitalInjected: r2(ownerCapitalInjected),
     ownerDrawings: r2(ownerDrawings),
     dataWarnings,
+    reconciliationCheck: {
+      journalRevenue,
+      journalExpenses,
+      invoiceRevenueInPeriod,
+      expenseTotalInPeriod,
+      accountLedgerCashBank: r2(totalCashBalance + totalBankBalance),
+      reconciled:
+        postedJournals.length === 0
+          ? true
+          : Math.abs(totalBusinessIncome - journalRevenue) < 0.01 &&
+            Math.abs(totalBusinessExpenses - journalExpenses) < 0.01,
+    },
   };
 }
 
 export function computeOwnerPeriodSummary(
-  input: OwnerReportInput,
+  rawInput: OwnerReportInput,
   period: 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'ANNUAL' | 'CUSTOM',
   anchorDate: string,
   customStart?: string,
   customEnd?: string,
   yardId?: string
 ): OwnerPeriodBreakdown {
+  const input = scopeOwnerReportInput(rawInput);
   const { startDate, endDate } = getPeriodDateRange(period, anchorDate, customStart, customEnd);
   const overview = computeOwnerBusinessOverview(input, startDate, endDate);
 
@@ -281,6 +375,13 @@ export function computeOwnerPeriodSummary(
   let ownerDrawingsOutflows = 0;
 
   const drillDownTransactions: OwnerPeriodBreakdown['drillDownTransactions'] = [];
+  const seenDrillKeys = new Set<string>();
+  const pushDrillRow = (row: OwnerPeriodBreakdown['drillDownTransactions'][number]) => {
+    const key = `${row.source}:${row.id}`;
+    if (seenDrillKeys.has(key)) return;
+    seenDrillKeys.add(key);
+    drillDownTransactions.push(row);
+  };
 
   for (const tx of input.accountTransactions) {
     if (tx.transactionDate < startDate || tx.transactionDate > endDate) continue;
@@ -296,7 +397,7 @@ export function computeOwnerPeriodSummary(
     } else if (tx.transactionType === 'OWNER_DRAWING') {
       ownerDrawingsOutflows += tx.amount;
     }
-    drillDownTransactions.push({
+    pushDrillRow({
       id: tx.id,
       date: tx.transactionDate,
       source: 'ACCOUNT_TX',
@@ -308,7 +409,7 @@ export function computeOwnerPeriodSummary(
     });
   }
 
-  // Expense breakdown
+  // Expense breakdown + drill-down
   const catMap = new Map<string, { amount: number; count: number }>();
   for (const exp of input.expenses) {
     if (exp.status === 'REVERSED' || exp.expenseDate < startDate || exp.expenseDate > endDate) continue;
@@ -316,6 +417,16 @@ export function computeOwnerPeriodSummary(
     cur.amount = r2(cur.amount + exp.amount);
     cur.count += 1;
     catMap.set(exp.category, cur);
+    pushDrillRow({
+      id: exp.id,
+      date: exp.expenseDate,
+      source: 'EXPENSE',
+      reference: exp.voucherNo || exp.id,
+      partyOrCategory: `${exp.category}${exp.description ? ` — ${exp.description}` : ''}`,
+      debit: exp.amount,
+      credit: 0,
+      classification: `EXPENSE_${exp.status}`,
+    });
   }
   const expenseByCategory = Array.from(catMap.entries())
     .map(([category, v]) => ({ category, amount: v.amount, count: v.count }))
@@ -343,6 +454,19 @@ export function computeOwnerPeriodSummary(
   const completedPayments = input.payments.filter(
     (p) => (!p.status || p.status === 'COMPLETED') && p.paymentDate >= startDate && p.paymentDate <= endDate
   );
+  for (const pay of completedPayments) {
+    const partyName = input.parties.find((pt) => pt.id === pay.partyId)?.legalName || pay.partyId;
+    pushDrillRow({
+      id: pay.id,
+      date: pay.paymentDate,
+      source: 'PAYMENT',
+      reference: pay.paymentNo || pay.id,
+      partyOrCategory: partyName,
+      debit: pay.direction === 'INFLOW_RECEIPT' ? pay.totalAmount : 0,
+      credit: pay.direction === 'OUTFLOW_PAYMENT' ? pay.totalAmount : 0,
+      classification: pay.direction,
+    });
+  }
   const customerPaymentsReceived = r2(
     completedPayments.filter((p) => p.direction === 'INFLOW_RECEIPT').reduce((s, p) => s + p.totalAmount, 0)
   );
@@ -350,7 +474,7 @@ export function computeOwnerPeriodSummary(
     completedPayments.filter((p) => p.direction === 'OUTFLOW_PAYMENT').reduce((s, p) => s + p.totalAmount, 0)
   );
 
-  // Purchases & Supplier History
+  // Purchases & Supplier History + drill-down
   const filteredPurchases = input.purchases.filter(
     (p) =>
       p.status !== 'CANCELLED' &&
@@ -358,6 +482,19 @@ export function computeOwnerPeriodSummary(
       p.transactionDate.slice(0, 10) <= endDate &&
       (!yardId || yardId === 'ALL' || p.yardId === yardId)
   );
+  for (const pur of filteredPurchases) {
+    const partyName = input.parties.find((pt) => pt.id === pur.supplierPartyId)?.legalName || pur.supplierPartyId;
+    pushDrillRow({
+      id: pur.id,
+      date: pur.transactionDate.slice(0, 10),
+      source: 'PURCHASE',
+      reference: pur.purchaseNo || pur.id,
+      partyOrCategory: partyName,
+      debit: pur.totalAmount || 0,
+      credit: 0,
+      classification: `PURCHASE_${pur.status}`,
+    });
+  }
   const purchaseSummary = {
     count: filteredPurchases.length,
     totalAmount: r2(filteredPurchases.reduce((s, p) => s + (p.totalAmount || 0), 0)),
@@ -379,10 +516,23 @@ export function computeOwnerPeriodSummary(
     ...v,
   }));
 
-  // Customer History
+  // Customer History + drill-down
   const filteredInvoices = input.invoices.filter(
     (i) => !i.isCancelled && i.invoiceDate >= startDate && i.invoiceDate <= endDate
   );
+  for (const inv of filteredInvoices) {
+    const partyName = input.parties.find((pt) => pt.id === inv.customerPartyId)?.legalName || inv.customerPartyId;
+    pushDrillRow({
+      id: inv.id,
+      date: inv.invoiceDate,
+      source: 'INVOICE',
+      reference: inv.invoiceNo || inv.id,
+      partyOrCategory: partyName,
+      debit: 0,
+      credit: inv.grandTotal || 0,
+      classification: `INVOICE_${inv.paymentStatus}`,
+    });
+  }
   const custMap = new Map<string, { invoiceCount: number; totalBilled: number; outstanding: number }>();
   for (const inv of filteredInvoices) {
     const cur = custMap.get(inv.customerPartyId) || { invoiceCount: 0, totalBilled: 0, outstanding: 0 };
@@ -396,6 +546,21 @@ export function computeOwnerPeriodSummary(
     partyName: input.parties.find((pt) => pt.id === partyId)?.legalName || partyId,
     ...v,
   }));
+
+  // Posted Journal Entries drill-down
+  for (const je of input.journalEntries) {
+    if (!je.isPosted || je.entryDate < startDate || je.entryDate > endDate) continue;
+    pushDrillRow({
+      id: je.id,
+      date: je.entryDate,
+      source: 'JOURNAL',
+      reference: je.entryNo || je.referenceNo || je.id,
+      partyOrCategory: je.narration,
+      debit: je.totalDebit || 0,
+      credit: je.totalCredit || 0,
+      classification: je.sourceType,
+    });
+  }
 
   // Attendance Summary
   const periodAtt = input.attendance.filter((a) => a.attendanceDate >= startDate && a.attendanceDate <= endDate);
@@ -502,4 +667,74 @@ export function generateOwnerReportCsv(
     '\uFEFF' +
     [title, `Generated,${new Date().toISOString()}`, '', headers.map(esc).join(','), ...rows.map((r) => r.map(esc).join(','))].join('\n')
   );
+}
+
+export function generateOwnerSummaryWorkbook(
+  overview: OwnerBusinessOverview,
+  summary: OwnerPeriodBreakdown,
+  companyName: string,
+  periodLabel: string
+): Uint8Array {
+  const workbook: ExcelWorkbook = {
+    filename: `Owner_Summary_${summary.startDate}_to_${summary.endDate}.xlsx`,
+    sheets: [
+      {
+        name: 'Summary',
+        headers: ['Company', 'Period', 'Metric', 'Amount (INR)', 'Semantics'],
+        rows: [
+          [companyName, periodLabel, 'Business Income', summary.businessIncome, 'Selected Period'],
+          [companyName, periodLabel, 'Business Expenses', summary.businessExpenses, 'Selected Period'],
+          [companyName, periodLabel, 'Net Profit / Loss', summary.netProfitLoss, 'Selected Period'],
+          [companyName, periodLabel, 'Cash Inflows', summary.cashInflows, 'Selected Period'],
+          [companyName, periodLabel, 'Cash Outflows', summary.cashOutflows, 'Selected Period'],
+          [companyName, periodLabel, 'Bank Inflows', summary.bankInflows, 'Selected Period'],
+          [companyName, periodLabel, 'Bank Outflows', summary.bankOutflows, 'Selected Period'],
+          [companyName, periodLabel, 'Owner Capital Inflows', summary.ownerCapitalInflows, 'Selected Period (Excluded from Revenue)'],
+          [companyName, periodLabel, 'Owner Drawings', summary.ownerDrawingsOutflows, 'Selected Period (Excluded from Expenses)'],
+          [companyName, periodLabel, 'Current Cash Balance', overview.totalCashBalance, 'Current Balance (As of Today)'],
+          [companyName, periodLabel, 'Current Bank Balance', overview.totalBankBalance, 'Current Balance (As of Today)'],
+          [companyName, periodLabel, 'Customer Receivables', overview.totalCustomerReceivables, 'Current Balance (As of Today)'],
+          [companyName, periodLabel, 'Supplier Payables', overview.totalSupplierPayables, 'Current Balance (As of Today)'],
+          [companyName, periodLabel, 'Unpaid Expense Payables', overview.unpaidExpensePayables, 'Current Balance (As of Today)'],
+          [companyName, periodLabel, 'Worker / Contractor Liabilities', overview.workerSalaryLiabilities, 'Current Balance (As of Today)'],
+          [companyName, periodLabel, 'Current Financial Position', overview.currentFinancialPosition, 'Current Net Position'],
+          [companyName, periodLabel, 'Ledger Reconciliation Status', overview.reconciliationCheck.reconciled ? 1 : 0, overview.reconciliationCheck.reconciled ? 'RECONCILED' : 'MISMATCH'],
+        ],
+      },
+      {
+        name: 'Expense_Categories',
+        headers: ['Category', 'Count', 'Amount (INR)'],
+        rows: summary.expenseByCategory.map((c) => [c.category, c.count, c.amount]),
+        summaryRow: [
+          'TOTAL',
+          summary.expenseByCategory.reduce((s, c) => s + c.count, 0),
+          r2(summary.expenseByCategory.reduce((s, c) => s + c.amount, 0)),
+        ],
+      },
+      {
+        name: 'Parties_And_Yards',
+        headers: ['Section', 'Name', 'Count', 'Total Amount (INR)', 'Outstanding / Sales (INR)'],
+        rows: [
+          ...summary.supplierPurchaseHistory.map((s) => ['Supplier Purchases', s.partyName, s.count, s.totalAmount, s.outstanding]),
+          ...summary.customerTransactionHistory.map((c) => ['Customer Billing', c.partyName, c.invoiceCount, c.totalBilled, c.outstanding]),
+          ...summary.yardSummary.map((y) => ['Yard Operations', y.yardName, y.purchaseCount + y.salesCount, y.purchaseTotal, y.salesTotal]),
+        ],
+      },
+      {
+        name: 'Drill_Down',
+        headers: ['Date', 'Source', 'Reference', 'Party / Category', 'Debit (INR)', 'Credit (INR)', 'Classification'],
+        rows: summary.drillDownTransactions.map((d) => [d.date, d.source, d.reference, d.partyOrCategory, d.debit, d.credit, d.classification]),
+        summaryRow: [
+          'TOTAL',
+          `${summary.drillDownTransactions.length} rows`,
+          '',
+          '',
+          r2(summary.drillDownTransactions.reduce((s, d) => s + d.debit, 0)),
+          r2(summary.drillDownTransactions.reduce((s, d) => s + d.credit, 0)),
+          '',
+        ],
+      },
+    ],
+  };
+  return buildXlsxArchive(workbook);
 }

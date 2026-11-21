@@ -18,6 +18,7 @@ import {
   computeOwnerBusinessOverview,
   computeOwnerPeriodSummary,
   generateOwnerReportCsv,
+  generateOwnerSummaryWorkbook,
 } from '../../../backend/business-rules/ownerReportsEngine.ts';
 
 type PeriodFilter = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'ANNUAL' | 'CUSTOM';
@@ -101,10 +102,13 @@ export const OwnerSummaryReportsView: React.FC = () => {
     ]
   );
 
-  const overview = useMemo(() => computeOwnerBusinessOverview(reportInput), [reportInput]);
   const summary = useMemo(
     () => computeOwnerPeriodSummary(reportInput, period, anchorDate, customStart, customEnd, yardId),
     [reportInput, period, anchorDate, customStart, customEnd, yardId]
+  );
+  const overview = useMemo(
+    () => computeOwnerBusinessOverview(reportInput, summary.startDate, summary.endDate),
+    [reportInput, summary.startDate, summary.endDate]
   );
 
   const filteredDrillDown = useMemo(() => {
@@ -118,6 +122,27 @@ export const OwnerSummaryReportsView: React.FC = () => {
     );
   }, [summary.drillDownTransactions, drillSearch]);
 
+  const handleExportXlsx = () => {
+    const bytes = generateOwnerSummaryWorkbook(
+      overview,
+      summary,
+      activeCompany.companyName,
+      `${period} (${summary.startDate} to ${summary.endDate})`
+    );
+    const blob = new Blob([bytes.buffer as ArrayBuffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `YE_Owner_Summary_${period}_${summary.startDate}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setFeedback('Excel (.xlsx) workbook exported.');
+  };
+
   const handleExportExcelCsv = () => {
     const headers = ['Date', 'Source', 'Reference', 'Classification', 'Description / Party', 'Debit (INR)', 'Credit (INR)'];
     const rows = filteredDrillDown.map((t) => [
@@ -130,7 +155,7 @@ export const OwnerSummaryReportsView: React.FC = () => {
       t.credit,
     ]);
     const csv = generateOwnerReportCsv(
-      `YASHOTH ENTERPRISES - OWNER REPORT (${summary.startDate} to ${summary.endDate})`,
+      `${activeCompany.companyName} - OWNER REPORT (${summary.startDate} to ${summary.endDate})`,
       headers,
       rows
     );
@@ -143,7 +168,7 @@ export const OwnerSummaryReportsView: React.FC = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    setFeedback('Excel / CSV report exported.');
+    setFeedback('CSV report exported.');
   };
 
   const handleShareSummary = async () => {
@@ -173,17 +198,26 @@ export const OwnerSummaryReportsView: React.FC = () => {
             <span>Owner Summary Reports (உரிமையாளர் அறிக்கை)</span>
           </h1>
           <p className="text-xs text-slate-300">
-            {activeCompany.companyName} • Period: {summary.startDate} to {summary.endDate} • Ledger-Reconciled Live Data
+            {activeCompany.companyName} • Period: {summary.startDate} to {summary.endDate} •{' '}
+            {overview.reconciliationCheck.reconciled ? 'Ledger-Reconciled' : 'Reconciliation Check Warning'}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 print:hidden">
           <button
             type="button"
-            onClick={handleExportExcelCsv}
+            onClick={handleExportXlsx}
             className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
           >
             <FileSpreadsheet className="w-3.5 h-3.5" />
-            <span>Excel / CSV</span>
+            <span>Excel (.xlsx)</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleExportExcelCsv}
+            className="px-3 py-1.5 rounded-xl bg-teal-700 hover:bg-teal-800 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>CSV</span>
           </button>
           <button
             type="button"
@@ -191,7 +225,7 @@ export const OwnerSummaryReportsView: React.FC = () => {
             className="px-3 py-1.5 rounded-xl bg-slate-700 hover:bg-slate-600 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
           >
             <Printer className="w-3.5 h-3.5" />
-            <span>PDF / Print</span>
+            <span>Print / Save as PDF</span>
           </button>
           <button
             type="button"
@@ -291,33 +325,33 @@ export const OwnerSummaryReportsView: React.FC = () => {
           {/* 9 Core Owner KPIs */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <div className="bg-white p-3.5 rounded-xl border border-slate-200">
-              <div className="text-[11px] font-bold text-slate-500">Business Income (4xxx)</div>
+              <div className="text-[11px] font-bold text-slate-500">Business Income (Period)</div>
               <div className="text-lg font-black font-mono text-emerald-700">{formatINR(overview.totalBusinessIncome)}</div>
             </div>
             <div className="bg-white p-3.5 rounded-xl border border-slate-200">
-              <div className="text-[11px] font-bold text-slate-500">Business Expenses (5xxx)</div>
+              <div className="text-[11px] font-bold text-slate-500">Business Expenses (Period)</div>
               <div className="text-lg font-black font-mono text-rose-700">{formatINR(overview.totalBusinessExpenses)}</div>
             </div>
             <div className="bg-white p-3.5 rounded-xl border border-slate-200">
-              <div className="text-[11px] font-bold text-slate-500">Net Profit / Loss</div>
+              <div className="text-[11px] font-bold text-slate-500">Net Profit / Loss (Period)</div>
               <div className={`text-lg font-black font-mono ${overview.netProfitLoss >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
                 {formatINR(overview.netProfitLoss)}
               </div>
             </div>
             <div className="bg-white p-3.5 rounded-xl border border-slate-200">
-              <div className="text-[11px] font-bold text-slate-500 flex items-center gap-1"><Wallet className="w-3 h-3" /> Cash Balance</div>
+              <div className="text-[11px] font-bold text-slate-500 flex items-center gap-1"><Wallet className="w-3 h-3" /> Cash Balance (Current)</div>
               <div className="text-lg font-black font-mono text-slate-900">{formatINR(overview.totalCashBalance)}</div>
             </div>
             <div className="bg-white p-3.5 rounded-xl border border-slate-200">
-              <div className="text-[11px] font-bold text-slate-500 flex items-center gap-1"><Building2 className="w-3 h-3" /> Bank Balance</div>
+              <div className="text-[11px] font-bold text-slate-500 flex items-center gap-1"><Building2 className="w-3 h-3" /> Bank Balance (Current)</div>
               <div className="text-lg font-black font-mono text-slate-900">{formatINR(overview.totalBankBalance)}</div>
             </div>
             <div className="bg-white p-3.5 rounded-xl border border-slate-200">
-              <div className="text-[11px] font-bold text-slate-500">Customer Receivables</div>
+              <div className="text-[11px] font-bold text-slate-500">Receivables (Current)</div>
               <div className="text-base font-black font-mono text-sky-700">{formatINR(overview.totalCustomerReceivables)}</div>
             </div>
             <div className="bg-white p-3.5 rounded-xl border border-slate-200">
-              <div className="text-[11px] font-bold text-slate-500">Supplier Payables</div>
+              <div className="text-[11px] font-bold text-slate-500">Payables (Current)</div>
               <div className="text-base font-black font-mono text-amber-700">{formatINR(overview.totalSupplierPayables + overview.unpaidExpensePayables)}</div>
             </div>
             <div className="bg-white p-3.5 rounded-xl border border-slate-200">

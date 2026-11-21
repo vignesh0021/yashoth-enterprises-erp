@@ -76,3 +76,22 @@
   - `applicationId`: `com.yashothenterprises.erp`, `versionCode`: `1`, `versionName`: `"1.0"`, build variant: `debug` (`Yashoth-Enterprises-ERP.apk`).
   - **Local APK Build & Artifact Status:** Pending GitHub Actions CI run on this push (`java`, `gradle`, `adb`, `psql`, `supabase` CLI unavailable in Termux).
 - **Overall Release Status:** **`BLOCKED`** *(Code, unit tests, real-backup reconciliation, web build, and Owner Summary Reports are verified; final release remains blocked on: (1) CI Android APK build artifact & SHA-256 verification from the newly pushed workflow fix, (2) running `.github/workflows/staging-supabase-deploy.yml` to apply `012`/`013` & `verify-and-commit-attachment` on staging `qruqcqwgwlrroevqtnax.supabase.co`, and (3) Android device UI acceptance + owner approval for the 5 `₹29,000`/`₹960` transactions).*
+
+---
+
+## CI Run #45 (`44854195991`) Remediation & Owner Summary Reports Hardening
+
+- **CI Run #45 Root Cause & Fix (`.github/workflows/build-android-apk.yml`):**
+  - **Root Cause:** `.github/workflows/build-android-apk.yml` ran `cp .env.staging.example .env` BEFORE `pnpm test:vitest`. Because Vitest loads `.env` into `import.meta.env` (unlike `scripts/test-runner.mjs`), `dbRepository.isRemoteDatabaseAvailable()` returned `true` and the three offline RPC tests in `tests/finance_module.test.ts` (`fn_post_contractor_payment_atomic`, `fn_post_salary_disbursement_atomic`, `fn_post_contractor_work_atomic`) hit live staging Supabase over HTTP as `anon`, receiving `"permission denied for function ..."` instead of `"Remote Supabase database is not configured"`.
+  - **Fix:** Moved `Provision Staging Environment Configuration` (`cp .env.staging.example .env`) to run AFTER `Run Typecheck & Automated Test Suite` and `Run Mandatory Real-Backup Acceptance Gate`, immediately before `Build Production Web Bundle & Sync Capacitor Android`.
+- **Owner Summary Reports Hardening (`backend/business-rules/ownerReportsEngine.ts`, `src/modules/reports/OwnerSummaryReportsView.tsx`, `tests/owner_summary_reports.test.ts`):**
+  - Enforced strict company isolation and ID deduplication (`scopeOwnerReportInput`) across all 18 collections when `companyId` is provided.
+  - Completed `drillDownTransactions` across `ACCOUNT_TX`, `EXPENSE`, `INVOICE`, `PURCHASE`, `PAYMENT`, and `JOURNAL` with `${source}:${id}` deduplication.
+  - Added `reconciliationCheck` and partial-journal-coverage warnings in `computeOwnerBusinessOverview`.
+  - Added genuine OpenXML `.xlsx` export (`generateOwnerSummaryWorkbook` via `buildXlsxArchive`) alongside UTF-8 BOM CSV export and clearly labeled `Print / Save as PDF` (`window.print()`), plus clear `Period` vs `Current` labels on KPI cards.
+- **Re-Verified Automated Results (Exit Code `0`):**
+  - `pnpm typecheck`: **PASS** (`0` errors)
+  - `pnpm test:vitest`: **PASS** (`32 / 32` test files, `335 / 335` tests passed, `0` failed, `0` skipped; `tests/owner_summary_reports.test.ts`: `8 / 8`, `tests/finance_module.test.ts`: `56 / 56`)
+  - `pnpm test:real-backup`: **PASS** (`1 / 1` test passed)
+  - `pnpm build`: **PASS** (`2173` modules built in `17.73s`)
+

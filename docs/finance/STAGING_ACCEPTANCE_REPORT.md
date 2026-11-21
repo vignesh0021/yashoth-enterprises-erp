@@ -50,6 +50,7 @@
 ---
 
 ## Remaining Blockers Before `PRODUCTION CANDIDATE`
-1. Apply `012_finance_hardening_and_owner_operator.sql` and `013_receipt_attachments_and_storage_rls.sql` + deploy `verify-and-commit-attachment` on staging `qruqcqwgwlrroevqtnax.supabase.co` and execute live RLS/RPC/Storage checks.
-2. Build Android APK via `.github/workflows/build-android-apk.yml` (or Android SDK workstation), record APK version/build/SHA-256/size, install on a clean test device, restore `YE_FULL_BACKUP_2026-11-20T02-14-42.json`, and capture UI acceptance screenshots.
-3. Obtain explicit owner sign-off to reclassify the 5 existing `CUSTOMER_RECEIPT` transactions (`₹29,000` + `₹960`).
+1. **Live Staging Supabase Execution (`qruqcqwgwlrroevqtnax.supabase.co`):** Blocked locally because `psql` and `supabase` CLI are not installed in Termux. Run `.github/workflows/staging-supabase-deploy.yml` (requires GitHub Secrets `STAGING_SUPABASE_DB_URL`, `SUPABASE_ACCESS_TOKEN`, `STAGING_PROJECT_REF`) or apply `012` -> `013` via Supabase SQL Editor and deploy `verify-and-commit-attachment`.
+2. **Android APK Build & Device UI Acceptance:** Blocked locally because `java`, `gradle`, `adb`, and `ANDROID_HOME` are unavailable in Termux (`gh` CLI also absent). Pushing to `audit/owner-operator-complete-architecture` triggers `.github/workflows/build-android-apk.yml` to build `Yashoth-Enterprises-ERP.apk` and print its SHA-256; install on a clean test device, restore `YE_FULL_BACKUP_2026-11-20T02-14-42.json`, and attach UI screenshots.
+3. **CI Real-Backup Secret:** Add `YE_REAL_BACKUP_B64` (base64 of the backup JSON) to GitHub Secrets so `.github/workflows/build-android-apk.yml` executes `pnpm test:real-backup` via `YE_BACKUP_FILE` in CI.
+4. **Owner Reclassification Approval:** Obtain explicit owner sign-off to reclassify the 5 existing `CUSTOMER_RECEIPT` transactions (`₹29,000` top-ups + `₹960` lunch).

@@ -1,0 +1,32 @@
+name: Deploy Staging Supabase Migrations & Edge Function
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy-staging:
+    name: Apply Migrations 012 & 013 + Deploy Edge Function
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Apply Migrations 012 & 013 in Dependency Order
+        env:
+          STAGING_SUPABASE_DB_URL: ${{ secrets.STAGING_SUPABASE_DB_URL }}
+        run: |
+          psql "$STAGING_SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f database/migrations/012_finance_hardening_and_owner_operator.sql
+          psql "$STAGING_SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f database/migrations/013_receipt_attachments_and_storage_rls.sql
+
+      - name: Deploy verify-and-commit-attachment Edge Function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          STAGING_PROJECT_REF: ${{ secrets.STAGING_PROJECT_REF }}
+        run: |
+          supabase functions deploy verify-and-commit-attachment --project-ref "$STAGING_PROJECT_REF" --no-verify-jwt

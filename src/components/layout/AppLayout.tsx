@@ -329,6 +329,7 @@ export const AppLayout: React.FC = () => {
     { name: t('nav.vehicles', 'Vehicles & Docs'), path: '/vehicles', icon: Car, badge: expiringDocsCount > 0 ? expiringDocsCount : undefined },
     { name: t('nav.employees', 'Employees & Attendance'), path: '/employees', icon: UserCheck },
     { name: t('nav.reports', 'Reports & Register'), path: '/reports', icon: BarChart3 },
+    { name: t('nav.ownerReports', 'Owner Reports'), path: '/owner-reports', icon: BarChart3 },
     { name: t('nav.settings', 'Settings & Audit'), path: '/settings', icon: Settings },
   ];
 

@@ -49,12 +49,15 @@ jobs:
           pnpm test:vitest
 
       - name: Run Mandatory Real-Backup Acceptance Gate (When Secret Provided)
-        if: ${{ secrets.YE_REAL_BACKUP_B64 != '' }}
         env:
           YE_REAL_BACKUP_B64: ${{ secrets.YE_REAL_BACKUP_B64 }}
         run: |
-          echo "$YE_REAL_BACKUP_B64" | base64 -d > "$RUNNER_TEMP/ye_real_backup.json"
-          YE_BACKUP_FILE="$RUNNER_TEMP/ye_real_backup.json" pnpm test:real-backup
+          if [ -n "$YE_REAL_BACKUP_B64" ]; then
+            echo "$YE_REAL_BACKUP_B64" | base64 -d > "$RUNNER_TEMP/ye_real_backup.json"
+            YE_BACKUP_FILE="$RUNNER_TEMP/ye_real_backup.json" pnpm test:real-backup
+          else
+            echo "YE_REAL_BACKUP_B64 secret not configured; skipping optional CI real-backup run."
+          fi
 
       - name: Build Production Web Bundle & Sync Capacitor Android
         run: |

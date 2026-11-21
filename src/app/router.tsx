@@ -15,6 +15,7 @@ import { FinanceView } from '../modules/finance/FinanceView.tsx';
 import { VehiclesView } from '../modules/vehicles/VehiclesView.tsx';
 import { EmployeesView } from '../modules/employees/EmployeesView.tsx';
 import { ReportsView } from '../modules/reports/ReportsView.tsx';
+import { OwnerSummaryReportsView } from '../modules/reports/OwnerSummaryReportsView.tsx';
 import { SettingsView } from '../modules/settings/SettingsView.tsx';
 
 export const router = createBrowserRouter([
@@ -37,6 +38,7 @@ export const router = createBrowserRouter([
       { path: 'vehicles', element: <VehiclesView /> },
       { path: 'employees', element: <EmployeesView /> },
       { path: 'reports', element: <ReportsView /> },
+      { path: 'owner-reports', element: <OwnerSummaryReportsView /> },
       { path: 'settings', element: <SettingsView /> },
     ],
   },

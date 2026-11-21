@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "node scripts/test-runner.mjs",
-    "test:vitest": "vitest run",
+    "test:vitest": "vitest run --exclude tests/acceptance/**",
+    "test:real-backup": "vitest run tests/acceptance/real_backup_restore.acceptance.test.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "cap:sync": "pnpm build && cap sync android"

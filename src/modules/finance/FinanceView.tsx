@@ -56,8 +56,15 @@ import {
   ChevronLeft,
   ChevronRight,
   Download,
-  BarChart3
+  BarChart3,
+  Share2
 } from 'lucide-react';
+import { VisualReportModal } from '../../components/common/VisualReportModal.tsx';
+import {
+  getLocalDateStr,
+  getLocalWeekRange,
+  type VisualReportPeriod,
+} from '../../utils/visualReportExporter.ts';
 
 export const FinanceView: React.FC = () => {
   const { t, language } = useLanguage();
@@ -99,6 +106,7 @@ export const FinanceView: React.FC = () => {
     addAccountTransaction,
     updateAccountTransaction,
     deleteAccountTransaction,
+    activeCompany,
     currentUser 
   } = useERP();
 
@@ -128,13 +136,20 @@ export const FinanceView: React.FC = () => {
   }, [searchParams, location.pathname]);
 
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isVisualReportOpen, setIsVisualReportOpen] = useState(false);
+  const [visualReportPeriod, setVisualReportPeriod] = useState<VisualReportPeriod>('DAY');
+
+  const openVisualReport = (period: VisualReportPeriod = 'DAY') => {
+    setVisualReportPeriod(period);
+    setIsVisualReportOpen(true);
+  };
 
   const showFeedback = (type: 'success' | 'error', text: string) => {
     setFeedbackMsg({ type, text });
     setTimeout(() => setFeedbackMsg(null), 4000);
   };
 
-  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const todayStr = useMemo(() => getLocalDateStr(), []);
   const currentMonthStr = useMemo(() => todayStr.substring(0, 7), [todayStr]); // e.g. "2026-10"
 
   // -------------------------------------------------------------
@@ -165,6 +180,37 @@ export const FinanceView: React.FC = () => {
       .reduce((sum, e) => sum + e.amount, 0);
     return roundTo2(expTotal);
   }, [expenses, todayStr]);
+
+  const cockpitExpenseOverview = useMemo(() => {
+    const active = expenses.filter((e) => e.status !== 'REVERSED');
+    const wk = getLocalWeekRange(todayStr);
+    const weekList = active.filter((e) => e.expenseDate >= wk.startDate && e.expenseDate <= wk.endDate);
+    const monthList = active.filter((e) => (e.expenseDate || '').startsWith(currentMonthStr));
+    const sortedAll = [...active].sort((a, b) =>
+      (b.expenseDate + b.voucherNo).localeCompare(a.expenseDate + a.voucherNo)
+    );
+    const catMap = new Map<string, number>();
+    for (const e of monthList) {
+      catMap.set(e.category, (catMap.get(e.category) || 0) + e.amount);
+    }
+    const topCategories = Array.from(catMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+
+    return {
+      todayCount: active.filter((e) => e.expenseDate === todayStr).length,
+      weekTotal: roundTo2(weekList.reduce((s, e) => s + e.amount, 0)),
+      weekCount: weekList.length,
+      weekRange: wk,
+      monthTotal: roundTo2(monthList.reduce((s, e) => s + e.amount, 0)),
+      monthCount: monthList.length,
+      allTotal: roundTo2(active.reduce((s, e) => s + e.amount, 0)),
+      allCount: active.length,
+      unpaidTotal: roundTo2(active.filter((e) => e.status === 'UNPAID' || e.paymentMode === 'UNPAID').reduce((s, e) => s + e.amount, 0)),
+      recentExpenses: sortedAll.slice(0, 10),
+      topCategories,
+    };
+  }, [expenses, todayStr, currentMonthStr]);
 
   const todayLabourCost = useMemo(() => {
     const dlab = dailyLabourEntries
@@ -462,54 +508,9 @@ export const FinanceView: React.FC = () => {
   }, [accounts, accountTransactions, expenses, cfPeriod, cfMonth, todayStr]);
 
   const handleExportCashBookPng = () => {
-    if (typeof document === 'undefined') return;
-    const canvas = document.createElement('canvas');
-    canvas.width = 900;
-    canvas.height = 560;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.fillStyle = '#0f172a';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#f8fafc';
-    ctx.font = 'bold 26px sans-serif';
-    ctx.fillText('YASHOTH ENTERPRISES — CASH BOOK REPORT', 36, 52);
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '16px sans-serif';
-    ctx.fillText(`Period: ${cashBookPeriodSummary.startDate} to ${cashBookPeriodSummary.endDate} | Generated: ${new Date().toLocaleString()}`, 36, 84);
-
-    const rows: [string, string, string][] = [
-      ['Opening Cash (ஆரம்ப இருப்பு)', formatINR(cashBookPeriodSummary.openingCash), '#e2e8f0'],
-      ['+ Receipts & Capital Inflows', formatINR(cashBookPeriodSummary.receipts + cashBookPeriodSummary.capitalAndOtherInflows + cashBookPeriodSummary.refunds), '#34d399'],
-      ['- Paid Expenses (செலவுகள்)', formatINR(cashBookPeriodSummary.paidExpenses), '#fb7185'],
-      ['- Salary / Labour / Contractor', formatINR(cashBookPeriodSummary.salaryLabourContractorPayments), '#fb7185'],
-      ['- Owner Drawings (எடுப்பு)', formatINR(cashBookPeriodSummary.drawings), '#fbbf24'],
-      ['- Other Payments', formatINR(cashBookPeriodSummary.otherPayments), '#fb7185'],
-      ['= Expected Closing Cash (இறுதி இருப்பு)', formatINR(cashBookPeriodSummary.expectedClosingCash), '#38bdf8'],
-      ['Unpaid Expenses (Non-Cash)', `${cashBookPeriodSummary.unpaidExpensesCount} (${formatINR(cashBookPeriodSummary.unpaidExpensesTotal)})`, '#94a3b8'],
-    ];
-
-    let y = 136;
-    for (const [label, val, color] of rows) {
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(36, y - 26, 828, 42);
-      ctx.fillStyle = '#cbd5e1';
-      ctx.font = '18px sans-serif';
-      ctx.fillText(label, 52, y);
-      ctx.fillStyle = color;
-      ctx.font = 'bold 20px monospace';
-      ctx.fillText(val, 640, y);
-      y += 52;
-    }
-
-    const url = canvas.toDataURL('image/png');
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `YE_CashBook_${cfPeriod}_${todayStr}.png`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    showFeedback('success', 'WhatsApp-ready Cash Book PNG downloaded.');
+    const mappedPeriod: VisualReportPeriod =
+      cfPeriod === 'WEEK' ? 'WEEK' : cfPeriod === 'MONTH' ? 'MONTH' : 'DAY';
+    openVisualReport(mappedPeriod);
   };
 
   // 7. Guided Daily Cash Closing State
@@ -541,14 +542,20 @@ export const FinanceView: React.FC = () => {
     showFeedback('success', `Contra transfer of ${formatINR(contraAmount)} executed successfully.`);
   };
 
+  const resolveDefaultAccountForMode = (mode: 'CASH' | 'BANK' | 'UNPAID'): string => {
+    if (mode === 'UNPAID') return '';
+    const matched = accounts.find((a) => a.isActive !== false && a.accountType === mode);
+    return matched?.id || accounts.find((a) => a.isActive !== false)?.id || '';
+  };
+
   const handleOpenAddExpense = () => {
     setEditingExpense(null);
     setExpenseDate(todayStr);
     setExpenseCategory('Diesel / Petrol');
     setExpenseDesc('');
-    setExpenseAmount(1500);
-    setExpenseAccId(accounts[0]?.id || '');
+    setExpenseAmount(0);
     setExpensePaymentMode('CASH');
+    setExpenseAccId(resolveDefaultAccountForMode('CASH'));
     setPaidTo('');
     setBillRef('');
     setExpenseNotes('');
@@ -566,13 +573,33 @@ export const FinanceView: React.FC = () => {
       return;
     }
 
+    let resolvedAccId = expenseAccId;
+    if (expensePaymentMode !== 'UNPAID') {
+      const selectedAcc = accounts.find((a) => a.id === expenseAccId);
+      if (!selectedAcc || selectedAcc.accountType !== expensePaymentMode) {
+        const fallbackAcc = accounts.find(
+          (a) => a.isActive !== false && a.accountType === expensePaymentMode
+        );
+        if (!fallbackAcc) {
+          showFeedback(
+            'error',
+            `No active ${expensePaymentMode} account found. Please create a ${expensePaymentMode} account or switch payment mode.`
+          );
+          return;
+        }
+        resolvedAccId = fallbackAcc.id;
+      }
+    } else {
+      resolvedAccId = '';
+    }
+
     if (editingExpense) {
       updateExpense(editingExpense.id, {
         expenseDate,
         category: expenseCategory,
         description: expenseDesc,
         amount: Number(expenseAmount),
-        accountId: expenseAccId,
+        accountId: resolvedAccId,
         paymentMode: expensePaymentMode,
         status: expensePaymentMode === 'UNPAID' ? 'UNPAID' : 'PAID',
         paidTo,
@@ -587,7 +614,7 @@ export const FinanceView: React.FC = () => {
           category: expenseCategory,
           description: expenseDesc,
           amount: Number(expenseAmount),
-          accountId: expenseAccId,
+          accountId: resolvedAccId,
           paymentMode: expensePaymentMode,
           status: expensePaymentMode === 'UNPAID' ? 'UNPAID' : 'PAID',
           approvalStatus: 'APPROVED',
@@ -1031,6 +1058,14 @@ export const FinanceView: React.FC = () => {
 
         <div className="flex flex-wrap items-center gap-2.5">
           <button
+            type="button"
+            onClick={() => openVisualReport('DAY')}
+            className="flex items-center gap-1.5 px-4 py-2.5 min-h-[48px] bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer select-none"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            <span>{language === 'ta' ? 'அறிக்கை PNG' : 'Visual Report (PNG)'}</span>
+          </button>
+          <button
             onClick={() => setIsContraModalOpen(true)}
             className="flex items-center gap-1.5 px-4 py-2.5 min-h-[48px] bg-slate-900 hover:bg-slate-800 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer select-none"
           >
@@ -1266,6 +1301,147 @@ export const FinanceView: React.FC = () => {
               <div className="text-[10px] text-slate-500">அன்றைய கணக்கு முடிப்பு</div>
             </button>
           </div>
+
+          {/* Full Expense Details & Day/Week/Month Breakdown */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 sm:p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <div>
+                <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                  <Receipt className="w-4 h-4 text-red-600" />
+                  <span>Full Expense Details (முழு செலவு விவரம்)</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Day-wise, Week-wise ({cockpitExpenseOverview.weekRange.startDate} → {cockpitExpenseOverview.weekRange.endDate}), and Month-wise ({currentMonthStr}) expense summary.
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => openVisualReport('DAY')}
+                  className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <Share2 className="w-3 h-3" />
+                  <span>Day PNG</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openVisualReport('WEEK')}
+                  className="px-2.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <Share2 className="w-3 h-3" />
+                  <span>Week PNG</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openVisualReport('MONTH')}
+                  className="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                >
+                  <Share2 className="w-3 h-3" />
+                  <span>Month PNG</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3 rounded-xl bg-rose-50/70 border border-rose-200">
+                <div className="text-[10px] font-bold text-rose-700 uppercase">Today ({cockpitExpenseOverview.todayCount})</div>
+                <div className="text-sm sm:text-base font-black text-rose-800 mt-1">{formatINR(todayExpenses)}</div>
+              </div>
+              <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200">
+                <div className="text-[10px] font-bold text-amber-700 uppercase">This Week ({cockpitExpenseOverview.weekCount})</div>
+                <div className="text-sm sm:text-base font-black text-amber-800 mt-1">{formatINR(cockpitExpenseOverview.weekTotal)}</div>
+              </div>
+              <div className="p-3 rounded-xl bg-indigo-50/70 border border-indigo-200">
+                <div className="text-[10px] font-bold text-indigo-700 uppercase">This Month ({cockpitExpenseOverview.monthCount})</div>
+                <div className="text-sm sm:text-base font-black text-indigo-800 mt-1">{formatINR(cockpitExpenseOverview.monthTotal)}</div>
+              </div>
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <div className="text-[10px] font-bold text-slate-600 uppercase">All Active ({cockpitExpenseOverview.allCount})</div>
+                <div className="text-sm sm:text-base font-black text-slate-900 mt-1">{formatINR(cockpitExpenseOverview.allTotal)}</div>
+              </div>
+            </div>
+
+            {cockpitExpenseOverview.topCategories.length > 0 && (
+              <div className="space-y-1.5 pt-1">
+                <div className="text-[11px] font-bold text-slate-600 uppercase">This Month Category Breakdown</div>
+                {cockpitExpenseOverview.topCategories.map(([cat, amt]) => {
+                  const pct = Math.min(100, Math.round((amt / Math.max(1, cockpitExpenseOverview.monthTotal)) * 100));
+                  return (
+                    <div key={cat} className="space-y-0.5 text-xs">
+                      <div className="flex justify-between font-semibold text-slate-700">
+                        <span>{cat}</span>
+                        <span className="font-mono font-bold text-slate-900">{formatINR(amt)} ({pct}%)</span>
+                      </div>
+                      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-red-500 rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                  <tr>
+                    <th className="p-2.5">Voucher</th>
+                    <th className="p-2.5">Date</th>
+                    <th className="p-2.5">Category</th>
+                    <th className="p-2.5">Paid To</th>
+                    <th className="p-2.5">Mode</th>
+                    <th className="p-2.5 text-right">Amount</th>
+                    <th className="p-2.5 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {cockpitExpenseOverview.recentExpenses.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="p-4 text-center text-slate-400">
+                        No active expenses recorded yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    cockpitExpenseOverview.recentExpenses.map((exp) => (
+                      <tr key={exp.id} className="hover:bg-slate-50/70">
+                        <td className="p-2.5 font-mono font-bold text-slate-900">{exp.voucherNo}</td>
+                        <td className="p-2.5 text-slate-600">{exp.expenseDate}</td>
+                        <td className="p-2.5">{exp.category}</td>
+                        <td className="p-2.5 font-semibold text-slate-900">{exp.paidTo}</td>
+                        <td className="p-2.5">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            exp.paymentMode === 'CASH' ? 'bg-amber-100 text-amber-800' :
+                            exp.paymentMode === 'BANK' ? 'bg-blue-100 text-blue-800' :
+                            'bg-rose-100 text-rose-800'
+                          }`}>
+                            {exp.paymentMode || 'CASH'}
+                          </span>
+                        </td>
+                        <td className="p-2.5 text-right font-black text-slate-900">{formatINR(exp.amount)}</td>
+                        <td className="p-2.5 text-center">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            exp.status === 'UNPAID' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                          }`}>
+                            {exp.status || 'PAID'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setActiveTab('EXPENSES')}
+                className="text-xs font-bold text-red-600 hover:text-red-700 cursor-pointer"
+              >
+                Open Full Daily Expenses Register →
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1284,13 +1460,23 @@ export const FinanceView: React.FC = () => {
                 10 standard small-business categories with Cash/Bank/Unpaid tracking and zero-duplication reversal entries.
               </p>
             </div>
-            <button
-              onClick={handleOpenAddExpense}
-              className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Record Expense (செலவு பதிவு)</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => openVisualReport('DAY')}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span>Send Visual Report (PNG)</span>
+              </button>
+              <button
+                onClick={handleOpenAddExpense}
+                className="px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Record Expense (செலவு பதிவு)</span>
+              </button>
+            </div>
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
@@ -1368,7 +1554,10 @@ export const FinanceView: React.FC = () => {
                               </button>
                             )}
                             <button
-                              onClick={() => deleteExpense(exp.id)}
+                              onClick={() => {
+                                const res = deleteExpense(exp.id);
+                                showFeedback(res.success ? 'success' : 'error', res.message || 'Action completed.');
+                              }}
                               title="Delete voucher"
                               className="p-1 hover:bg-rose-50 text-rose-600 rounded cursor-pointer"
                             >
@@ -2424,6 +2613,14 @@ export const FinanceView: React.FC = () => {
 
             <div className="flex flex-wrap items-center gap-2">
               <button
+                type="button"
+                onClick={() => openVisualReport('DAY')}
+                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span>Send Visual Report (PNG)</span>
+              </button>
+              <button
                 onClick={() => window.print()}
                 className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold cursor-pointer"
               >
@@ -2997,7 +3194,11 @@ export const FinanceView: React.FC = () => {
               <label className="block text-xs font-bold text-slate-700 mb-1">Payment Mode (கட்டண முறை)</label>
               <select
                 value={expensePaymentMode}
-                onChange={(e) => setExpensePaymentMode(e.target.value as any)}
+                onChange={(e) => {
+                  const nextMode = e.target.value as 'CASH' | 'BANK' | 'UNPAID';
+                  setExpensePaymentMode(nextMode);
+                  setExpenseAccId(resolveDefaultAccountForMode(nextMode));
+                }}
                 className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900"
               >
                 <option value="CASH">Cash (ரொக்கம்)</option>
@@ -3016,9 +3217,17 @@ export const FinanceView: React.FC = () => {
                 disabled={expensePaymentMode === 'UNPAID'}
                 className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-900 disabled:opacity-50"
               >
-                {accounts.filter((a) => a.isActive !== false).map((acc) => (
-                  <option key={acc.id} value={acc.id}>{acc.accountName} ({acc.accountType})</option>
-                ))}
+                {accounts
+                  .filter(
+                    (a) =>
+                      a.isActive !== false &&
+                      (expensePaymentMode === 'UNPAID' || a.accountType === expensePaymentMode)
+                  )
+                  .map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.accountName} ({acc.accountType})
+                    </option>
+                  ))}
               </select>
             </div>
             <div>
@@ -3908,6 +4117,19 @@ export const FinanceView: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      <VisualReportModal
+        isOpen={isVisualReportOpen}
+        onClose={() => setIsVisualReportOpen(false)}
+        companyName={activeCompany.companyName}
+        expenses={expenses}
+        payments={payments}
+        cashBalance={totalCashBalance}
+        bankBalance={totalBankBalance}
+        cashBookSummary={cashBookPeriodSummary}
+        initialPeriod={visualReportPeriod}
+        onFeedback={showFeedback}
+      />
     </div>
   );
 };

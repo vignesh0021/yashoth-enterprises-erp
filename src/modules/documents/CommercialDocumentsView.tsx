@@ -452,7 +452,7 @@ export const CommercialDocumentsView: React.FC = () => {
       )}
 
       {/* Filter Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs font-semibold no-scrollbar">
+      <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 pb-1 text-xs font-semibold">
         {[
           { id: 'ALL', label: `All (${commercialDocuments.length + uploadedDocuments.filter(d => d.category === 'PREVIOUS_PO' || d.category === 'PREVIOUS_QUOTATION').length})` },
           { id: 'QUOTATION', label: `Quotations (${commercialDocuments.filter(d => d.documentType === 'QUOTATION').length})` },
@@ -467,7 +467,7 @@ export const CommercialDocumentsView: React.FC = () => {
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id as any)}
-            className={`px-3.5 py-2 rounded-xl border whitespace-nowrap transition-all min-h-[42px] cursor-pointer ${
+            className={`px-3 py-2 rounded-xl border truncate transition-all min-h-[42px] cursor-pointer ${
               activeTab === tab.id
                 ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
                 : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'

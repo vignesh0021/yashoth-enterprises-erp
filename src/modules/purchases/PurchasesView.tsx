@@ -250,12 +250,12 @@ export const PurchasesView: React.FC = () => {
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs font-semibold">
+      <div className="flex flex-wrap items-center gap-1.5 pb-1 text-xs font-semibold">
         {['ALL', 'APPROVED', 'POSTED', 'SUBMITTED', 'DRAFT'].map((tab) => (
           <button
             key={tab}
             onClick={() => setStatusFilter(tab)}
-            className={`px-3 py-1.5 rounded-lg border transition-all ${
+            className={`px-3 py-2 min-h-[38px] rounded-xl border transition-all cursor-pointer ${
               statusFilter === tab
                 ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
                 : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'

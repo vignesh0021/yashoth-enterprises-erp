@@ -903,7 +903,7 @@ export const VehiclesView: React.FC = () => {
 
       {/* Search & Filter Controls */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 pb-1">
           {[
             { id: 'ALL', label: `All Fleet (${vehicles.length})` },
             { id: 'ALERTS', label: `⚠️ Alerts (${complianceSummary.vehiclesWithAlerts})` },
@@ -914,7 +914,7 @@ export const VehiclesView: React.FC = () => {
             <button
               key={tab.id}
               onClick={() => setActiveFilter(tab.id as any)}
-              className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all min-h-[40px] cursor-pointer ${
+              className={`px-3 py-2 rounded-xl text-xs font-bold truncate transition-all min-h-[40px] cursor-pointer ${
                 activeFilter === tab.id
                   ? 'bg-slate-900 text-white shadow-xs'
                   : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'

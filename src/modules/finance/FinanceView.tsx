@@ -2067,7 +2067,7 @@ export const FinanceView: React.FC = () => {
           {/* Period Bar + Running Summary Cards (Expense Manager Style) */}
           <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200 shadow-xs space-y-3.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5 overflow-x-auto touch-pan-x whitespace-nowrap">
+              <div className="flex flex-wrap items-center gap-1.5">
                 {(
                   [
                     { id: 'TODAY', label: 'Today' },

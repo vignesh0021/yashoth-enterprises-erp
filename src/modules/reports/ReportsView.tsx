@@ -117,7 +117,7 @@ export const ReportsView: React.FC = () => {
       </div>
 
       {/* Report Selector Pills */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs font-semibold">
+      <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 pb-1 text-xs font-semibold">
         {[
           { id: 'TRIAL_BALANCE', label: 'Trial Balance' },
           { id: 'PROFIT_LOSS', label: 'Profit & Loss (P&L)' },
@@ -133,7 +133,7 @@ export const ReportsView: React.FC = () => {
           <button
             key={tab.id}
             onClick={() => setActiveReport(tab.id as any)}
-            className={`px-3 py-1.5 rounded-lg border whitespace-nowrap transition-all ${
+            className={`px-3 py-2 min-h-[40px] rounded-xl border truncate transition-all cursor-pointer ${
               activeReport === tab.id
                 ? 'bg-red-600 text-white border-red-600 shadow-sm font-bold'
                 : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'

@@ -80,7 +80,8 @@ describe('Cashflow CRUD, Account Balance Reconciliation & Mobile Backup Fixes', 
     expect(backupView).toContain('Restore from Supabase');
     expect(backupView).toContain("exportDestination === 'SUPABASE_CLOUD'");
     expect(backupView).toContain('break-all');
-    expect(settingsView).toContain('shrink-0 whitespace-nowrap');
+    expect(backupView).toContain('grid-cols-2 sm:flex sm:flex-wrap');
+    expect(settingsView).toContain('grid-cols-2 sm:flex sm:flex-wrap');
   });
 
   it('wraps financial report tables in overflow-x-auto touch-pan-x for mobile scrolling', () => {

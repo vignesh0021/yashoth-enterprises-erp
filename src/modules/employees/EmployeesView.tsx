@@ -1161,7 +1161,7 @@ export const EmployeesView: React.FC = () => {
               <div className="space-y-4 text-xs">
                 {/* Navigation Tabs inside Employee Modal */}
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200 pb-3">
-                  <div className="flex items-center gap-1.5 overflow-x-auto touch-pan-x whitespace-nowrap pb-1 sm:pb-0">
+                  <div className="flex flex-wrap items-center gap-1.5 pb-1 sm:pb-0">
                     <button
                       type="button"
                       onClick={() => setActiveTrackingTab('calendar')}

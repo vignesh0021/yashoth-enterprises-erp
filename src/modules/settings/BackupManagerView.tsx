@@ -359,50 +359,50 @@ export const BackupManagerView: React.FC = () => {
       </div>
 
       {/* Navigation Sub-Tabs */}
-      <div className="flex overflow-x-auto touch-pan-x whitespace-nowrap border-b border-slate-200 gap-2 text-xs font-bold text-slate-600">
+      <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-1.5 border-b border-slate-200 pb-2 text-xs font-bold text-slate-600">
         <button
           onClick={() => setActiveTab('EXPORT')}
-          className={`shrink-0 flex items-center gap-1.5 pb-2.5 px-3 border-b-2 transition-colors ${
+          className={`flex items-center justify-center sm:justify-start gap-1.5 py-2.5 px-3 min-h-[42px] rounded-xl transition-all cursor-pointer ${
             activeTab === 'EXPORT'
-              ? 'border-indigo-600 text-indigo-700'
-              : 'border-transparent hover:text-slate-900'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'bg-white border border-slate-200 hover:bg-slate-50 hover:text-slate-900'
           }`}
         >
           <Download className="w-4 h-4 shrink-0" />
-          <span>Generate Backup</span>
+          <span className="truncate">Generate Backup</span>
         </button>
         <button
           onClick={() => setActiveTab('RESTORE')}
-          className={`shrink-0 flex items-center gap-1.5 pb-2.5 px-3 border-b-2 transition-colors ${
+          className={`flex items-center justify-center sm:justify-start gap-1.5 py-2.5 px-3 min-h-[42px] rounded-xl transition-all cursor-pointer ${
             activeTab === 'RESTORE'
-              ? 'border-indigo-600 text-indigo-700'
-              : 'border-transparent hover:text-slate-900'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'bg-white border border-slate-200 hover:bg-slate-50 hover:text-slate-900'
           }`}
         >
           <Upload className="w-4 h-4 shrink-0" />
-          <span>Restore Wizard</span>
+          <span className="truncate">Restore Wizard</span>
         </button>
         <button
           onClick={() => setActiveTab('SCHEDULE')}
-          className={`shrink-0 flex items-center gap-1.5 pb-2.5 px-3 border-b-2 transition-colors ${
+          className={`flex items-center justify-center sm:justify-start gap-1.5 py-2.5 px-3 min-h-[42px] rounded-xl transition-all cursor-pointer ${
             activeTab === 'SCHEDULE'
-              ? 'border-indigo-600 text-indigo-700'
-              : 'border-transparent hover:text-slate-900'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'bg-white border border-slate-200 hover:bg-slate-50 hover:text-slate-900'
           }`}
         >
           <Calendar className="w-4 h-4 shrink-0" />
-          <span>Schedule &amp; Cloud</span>
+          <span className="truncate">Schedule &amp; Cloud</span>
         </button>
         <button
           onClick={() => setActiveTab('HISTORY')}
-          className={`shrink-0 flex items-center gap-1.5 pb-2.5 px-3 border-b-2 transition-colors ${
+          className={`flex items-center justify-center sm:justify-start gap-1.5 py-2.5 px-3 min-h-[42px] rounded-xl transition-all cursor-pointer ${
             activeTab === 'HISTORY'
-              ? 'border-indigo-600 text-indigo-700'
-              : 'border-transparent hover:text-slate-900'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'bg-white border border-slate-200 hover:bg-slate-50 hover:text-slate-900'
           }`}
         >
           <History className="w-4 h-4 shrink-0" />
-          <span>Backup History ({backupHistory.length})</span>
+          <span className="truncate">Backup History ({backupHistory.length})</span>
         </button>
       </div>
 

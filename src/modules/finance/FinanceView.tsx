@@ -106,6 +106,7 @@ export const FinanceView: React.FC = () => {
     addAccountTransaction,
     updateAccountTransaction,
     deleteAccountTransaction,
+    convertAccountTxToExpense,
     activeCompany,
     currentUser 
   } = useERP();
@@ -2461,6 +2462,23 @@ export const FinanceView: React.FC = () => {
                                 {isDebit ? '+' : '-'}
                                 {formatINR(tx.amount)}
                               </span>
+                              {!isDebit &&
+                                !tx.expenseId &&
+                                tx.transactionType !== 'CONTRA_TRANSFER_OUT' &&
+                                tx.transactionType !== 'SUPPLIER_PAYMENT' &&
+                                tx.transactionType !== 'OWNER_DRAWING' && (
+                                  <button
+                                    type="button"
+                                    title="Move to Daily Expenses"
+                                    onClick={() => {
+                                      const res = convertAccountTxToExpense(tx.id);
+                                      showFeedback(res.success ? 'success' : 'error', res.message || 'Converted.');
+                                    }}
+                                    className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-[10px] font-bold cursor-pointer whitespace-nowrap"
+                                  >
+                                    → Expense
+                                  </button>
+                                )}
                               <button
                                 type="button"
                                 title="Edit Transaction"
@@ -2524,6 +2542,23 @@ export const FinanceView: React.FC = () => {
                           </td>
                           <td className="p-3 text-right whitespace-nowrap">
                             <div className="inline-flex items-center gap-1">
+                              {tx.direction === 'CREDIT' &&
+                                !tx.expenseId &&
+                                tx.transactionType !== 'CONTRA_TRANSFER_OUT' &&
+                                tx.transactionType !== 'SUPPLIER_PAYMENT' &&
+                                tx.transactionType !== 'OWNER_DRAWING' && (
+                                  <button
+                                    type="button"
+                                    title="Move to Daily Expenses"
+                                    onClick={() => {
+                                      const res = convertAccountTxToExpense(tx.id);
+                                      showFeedback(res.success ? 'success' : 'error', res.message || 'Converted.');
+                                    }}
+                                    className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-[10px] font-bold cursor-pointer"
+                                  >
+                                    → Expense
+                                  </button>
+                                )}
                               <button
                                 type="button"
                                 title="Edit Transaction"

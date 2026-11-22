@@ -15,6 +15,7 @@ import type {
   CashBankAccount, 
   AccountTransaction, 
   Expense, 
+  ExpenseCategory,
   Weighment, 
   CollectionJob, 
   PurchaseHeader, 
@@ -320,6 +321,7 @@ interface ERPContextType {
   addAccountTransaction: (txData: Omit<AccountTransaction, 'id' | 'companyId'>) => AccountTransaction;
   updateAccountTransaction: (id: string, updates: Partial<AccountTransaction>) => void;
   deleteAccountTransaction: (id: string) => { success: boolean; message?: string };
+  convertAccountTxToExpense: (txId: string, category?: ExpenseCategory) => { success: boolean; message?: string; expense?: Expense };
   updateWeighment: (id: string, updates: Partial<Weighment>) => void;
   deleteWeighment: (id: string) => { success: boolean; message?: string };
   updateCollectionJob: (id: string, updates: Partial<CollectionJob>) => void;
@@ -3133,6 +3135,77 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: true, message: 'Transaction record deleted.' };
   };
 
+  const convertAccountTxToExpense = (
+    txId: string,
+    category: ExpenseCategory = 'Other Expenses'
+  ): { success: boolean; message?: string; expense?: Expense } => {
+    const existing = accountTransactions.find((tx) => tx.id === txId);
+    if (!existing) return { success: false, message: 'Cash & Bank transaction not found.' };
+    if (existing.direction !== 'CREDIT') {
+      return { success: false, message: 'Only outflow (CREDIT) entries can be moved to Daily Expenses.' };
+    }
+    if (existing.expenseId) {
+      return { success: false, message: 'This entry is already linked to a Daily Expense voucher.' };
+    }
+
+    const acc = accounts.find((a) => a.id === existing.accountId);
+    const seq = expenses.length + 1;
+    const voucherNo = `EXP-26-${String(seq).padStart(4, '0')}`;
+    const expId = 'exp-' + Math.random().toString(36).substring(2, 11);
+    const now = new Date().toISOString();
+    const paymentMode: 'CASH' | 'BANK' = acc?.accountType === 'BANK' ? 'BANK' : 'CASH';
+
+    const newExpense: Expense = {
+      id: expId,
+      companyId: existing.companyId || activeCompanyId,
+      voucherNo,
+      expenseDate: existing.transactionDate,
+      category,
+      description: existing.description || '',
+      amount: existing.amount,
+      accountId: existing.accountId,
+      paymentMode,
+      paidByType: 'COMPANY',
+      status: 'PAID',
+      approvalStatus: 'APPROVED',
+      enteredBy: currentUser.fullName,
+      paidTo: existing.description || 'Cash/Bank Outflow',
+      billReference: existing.referenceNo,
+      accountTransactionId: existing.id,
+      journalEntryId: existing.journalEntryId,
+      createdBy: existing.createdBy || currentUser.fullName,
+      createdAt: now,
+    };
+
+    if (!existing.journalEntryId) {
+      const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
+      const je = createExpenseJournal(newExpense, accCode, activeCompany);
+      newExpense.journalEntryId = je.id;
+      setJournalEntries((prev) => [je, ...prev]);
+    }
+
+    setExpenses((prev) => [newExpense, ...prev]);
+    setAccountTransactions((prev) =>
+      prev.map((tx) =>
+        tx.id === txId
+          ? {
+              ...tx,
+              expenseId: expId,
+              transactionType: 'OPERATING_EXPENSE',
+              referenceNo: tx.referenceNo || voucherNo,
+              journalEntryId: newExpense.journalEntryId,
+            }
+          : tx
+      )
+    );
+    logAudit('CONVERT_CASHBANK_TO_EXPENSE', 'EXPENSE', expId, existing, newExpense);
+    return {
+      success: true,
+      message: `Moved to Daily Expenses as "${voucherNo}" (₹${existing.amount.toLocaleString('en-IN')}).`,
+      expense: newExpense,
+    };
+  };
+
   const updateWeighment = (id: string, updates: Partial<Weighment>) => {
     const existing = weighments.find((w) => w.id === id);
     if (!existing) return;
@@ -4016,6 +4089,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addAccountTransaction,
         updateAccountTransaction,
         deleteAccountTransaction,
+        convertAccountTxToExpense,
         updateWeighment,
         deleteWeighment,
         updateCollectionJob,

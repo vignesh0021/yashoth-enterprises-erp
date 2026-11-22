@@ -313,6 +313,48 @@ export const FinanceView: React.FC = () => {
   const [paidTo, setPaidTo] = useState('');
   const [billRef, setBillRef] = useState('');
   const [expenseNotes, setExpenseNotes] = useState('');
+  const [customCategories, setCustomCategories] = useState<string[]>(() => {
+    try {
+      const raw = typeof localStorage !== 'undefined' ? localStorage.getItem('ye_custom_expense_categories') : null;
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+
+  const allExpenseCategories = useMemo(() => {
+    const base: string[] = [...EXPENSE_CATEGORIES];
+    for (const c of customCategories) {
+      if (c && !base.includes(c)) base.push(c);
+    }
+    for (const e of expenses) {
+      if (e.category && !base.includes(e.category)) base.push(e.category);
+    }
+    return base;
+  }, [customCategories, expenses]);
+
+  const handleAddCustomCategory = () => {
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) return;
+    if (!allExpenseCategories.some((c) => c.toLowerCase() === trimmed.toLowerCase())) {
+      const next = [...customCategories, trimmed];
+      setCustomCategories(next);
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('ye_custom_expense_categories', JSON.stringify(next));
+        }
+      } catch {
+        // Ignore storage quota errors
+      }
+    }
+    const exactMatch =
+      allExpenseCategories.find((c) => c.toLowerCase() === trimmed.toLowerCase()) || trimmed;
+    setExpenseCategory(exactMatch);
+    setNewCategoryName('');
+    setIsAddingCategory(false);
+  };
 
   // 3. Salary Payment Modal
   const [isSalaryModalOpen, setIsSalaryModalOpen] = useState(false);
@@ -2712,7 +2754,7 @@ export const FinanceView: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {EXPENSE_CATEGORIES.map((cat) => {
+                    {allExpenseCategories.map((cat) => {
                       const matched = expenses.filter((e) => e.category === cat && e.status !== 'REVERSED');
                       const sum = matched.reduce((s, e) => s + e.amount, 0);
                       return (
@@ -3167,16 +3209,51 @@ export const FinanceView: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Category (வகை)</label>
-              <select
-                value={expenseCategory}
-                onChange={(e) => setExpenseCategory(e.target.value as ExpenseCategory)}
-                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900"
-              >
-                {EXPENSE_CATEGORIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold text-slate-700">Category (வகை)</label>
+                <button
+                  type="button"
+                  onClick={() => setIsAddingCategory((prev) => !prev)}
+                  className="text-[11px] font-bold text-red-600 hover:text-red-700 cursor-pointer"
+                >
+                  {isAddingCategory ? 'Cancel' : '+ Add Category'}
+                </button>
+              </div>
+              {isAddingCategory ? (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddCustomCategory();
+                      }
+                    }}
+                    placeholder="e.g. Hotel / Toll / Rent"
+                    className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddCustomCategory}
+                    className="px-3 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shrink-0 cursor-pointer"
+                  >
+                    Add
+                  </button>
+                </div>
+              ) : (
+                <select
+                  value={expenseCategory}
+                  onChange={(e) => setExpenseCategory(e.target.value as ExpenseCategory)}
+                  className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900"
+                >
+                  {allExpenseCategories.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              )}
             </div>
           </div>
 

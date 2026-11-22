@@ -438,39 +438,39 @@ export const AppLayout: React.FC = () => {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Top Header Bar */}
-        <header className="bg-white border-b border-slate-200 px-2.5 sm:px-6 h-14 flex items-center justify-between shadow-2xs z-20 safe-top">
-          <div className="flex items-center gap-1 sm:gap-3 flex-1 min-w-0">
+        <header className="bg-white/80 backdrop-blur-xl saturate-150 border-b border-slate-200/70 px-2 sm:px-6 h-14 flex items-center justify-between gap-2 shadow-2xs z-20 safe-top">
+          <div className="flex items-center gap-1 sm:gap-3 flex-1 min-w-0 overflow-hidden">
             {/* Mobile Back Button (shown whenever not on Dashboard Home) */}
             {location.pathname !== '/' && (
               <button
                 onClick={handleGoBack}
-                className="md:hidden p-2 rounded-xl bg-slate-100 text-slate-800 hover:bg-slate-200 active:bg-slate-300 transition-colors shrink-0 min-h-[42px] min-w-[42px] flex items-center justify-center cursor-pointer border border-slate-200"
+                className="md:hidden p-2 rounded-xl bg-slate-100 text-slate-800 hover:bg-slate-200 active:bg-slate-300 transition-colors shrink-0 min-h-[40px] min-w-[40px] flex items-center justify-center cursor-pointer border border-slate-200"
                 aria-label="Go Back to Previous Page"
                 title="Back to Previous Page"
               >
-                <ArrowLeft className="w-5 h-5 text-slate-900" />
+                <ArrowLeft className="w-4 h-4 text-slate-900" />
               </button>
             )}
 
             {/* Mobile Drawer Trigger (Mobile Only) */}
             <button
               onClick={() => setIsMobileDrawerOpen(true)}
-              className="md:hidden p-2 rounded-xl text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition-colors shrink-0 min-h-[42px] min-w-[42px] flex items-center justify-center cursor-pointer"
+              className="md:hidden p-2 rounded-xl text-slate-700 hover:bg-slate-100 active:bg-slate-200 transition-colors shrink-0 min-h-[40px] min-w-[40px] flex items-center justify-center cursor-pointer"
               aria-label="Open Mobile Menu"
             >
               <Menu className="w-5 h-5 text-slate-800" />
             </button>
 
             {/* Top Brand & Multi-Company Switcher */}
-            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-              <div className="bg-white p-1 rounded-lg border border-slate-200 shadow-2xs flex items-center justify-center shrink-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+              <div className="hidden sm:flex bg-white p-1 rounded-lg border border-slate-200 shadow-2xs items-center justify-center shrink-0">
                 <img
                   src="/yasoth-logo.png"
                   alt="Yasoth Logo"
                   className="h-6 sm:h-7 w-auto object-contain"
                 />
               </div>
-              <div className="shrink-0">
+              <div className="min-w-0 truncate">
                 <CompanySwitcher />
               </div>
             </div>

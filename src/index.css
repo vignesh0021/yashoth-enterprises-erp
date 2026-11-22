@@ -20,11 +20,18 @@
   }
 
   body {
-    @apply bg-slate-100 text-slate-900 font-sans antialiased;
+    @apply bg-slate-100 text-slate-900 antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    font-optical-sizing: auto;
     color-scheme: light;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
     min-height: 100%;
     min-height: 100dvh;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  h1, h2, h3 {
+    letter-spacing: -0.02em;
   }
 
   /* Prevent iOS zoom on input focus by guaranteeing 16px minimum & enforce crisp light-surface contrast on Android Dark Mode */
@@ -51,11 +58,50 @@
   }
 }
 
-/* Native feel active press feedback */
-button:active:not(:disabled), 
+/* Native feel active press feedback (Apple pointer-down response) */
+button:active:not(:disabled),
+a:active,
+[role="button"]:active,
 .btn-touch:active:not(:disabled) {
   transform: scale(0.97);
-  transition: transform 100ms ease-out;
+  transition: transform 90ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes apple-sheet-in {
+  0% {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.apple-sheet {
+  animation: apple-sheet-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .apple-sheet {
+    animation: none;
+    transition: opacity 150ms ease;
+  }
+  button:active:not(:disabled),
+  a:active,
+  [role="button"]:active,
+  .btn-touch:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  header,
+  nav,
+  .apple-sheet {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
 }
 
 /* Safe area padding utilities for notches and mobile home bars */

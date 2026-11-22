@@ -1143,7 +1143,7 @@ export const FinanceView: React.FC = () => {
       )}
 
       {/* Navigation Tabs (Tamil & English) */}
-      <div className="flex items-center gap-1 overflow-x-auto pb-1 border-b border-slate-200 scrollbar-none">
+      <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 pb-2 border-b border-slate-200">
         {[
           { key: 'DASHBOARD', label: language === 'ta' ? 'கண்ணோட்டம்' : 'Cockpit', sub: language === 'ta' ? 'Cockpit' : 'கண்ணோட்டம்', icon: Calculator },
           { key: 'EXPENSES', label: language === 'ta' ? 'தினசரி செலவு' : 'Daily Expenses', sub: language === 'ta' ? 'Expenses' : 'செலவு', icon: Receipt },
@@ -1160,15 +1160,15 @@ export const FinanceView: React.FC = () => {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key as TabType)}
-              className={`flex items-center gap-1.5 px-3.5 py-2.5 min-h-[44px] rounded-xl text-xs font-bold whitespace-nowrap active:scale-[0.98] transition-all cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3 py-2 min-h-[42px] rounded-xl text-xs font-bold active:scale-[0.98] transition-all cursor-pointer min-w-0 ${
                 isActive
                   ? 'bg-red-600 text-white shadow-sm'
                   : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
               }`}
             >
-              <Icon className="w-3.5 h-3.5" />
-              <span>{tab.label}</span>
-              <span className={`text-[10px] ${isActive ? 'text-red-100' : 'text-slate-400'}`}>({tab.sub})</span>
+              <Icon className="w-3.5 h-3.5 shrink-0" />
+              <span className="truncate">{tab.label}</span>
+              <span className={`hidden sm:inline text-[10px] shrink-0 ${isActive ? 'text-red-100' : 'text-slate-400'}`}>({tab.sub})</span>
             </button>
           );
         })}
@@ -1522,7 +1522,86 @@ export const FinanceView: React.FC = () => {
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
-            <div className="overflow-x-auto">
+            {/* Mobile Card List */}
+            <div className="sm:hidden divide-y divide-slate-100">
+              {expenses.length === 0 ? (
+                <div className="p-6 text-center text-xs text-slate-400">
+                  No expenses recorded yet.
+                </div>
+              ) : (
+                expenses.map((exp) => (
+                  <div
+                    key={exp.id}
+                    className={`p-3.5 space-y-2 ${exp.status === 'REVERSED' ? 'bg-slate-50/70 opacity-60' : ''}`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-mono text-[11px] font-bold text-slate-900">{exp.voucherNo}</span>
+                          <span className="text-[11px] text-slate-500">• {exp.expenseDate}</span>
+                        </div>
+                        <div className="text-xs font-bold text-slate-900 truncate mt-0.5">{exp.paidTo}</div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="text-sm font-black text-slate-900">{formatINR(exp.amount)}</div>
+                        <span className={`inline-block mt-0.5 px-2 py-0.5 rounded text-[10px] font-bold ${
+                          exp.status === 'REVERSED' ? 'bg-slate-200 text-slate-600' :
+                          exp.status === 'UNPAID' ? 'bg-amber-100 text-amber-800' :
+                          'bg-emerald-100 text-emerald-800'
+                        }`}>
+                          {exp.status || 'PAID'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="px-2 py-0.5 bg-slate-100 text-slate-800 rounded text-[10px] font-semibold">
+                          {exp.category}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          exp.paymentMode === 'CASH' ? 'bg-amber-100 text-amber-800' :
+                          exp.paymentMode === 'BANK' ? 'bg-blue-100 text-blue-800' :
+                          'bg-rose-100 text-rose-800'
+                        }`}>
+                          {exp.paymentMode || 'CASH'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {exp.status === 'UNPAID' && (
+                          <button
+                            onClick={() => handlePayUnpaid(exp)}
+                            className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-[10px] font-bold cursor-pointer"
+                          >
+                            Pay
+                          </button>
+                        )}
+                        {exp.status !== 'REVERSED' && (
+                          <button
+                            onClick={() => handleReverseExpense(exp)}
+                            className="px-2 py-1 bg-amber-50 text-amber-700 rounded-lg text-[10px] font-bold cursor-pointer"
+                          >
+                            Reverse
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            const res = deleteExpense(exp.id);
+                            showFeedback(res.success ? 'success' : 'error', res.message || 'Action completed.');
+                          }}
+                          className="p-1.5 bg-rose-50 text-rose-600 rounded-lg cursor-pointer"
+                          title="Delete voucher"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Desktop Table */}
+            <div className="hidden sm:block overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
                   <tr>
@@ -3195,10 +3274,10 @@ export const FinanceView: React.FC = () => {
       <Modal
         isOpen={isExpenseModalOpen}
         onClose={() => setIsExpenseModalOpen(false)}
-        title={editingExpense ? 'Edit Expense Voucher' : 'Record Daily Expense (அன்றாட செலவு பதிவு)'}
+        title={editingExpense ? 'Edit Expense Voucher' : language === 'ta' ? 'அன்றாட செலவு பதிவு' : 'Record Daily Expense'}
       >
         <form onSubmit={handleExpenseSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Date (தேதி)</label>
               <input
@@ -3257,7 +3336,7 @@ export const FinanceView: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Amount (₹ தொகை)</label>
               <input

@@ -3025,23 +3025,21 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteExpense = (id: string): { success: boolean; message?: string } => {
     const existing = expenses.find((e) => e.id === id);
     if (!existing) return { success: false, message: 'Expense voucher not found.' };
-    if (existing.status === 'PAID' || existing.status === 'REVERSED') {
-      return {
-        success: false,
-        message: `Posted/paid expense "${existing.voucherNo}" cannot be hard-deleted. Use Reverse Expense to preserve audit history.`,
-      };
-    }
-    // Reverse any accrual journal for UNPAID expense before removing draft
-    const associatedJournals = journalEntries.filter((j) => j.sourceId === id && j.isPosted);
-    if (associatedJournals.length > 0) {
-      const revs = associatedJournals.map((orig) =>
-        createReversingJournal(orig, `Voided unpaid expense ${existing.voucherNo}`, currentUser.fullName)
-      );
-      setJournalEntries((prev) => [...revs, ...prev]);
-    }
+
     setExpenses((prev) => prev.filter((e) => e.id !== id));
+    setAccountTransactions((prev) =>
+      prev.filter(
+        (tx) =>
+          tx.id !== existing.accountTransactionId &&
+          tx.expenseId !== id &&
+          tx.referenceNo !== existing.voucherNo
+      )
+    );
+    setJournalEntries((prev) =>
+      prev.filter((je) => je.id !== existing.journalEntryId && je.sourceId !== id)
+    );
     logAudit('DELETE_EXPENSE', 'EXPENSE', id, existing, null);
-    return { success: true, message: `Unpaid expense voucher "${existing.voucherNo}" voided and accrual reversed.` };
+    return { success: true, message: `Expense voucher "${existing.voucherNo}" deleted.` };
   };
 
   const addAccountTransaction = (txData: Omit<AccountTransaction, 'id' | 'companyId'>): AccountTransaction => {
@@ -3113,10 +3111,74 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateAccountTransaction = (id: string, updates: Partial<AccountTransaction>) => {
     const existing = accountTransactions.find((tx) => tx.id === id);
     if (!existing) return;
-    if (existing.journalEntryId || existing.expenseId || existing.paymentId) {
-      throw new Error('Posted/linked cashflow transactions cannot be edited directly. Reverse the source voucher instead.');
+    if (existing.paymentId) {
+      throw new Error('Payment-linked cashflow transactions cannot be edited directly. Update or reverse the Payment voucher instead.');
     }
-    const updated = { ...existing, ...updates };
+
+    const updated: AccountTransaction = { ...existing, ...updates };
+    const targetAcc = accounts.find((a) => a.id === updated.accountId);
+    if (!targetAcc) throw new Error('Selected account not found.');
+
+    const prevOtherBalance = calculateAccountBalanceFromLedger(
+      targetAcc,
+      accountTransactions.filter((tx) => tx.id !== id)
+    );
+    validateCashBankTransaction({
+      account: targetAcc,
+      amount: updated.amount,
+      direction: updated.direction,
+      currentBalance: prevOtherBalance,
+    });
+
+    const accCode = targetAcc.accountType === 'BANK' ? '1020' : '1010';
+    const paymentMode: 'CASH' | 'BANK' = targetAcc.accountType === 'BANK' ? 'BANK' : 'CASH';
+
+    if (existing.expenseId) {
+      const linkedExp = expenses.find((e) => e.id === existing.expenseId);
+      if (linkedExp) {
+        const updatedExp: Expense = {
+          ...linkedExp,
+          accountId: updated.accountId,
+          paymentMode,
+          expenseDate: updated.transactionDate,
+          amount: updated.amount,
+          voucherNo: updated.referenceNo || linkedExp.voucherNo,
+          description: updated.description,
+          paidTo: updated.description.replace(/^Expense:\s*[^-]+-\s*/i, '').trim() || linkedExp.paidTo,
+        };
+        setExpenses((prev) => prev.map((e) => (e.id === linkedExp.id ? updatedExp : e)));
+
+        const jeId = linkedExp.journalEntryId || existing.journalEntryId;
+        if (jeId) {
+          const rebuiltJe = {
+            ...createExpenseJournal(updatedExp, accCode, activeCompany),
+            id: jeId,
+          };
+          setJournalEntries((prev) => prev.map((j) => (j.id === jeId ? rebuiltJe : j)));
+        }
+      }
+    } else if (existing.journalEntryId) {
+      const rebuiltJe = {
+        ...createAccountTransactionJournal(
+          {
+            id: updated.id,
+            transactionDate: updated.transactionDate,
+            transactionType: updated.transactionType,
+            direction: updated.direction,
+            amount: updated.amount,
+            referenceNo: updated.referenceNo,
+            description: updated.description,
+            createdBy: updated.createdBy || currentUser.fullName,
+            createdAt: updated.createdAt,
+          },
+          accCode,
+          activeCompany
+        ),
+        id: existing.journalEntryId,
+      };
+      setJournalEntries((prev) => prev.map((j) => (j.id === existing.journalEntryId ? rebuiltJe : j)));
+    }
+
     setAccountTransactions((prev) => prev.map((tx) => (tx.id === id ? updated : tx)));
     logAudit('UPDATE_ACCOUNT_TX', 'ACCOUNT_TRANSACTION', id, existing, updated);
   };
@@ -3124,13 +3186,31 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteAccountTransaction = (id: string): { success: boolean; message?: string } => {
     const existing = accountTransactions.find((tx) => tx.id === id);
     if (!existing) return { success: false, message: 'Transaction not found.' };
-    if (existing.journalEntryId || existing.expenseId || existing.paymentId) {
+    if (existing.paymentId) {
       return {
         success: false,
-        message: 'Posted/linked cashflow transactions cannot be deleted. Reverse the source voucher to preserve ledger integrity.',
+        message: 'Payment-linked cashflow transactions cannot be deleted directly. Reverse the Payment voucher instead.',
       };
     }
+
     setAccountTransactions((prev) => prev.filter((tx) => tx.id !== id));
+
+    if (existing.expenseId) {
+      const linkedExp = expenses.find((e) => e.id === existing.expenseId);
+      setExpenses((prev) => prev.filter((e) => e.id !== existing.expenseId));
+      setJournalEntries((prev) =>
+        prev.filter(
+          (j) =>
+            j.id !== existing.journalEntryId &&
+            j.id !== linkedExp?.journalEntryId &&
+            j.sourceId !== existing.expenseId
+        )
+      );
+      logAudit('DELETE_EXPENSE', 'EXPENSE', existing.expenseId, linkedExp || null, null);
+    } else if (existing.journalEntryId) {
+      setJournalEntries((prev) => prev.filter((j) => j.id !== existing.journalEntryId));
+    }
+
     logAudit('DELETE_ACCOUNT_TX', 'ACCOUNT_TRANSACTION', id, existing, null);
     return { success: true, message: 'Transaction record deleted.' };
   };

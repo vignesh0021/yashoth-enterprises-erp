@@ -427,6 +427,7 @@ export const FinanceView: React.FC = () => {
   // 6b. Cashflow Transaction Modal (Add/Edit)
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [editingTx, setEditingTx] = useState<AccountTransaction | null>(null);
+  const [txModalError, setTxModalError] = useState<string | null>(null);
   const [txAccountId, setTxAccountId] = useState(accounts[0]?.id || '');
   const [txDirection, setTxDirection] = useState<'DEBIT' | 'CREDIT'>('DEBIT');
   const [txType, setTxType] = useState<AccountTransaction['transactionType']>('CUSTOMER_RECEIPT');
@@ -920,6 +921,7 @@ export const FinanceView: React.FC = () => {
   // Cashflow Transaction CRUD
   const handleOpenAddTx = (presetDirection: 'DEBIT' | 'CREDIT' = 'DEBIT') => {
     setEditingTx(null);
+    setTxModalError(null);
     setTxAccountId(cfAccountId !== 'ALL' ? cfAccountId : accounts[0]?.id || '');
     setTxDirection(presetDirection);
     setTxType(presetDirection === 'DEBIT' ? 'CUSTOMER_RECEIPT' : 'OPERATING_EXPENSE');
@@ -959,6 +961,7 @@ export const FinanceView: React.FC = () => {
 
   const handleOpenEditTx = (tx: AccountTransaction) => {
     setEditingTx(tx);
+    setTxModalError(null);
     setTxAccountId(tx.accountId);
     setTxDirection(tx.direction);
     setTxType(tx.transactionType);
@@ -971,17 +974,18 @@ export const FinanceView: React.FC = () => {
 
   const handleTxSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setTxModalError(null);
     const parsedAmount = Number(txAmountStr);
     if (!txAccountId) {
-      showFeedback('error', 'Select an account.');
+      setTxModalError('Select an account.');
       return;
     }
     if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-      showFeedback('error', 'Enter a valid amount greater than 0.');
+      setTxModalError('Enter a valid amount greater than 0.');
       return;
     }
     if (!txDesc.trim()) {
-      showFeedback('error', 'Enter a description for this cashflow entry.');
+      setTxModalError('Enter a description for this cashflow entry.');
       return;
     }
 
@@ -1013,17 +1017,22 @@ export const FinanceView: React.FC = () => {
       }
       setIsTxModalOpen(false);
     } catch (err: any) {
-      showFeedback('error', err?.message || 'Failed to record cashflow transaction.');
+      const msg = err?.message || 'Failed to record cashflow transaction.';
+      setTxModalError(msg);
+      showFeedback('error', msg);
     }
   };
 
-  const handleDeleteTx = (txId: string) => {
+  const handleDeleteTx = (txId: string): boolean => {
     const res = deleteAccountTransaction(txId);
     if (res.success) {
       showFeedback('success', res.message || 'Cashflow transaction deleted.');
-    } else {
-      showFeedback('error', res.message || 'Failed to delete transaction.');
+      return true;
     }
+    const msg = res.message || 'Failed to delete transaction.';
+    setTxModalError(msg);
+    showFeedback('error', msg);
+    return false;
   };
 
   // Guided Daily Cash Closing Calculation
@@ -4149,6 +4158,12 @@ export const FinanceView: React.FC = () => {
         title={editingTx ? 'Edit Cashflow Transaction' : 'New Cashflow Entry'}
       >
         <form onSubmit={handleTxSubmit} className="space-y-4">
+          {txModalError && (
+            <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{txModalError}</span>
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">Account</label>
@@ -4168,7 +4183,15 @@ export const FinanceView: React.FC = () => {
               <label className="block text-xs font-bold text-slate-700 mb-1">Direction</label>
               <select
                 value={txDirection}
-                onChange={(e) => setTxDirection(e.target.value as 'DEBIT' | 'CREDIT')}
+                onChange={(e) => {
+                  const nextDir = e.target.value as 'DEBIT' | 'CREDIT';
+                  setTxDirection(nextDir);
+                  if (nextDir === 'CREDIT' && txType === 'CUSTOMER_RECEIPT') {
+                    setTxType('OPERATING_EXPENSE');
+                  } else if (nextDir === 'DEBIT' && txType === 'OPERATING_EXPENSE') {
+                    setTxType('CUSTOMER_RECEIPT');
+                  }
+                }}
                 className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900"
               >
                 <option value="DEBIT">Inflow / Receipt (வரவு +)</option>
@@ -4186,6 +4209,7 @@ export const FinanceView: React.FC = () => {
                 className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-slate-900"
               >
                 <option value="CUSTOMER_RECEIPT">Receipt (வரவு)</option>
+                <option value="OPERATING_EXPENSE">Operating Expense (செலவு)</option>
                 <option value="SUPPLIER_PAYMENT">Supplier Payment (கொடுப்பனவு)</option>
                 <option value="OWNER_INJECTION">Owner Capital Injection (முதலீடு - 3010)</option>
                 <option value="OWNER_DRAWING">Owner Drawing (எடுப்பு - 3030)</option>
@@ -4280,8 +4304,9 @@ export const FinanceView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    handleDeleteTx(editingTx.id);
-                    setIsTxModalOpen(false);
+                    if (handleDeleteTx(editingTx.id)) {
+                      setIsTxModalOpen(false);
+                    }
                   }}
                   className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 rounded-xl text-xs font-bold cursor-pointer inline-flex items-center gap-1.5"
                 >

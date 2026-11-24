@@ -305,6 +305,7 @@ export const FinanceView: React.FC = () => {
   // 2. Expense Modal
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [expenseModalError, setExpenseModalError] = useState<string | null>(null);
   const [expenseDate, setExpenseDate] = useState(todayStr);
   const [expenseCategory, setExpenseCategory] = useState<ExpenseCategory>('Diesel / Petrol');
   const [expenseDesc, setExpenseDesc] = useState('');
@@ -594,6 +595,7 @@ export const FinanceView: React.FC = () => {
 
   const handleOpenAddExpense = () => {
     setEditingExpense(null);
+    setExpenseModalError(null);
     setExpenseDate(todayStr);
     setExpenseCategory('Diesel / Petrol');
     setExpenseDesc('');
@@ -608,12 +610,17 @@ export const FinanceView: React.FC = () => {
 
   const handleExpenseSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (expenseAmount <= 0) {
-      showFeedback('error', 'Expense amount must be greater than zero.');
+    setExpenseModalError(null);
+    if (!Number.isFinite(expenseAmount) || expenseAmount <= 0) {
+      const msg = 'Expense amount must be greater than zero.';
+      setExpenseModalError(msg);
+      showFeedback('error', msg);
       return;
     }
     if (!paidTo.trim()) {
-      showFeedback('error', 'Paid To / Recipient name is required.');
+      const msg = 'Paid To / Recipient name is required.';
+      setExpenseModalError(msg);
+      showFeedback('error', msg);
       return;
     }
 
@@ -625,10 +632,9 @@ export const FinanceView: React.FC = () => {
           (a) => a.isActive !== false && a.accountType === expensePaymentMode
         );
         if (!fallbackAcc) {
-          showFeedback(
-            'error',
-            `No active ${expensePaymentMode} account found. Please create a ${expensePaymentMode} account or switch payment mode.`
-          );
+          const msg = `No active ${expensePaymentMode} account found. Please create a ${expensePaymentMode} account or switch payment mode.`;
+          setExpenseModalError(msg);
+          showFeedback('error', msg);
           return;
         }
         resolvedAccId = fallbackAcc.id;
@@ -638,19 +644,26 @@ export const FinanceView: React.FC = () => {
     }
 
     if (editingExpense) {
-      updateExpense(editingExpense.id, {
-        expenseDate,
-        category: expenseCategory,
-        description: expenseDesc,
-        amount: Number(expenseAmount),
-        accountId: resolvedAccId,
-        paymentMode: expensePaymentMode,
-        status: expensePaymentMode === 'UNPAID' ? 'UNPAID' : 'PAID',
-        paidTo,
-        billReference: billRef,
-        notes: expenseNotes,
-      });
-      showFeedback('success', `Expense voucher "${editingExpense.voucherNo}" updated.`);
+      try {
+        updateExpense(editingExpense.id, {
+          expenseDate,
+          category: expenseCategory,
+          description: expenseDesc,
+          amount: Number(expenseAmount),
+          accountId: resolvedAccId,
+          paymentMode: expensePaymentMode,
+          status: expensePaymentMode === 'UNPAID' ? 'UNPAID' : 'PAID',
+          paidTo,
+          billReference: billRef,
+          notes: expenseNotes,
+        });
+        showFeedback('success', `Expense voucher "${editingExpense.voucherNo}" updated.`);
+      } catch (err: any) {
+        const msg = err?.message || 'Failed to update expense.';
+        setExpenseModalError(msg);
+        showFeedback('error', msg);
+        return;
+      }
     } else {
       try {
         const exp = recordExpense({
@@ -670,7 +683,9 @@ export const FinanceView: React.FC = () => {
         });
         showFeedback('success', `Expense voucher "${exp.voucherNo}" recorded.`);
       } catch (err: any) {
-        showFeedback('error', err?.message || 'Failed to record expense.');
+        const msg = err?.message || 'Failed to record expense.';
+        setExpenseModalError(msg);
+        showFeedback('error', msg);
         return;
       }
     }
@@ -3385,8 +3400,15 @@ export const FinanceView: React.FC = () => {
               <label className="block text-xs font-bold text-slate-700 mb-1">Amount (₹ தொகை)</label>
               <input
                 type="number"
-                value={expenseAmount}
-                onChange={(e) => setExpenseAmount(Number(e.target.value))}
+                min="0"
+                step="any"
+                placeholder="0"
+                value={expenseAmount === 0 ? '' : expenseAmount}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setExpenseAmount(raw === '' ? 0 : Number(raw));
+                  if (expenseModalError) setExpenseModalError(null);
+                }}
                 className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs font-black text-slate-900"
               />
             </div>
@@ -3463,6 +3485,13 @@ export const FinanceView: React.FC = () => {
               className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-xs text-slate-900"
             />
           </div>
+
+          {expenseModalError && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <span>{expenseModalError}</span>
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <button

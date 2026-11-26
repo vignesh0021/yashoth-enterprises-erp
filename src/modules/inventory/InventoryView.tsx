@@ -5,6 +5,7 @@ import { StatusBadge } from '../../components/common/StatusBadge.tsx';
 import { Modal } from '../../components/common/Modal.tsx';
 import { formatINR, formatWeight, roundTo2, roundTo3 } from '../../utils/calculations.ts';
 import { MaterialsMasterTab } from './MaterialsMasterTab.tsx';
+import { GodownTransfersTab } from './GodownTransfersTab.tsx';
 import { 
   Boxes, 
   Layers, 
@@ -28,20 +29,22 @@ export const InventoryView: React.FC = () => {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = (searchParams.get('tab') as any) || 'SUMMARY';
-  const [activeTab, setActiveTab] = useState<'SUMMARY' | 'MATERIALS' | 'LOTS' | 'MOVEMENTS'>(
-    initialTab === 'MATERIALS' ? 'MATERIALS' : 'SUMMARY'
+  const [activeTab, setActiveTab] = useState<'SUMMARY' | 'MATERIALS' | 'LOTS' | 'TRANSFERS' | 'MOVEMENTS'>(
+    initialTab === 'MATERIALS' ? 'MATERIALS' : initialTab === 'TRANSFERS' ? 'TRANSFERS' : 'SUMMARY'
   );
 
   useEffect(() => {
     const tabParam = searchParams.get('tab');
     if (tabParam === 'MATERIALS') {
       setActiveTab('MATERIALS');
+    } else if (tabParam === 'TRANSFERS') {
+      setActiveTab('TRANSFERS');
     }
   }, [searchParams]);
 
-  const handleTabChange = (tab: 'SUMMARY' | 'MATERIALS' | 'LOTS' | 'MOVEMENTS') => {
+  const handleTabChange = (tab: 'SUMMARY' | 'MATERIALS' | 'LOTS' | 'TRANSFERS' | 'MOVEMENTS') => {
     setActiveTab(tab);
-    setSearchParams(tab === 'MATERIALS' ? { tab: 'MATERIALS' } : {});
+    setSearchParams(tab === 'MATERIALS' || tab === 'TRANSFERS' ? { tab } : {});
   };
   const [selectedYardId, setSelectedYardId] = useState<string>('ALL');
   const [isReconcileModalOpen, setIsReconcileModalOpen] = useState(false);
@@ -147,7 +150,17 @@ export const InventoryView: React.FC = () => {
                 : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200 sm:border-0 sm:bg-transparent'
             }`}
           >
-            Active FIFO Lots
+            Source Lots (FIFO)
+          </button>
+          <button
+            onClick={() => handleTabChange('TRANSFERS')}
+            className={`px-3 py-2 min-h-[40px] rounded-xl transition-all truncate cursor-pointer ${
+              activeTab === 'TRANSFERS'
+                ? 'bg-red-600 text-white shadow-sm'
+                : 'bg-slate-50 text-slate-600 hover:bg-slate-100 border border-slate-200 sm:border-0 sm:bg-transparent'
+            }`}
+          >
+            Godown Transfers
           </button>
           <button
             onClick={() => handleTabChange('MOVEMENTS')}
@@ -180,6 +193,7 @@ export const InventoryView: React.FC = () => {
 
       {/* Tab Content */}
       {activeTab === 'MATERIALS' && <MaterialsMasterTab />}
+      {activeTab === 'TRANSFERS' && <GodownTransfersTab />}
       {activeTab === 'SUMMARY' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <table className="w-full text-left text-xs">
@@ -261,6 +275,7 @@ export const InventoryView: React.FC = () => {
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
                 <th className="py-3 px-4">Lot Number</th>
+                <th className="py-3 px-4">Source / Supplier</th>
                 <th className="py-3 px-4">Material</th>
                 <th className="py-3 px-4">Yard</th>
                 <th className="py-3 px-4">Received Date</th>
@@ -280,6 +295,12 @@ export const InventoryView: React.FC = () => {
                 return (
                   <tr key={lot.id} className="hover:bg-slate-50/60 transition-colors">
                     <td className="py-3 px-4 font-mono font-bold text-slate-900">{lot.lotNumber}</td>
+                    <td className="py-3 px-4 text-slate-700">
+                      <span className="font-semibold block">{lot.supplierName || lot.sourceType || 'Opening / Yard Stock'}</span>
+                      {lot.originalInvoiceNo && (
+                        <span className="text-[10px] font-mono text-slate-500">Inv: {lot.originalInvoiceNo}</span>
+                      )}
+                    </td>
                     <td className="py-3 px-4 font-semibold text-slate-800">{mat?.name}</td>
                     <td className="py-3 px-4 text-slate-600">{yard?.name}</td>
                     <td className="py-3 px-4 text-slate-500">{lot.receivedAt.split('T')[0]}</td>

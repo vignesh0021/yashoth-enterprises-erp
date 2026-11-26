@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
 import { useERP } from '../../context/ERPContext.tsx';
 import { Modal } from '../../components/common/Modal.tsx';
-import { googleDriveService } from '../../services/googleDriveService.ts';
+import { googleDriveService, type GoogleDriveFile } from '../../services/googleDriveService.ts';
+import { StorageAndSyncMonitorTab } from './StorageAndSyncMonitorTab.tsx';
 import type { 
   BackupType, 
   BackupDestination, 
@@ -47,7 +48,9 @@ export const BackupManagerView: React.FC = () => {
     syncPullFromCloud,
   } = useERP();
 
-  const [activeTab, setActiveTab] = useState<'EXPORT' | 'RESTORE' | 'HISTORY' | 'SCHEDULE'>('EXPORT');
+  const [activeTab, setActiveTab] = useState<'EXPORT' | 'RESTORE' | 'HISTORY' | 'SCHEDULE' | 'STORAGE_SYNC'>('EXPORT');
+  const [driveBackups, setDriveBackups] = useState<GoogleDriveFile[]>([]);
+  const [isLoadingDriveBackups, setIsLoadingDriveBackups] = useState(false);
 
   // Export Form State
   const [exportScope, setExportScope] = useState<'FULL' | 'COMPANY'>('FULL');
@@ -87,17 +90,46 @@ export const BackupManagerView: React.FC = () => {
     setTeamSyncMsg(null);
     try {
       const res = await syncPushToCloud('yashothenterprises44@gmail.com');
-      if (res.success) {
+      if (res.success && res.remoteVerified) {
         setTeamSyncMsg({
           type: 'success',
-          text: `Pushed whole ERP database to Team Cloud Hub (Revision ${res.revision}). All 3 devices with yashothenterprises44@gmail.com now share this identical data!`,
+          text: `Verified cloud backup uploaded & SHA-256 confirmed (Revision ${res.revision}, Remote File ID: ${res.remoteFileId || 'Verified'}).`,
         });
       } else {
-        setTeamSyncMsg({ type: 'error', text: res.error || 'Failed to sync to cloud hub.' });
+        setTeamSyncMsg({
+          type: 'error',
+          text: res.error || 'Remote cloud backup NOT verified. Connect Google Drive or configure Supabase Storage first.',
+        });
       }
     } finally {
       setIsTeamSyncing(false);
     }
+  };
+
+  const handleLoadDriveBackups = async () => {
+    setIsLoadingDriveBackups(true);
+    try {
+      const files = await googleDriveService.listBackups();
+      setDriveBackups(files);
+      if (files.length === 0) {
+        setGdriveMessage('No remote YE_ backup archives found in connected Google Drive.');
+      }
+    } finally {
+      setIsLoadingDriveBackups(false);
+    }
+  };
+
+  const handleDownloadDriveBackupToRestore = async (file: GoogleDriveFile) => {
+    setRestoreError(null);
+    const dl = await googleDriveService.downloadFile(file.id);
+    if (!dl.success || !dl.content) {
+      setRestoreError(dl.error || 'Failed to download backup from Google Drive.');
+      return;
+    }
+    setSelectedFileName(file.name);
+    setSelectedFileContent(dl.content);
+    setActiveTab('RESTORE');
+    await triggerPreview(dl.content, restorePassword);
   };
 
   const handlePullTeamSync = async () => {
@@ -304,19 +336,25 @@ export const BackupManagerView: React.FC = () => {
 
   return (
     <div className="space-y-5 min-w-0">
-      {/* Supabase Cloud Backup & Quick Restore Card */}
+      {/* Verified Remote Cloud Backup & Restore Card */}
       <div className="bg-slate-900 text-white p-4 sm:p-5 rounded-xl border border-slate-800 shadow-sm space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <Cloud className="w-4 h-4 text-emerald-400 shrink-0" />
-              <h3 className="text-sm font-bold text-white">Supabase Cloud Backup &amp; Sync</h3>
-              <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                Cloud Hub Ready
+              <h3 className="text-sm font-bold text-white">Supabase Cloud Backup &amp; Sync (Verified Remote)</h3>
+              <span
+                className={`px-2 py-0.5 text-[10px] font-bold rounded-full border ${
+                  gdriveStatus.isConnected
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                    : 'bg-amber-500/20 text-amber-200 border-amber-500/30'
+                }`}
+              >
+                {gdriveStatus.isConnected ? 'Google Drive Authenticated' : 'Not Connected — Connect Drive Below'}
               </span>
             </div>
             <p className="text-[11px] text-slate-300 mt-1 break-words">
-              Push an instant full-database snapshot to Supabase Cloud or restore the latest team revision across devices.
+              Uploads GZIP-compressed archives to remote cloud storage and verifies SHA-256 remotely before reporting SUCCESS. Local browser storage is never treated as cloud backup.
             </p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 shrink-0">
@@ -327,7 +365,7 @@ export const BackupManagerView: React.FC = () => {
               className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 min-h-[40px] bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold disabled:opacity-50 cursor-pointer transition-colors whitespace-nowrap"
             >
               <Upload className="w-3.5 h-3.5 shrink-0" />
-              <span>{isTeamSyncing ? 'Syncing...' : 'Backup to Supabase'}</span>
+              <span>{isTeamSyncing ? 'Verifying Upload...' : 'Backup to Supabase / Cloud'}</span>
             </button>
             <button
               type="button"
@@ -336,10 +374,39 @@ export const BackupManagerView: React.FC = () => {
               className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 min-h-[40px] bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 rounded-lg text-xs font-bold disabled:opacity-50 cursor-pointer transition-colors whitespace-nowrap"
             >
               <Download className="w-3.5 h-3.5 shrink-0" />
-              <span>Restore from Supabase</span>
+              <span>Restore from Supabase / Cloud</span>
             </button>
+            {gdriveStatus.isConnected && (
+              <button
+                type="button"
+                disabled={isLoadingDriveBackups}
+                onClick={handleLoadDriveBackups}
+                className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 min-h-[40px] bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold disabled:opacity-50 cursor-pointer transition-colors whitespace-nowrap"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 shrink-0 ${isLoadingDriveBackups ? 'animate-spin' : ''}`} />
+                <span>List Drive Backups</span>
+              </button>
+            )}
           </div>
         </div>
+        {driveBackups.length > 0 && (
+          <div className="bg-slate-800/80 border border-slate-700 rounded-lg p-2.5 space-y-1.5">
+            <p className="text-[10px] font-bold uppercase text-slate-300">Remote Google Drive Backups ({driveBackups.length})</p>
+            {driveBackups.slice(0, 6).map((f) => (
+              <div key={f.id} className="flex items-center justify-between gap-2 text-[11px] bg-slate-900/70 px-2.5 py-1.5 rounded">
+                <span className="font-mono text-slate-200 truncate">{f.name}</span>
+                <span className="text-slate-400 shrink-0">{f.createdTime?.slice(0, 10)}</span>
+                <button
+                  type="button"
+                  onClick={() => handleDownloadDriveBackupToRestore(f)}
+                  className="px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold shrink-0 cursor-pointer"
+                >
+                  Download &amp; Preview Restore
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         {teamSyncMsg && (
           <div
             className={`p-2.5 rounded-lg text-xs font-semibold flex items-start gap-2 break-words ${
@@ -404,7 +471,20 @@ export const BackupManagerView: React.FC = () => {
           <History className="w-4 h-4 shrink-0" />
           <span className="truncate">Backup History ({backupHistory.length})</span>
         </button>
+        <button
+          onClick={() => setActiveTab('STORAGE_SYNC')}
+          className={`flex items-center justify-center sm:justify-start gap-1.5 py-2.5 px-3 min-h-[42px] rounded-xl transition-all cursor-pointer ${
+            activeTab === 'STORAGE_SYNC'
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'bg-white border border-slate-200 hover:bg-slate-50 hover:text-slate-900'
+          }`}
+        >
+          <HardDrive className="w-4 h-4 shrink-0" />
+          <span className="truncate">Storage Quota &amp; Sync</span>
+        </button>
       </div>
+
+      {activeTab === 'STORAGE_SYNC' && <StorageAndSyncMonitorTab />}
 
       {/* TAB 1: GENERATE BACKUP */}
       {activeTab === 'EXPORT' && (

@@ -96,12 +96,16 @@ export interface Material {
   code: string;
   name: string;
   category: ScrapCategory;
-  baseUnit: string; // e.g. 'KG'
+  defaultGrade?: string;
+  specification?: string;
+  baseUnit: string; // e.g. 'KG' | 'TON'
   hsnCode: string; // e.g. '7204'
   defaultPurchaseRate: number;
   defaultSalesRate: number;
   defaultGstRate: number; // e.g. 18.0
   minStockAlert: number;
+  defaultYardId?: string;
+  status?: 'ACTIVE' | 'INACTIVE' | 'DISCONTINUED';
   isActive: boolean;
 }
 
@@ -167,6 +171,12 @@ export interface Weighment {
   weighmentNo: string;
   weighingMethod: WeighingMethod;
   slipReference?: string;
+  billNumber?: string;
+  weighbridgeName?: string;
+  weighbridgeLocation?: string;
+  partyId?: string;
+  partyName?: string;
+  weighbridgeCharge?: number;
   vehicleRegistration?: string;
   grossWeight: number;
   tareWeight: number;
@@ -176,8 +186,16 @@ export interface Weighment {
   unit: string; // 'KG'
   firstWeightTime?: string;
   secondWeightTime?: string;
+  weighmentDate?: string;
   operatorName: string;
   slipImageUrl?: string;
+  slipAttachmentId?: string;
+  slipChecksum?: string;
+  ocrExtracted?: boolean;
+  ocrVerifiedBy?: string;
+  ocrVerifiedAt?: string;
+  transactionType?: 'PURCHASE_INWARD' | 'SALES_DISPATCH' | 'TRANSFER_DISPATCH' | 'TRANSFER_RECEIPT';
+  linkedTransactionId?: string;
   verificationStatus: VerificationStatus;
   notes?: string;
   createdAt: string;
@@ -227,13 +245,29 @@ export interface PurchaseHeader {
   id: string;
   companyId?: string;
   purchaseNo: string;
+  poNumber?: string;
+  supplierInvoiceNo?: string;
+  supplierInvoiceDate?: string;
   transactionDate: string;
   supplierPartyId: string;
+  supplierName?: string;
   sourceType: PurchaseSourceType;
   collectionJobId?: string;
   yardId: string;
   vehicleRegistration?: string;
+  driverName?: string;
+  driverPhone?: string;
   weighmentId?: string;
+  grossWeight?: number;
+  tareWeight?: number;
+  netWeight?: number;
+  acceptedWeight?: number;
+  rejectedWeight?: number;
+  weighbridgeSlipAttachmentId?: string;
+  invoiceAttachmentId?: string;
+  paymentStatus?: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID';
+  ocrSource?: boolean;
+  isUserVerified?: boolean;
   lines: PurchaseLine[];
   subtotalAmount: number;
   taxAmount: number;
@@ -248,15 +282,27 @@ export interface PurchaseHeader {
   createdAt: string;
 }
 
+export type InventoryLotSourceType = 'PURCHASE' | 'OPENING_STOCK' | 'TRANSFER_IN' | 'SALES_RETURN';
+
 export interface InventoryLot {
   id: string;
   companyId?: string;
   lotNumber: string;
   materialId: string;
   gradeId?: string;
+  gradeName?: string;
   yardId: string;
+  sourceType?: InventoryLotSourceType;
   sourcePurchaseId?: string;
+  sourceTransferId?: string;
+  supplierPartyId?: string;
+  supplierName?: string;
+  purchaseOrderNo?: string;
+  originalInvoiceNo?: string;
   initialQuantity: number;
+  allocatedQuantity?: number;
+  dispatchedQuantity?: number;
+  returnedQuantity?: number;
   remainingQuantity: number;
   unitCost: number;
   receivedAt: string;
@@ -269,6 +315,11 @@ export type MovementType =
   | 'SALES_DISPATCH'
   | 'YARD_TRANSFER_IN'
   | 'YARD_TRANSFER_OUT'
+  | 'SALES_RETURN'
+  | 'PURCHASE_RETURN'
+  | 'MATERIAL_CONSUMPTION'
+  | 'APPROVED_POSITIVE_ADJUSTMENT'
+  | 'APPROVED_NEGATIVE_ADJUSTMENT'
   | 'STOCK_ADJUSTMENT'
   | 'STOCK_LOSS'
   | 'REVERSAL'
@@ -919,6 +970,9 @@ export interface BackupDatabasePayload {
   tripStops?: TripStop[];
   paymentAuthorizations?: PaymentAuthorization[];
   documentAttachments?: DocumentAttachment[];
+  materialDispatches?: MaterialDispatch[];
+  godownTransfers?: GodownTransfer[];
+  managedDocuments?: ManagedDocument[];
 }
 
 export interface BackupArchive {
@@ -942,9 +996,16 @@ export interface BackupHistoryItem {
   backupType: BackupType;
   destination: BackupDestination;
   fileSizeBytes: number;
+  compressedSizeBytes?: number;
+  compressionFormat?: 'NONE' | 'GZIP';
   sha256Checksum: string;
   isEncrypted: boolean;
   encryptionAlgorithm?: string;
+  remoteFileId?: string;
+  remoteVerified?: boolean;
+  remoteVerifiedAt?: string;
+  retryCount?: number;
+  scheduleTag?: 'MANUAL' | 'DAILY' | 'WEEKLY' | 'PRE_MIGRATION' | 'PRE_RESTORE';
   schemaVersion: string;
   totalRecords: number;
   recordCountsJson: Record<string, number>;
@@ -1211,3 +1272,217 @@ export interface DailyCashClosingRecord {
   closedAt: string;
 }
 
+
+// ----------------------------------------------------------------------------
+// PHASE 2 — MATERIAL DISPATCH & MULTI-SOURCE ALLOCATION
+// ----------------------------------------------------------------------------
+
+export type DispatchApprovalStatus =
+  | 'DRAFT'
+  | 'PENDING_VERIFICATION'
+  | 'APPROVED'
+  | 'DISPATCHED'
+  | 'DELIVERED'
+  | 'DISPUTED'
+  | 'CANCELLED';
+
+export type DispatchOperationalStatus =
+  | 'PENDING_DISPATCH'
+  | 'IN_TRANSIT'
+  | 'DELIVERED'
+  | 'DISPUTED'
+  | 'CANCELLED';
+
+export interface MaterialDispatchAllocation {
+  id: string;
+  lotId: string;
+  lotNumber: string;
+  sourceType: InventoryLotSourceType;
+  supplierPartyId?: string;
+  supplierName?: string;
+  sourcePurchaseId?: string;
+  originalInvoiceNo?: string;
+  allocatedQuantity: number;
+  unitCost: number;
+  totalCost: number;
+}
+
+export interface MaterialDispatch {
+  id: string;
+  companyId: string;
+  dispatchNo: string;
+  customerPartyId?: string;
+  destinationName: string;
+  destinationYardId?: string;
+  materialId: string;
+  gradeId?: string;
+  gradeName?: string;
+  vehicleRegistration: string;
+  driverName?: string;
+  driverPhone?: string;
+  dispatchDateTime: string;
+  expectedCompletionDate?: string;
+  sourceYardId: string;
+  allocations: MaterialDispatchAllocation[];
+  grossWeight: number;
+  tareWeight: number;
+  netWeight: number;
+  totalAllocatedWeight: number;
+  weightDiscrepancy: number; // totalAllocatedWeight - netWeight (0 = reconciled)
+  weighmentId?: string;
+  weighbridgeBillNo?: string;
+  weighbridgeName?: string;
+  weighbridgeLocation?: string;
+  weighbridgeCharge?: number;
+  deliveryChallanNo?: string;
+  salesHeaderId?: string;
+  invoiceId?: string;
+  dispatchEmployee: string;
+  approvalStatus: DispatchApprovalStatus;
+  status: DispatchOperationalStatus;
+  unloadingStatus?: 'PENDING' | 'COMPLETED';
+  idempotencyKey?: string;
+  notes?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// ----------------------------------------------------------------------------
+// PHASE 3 — INTERNAL GODOWN TRANSFER MANAGEMENT
+// ----------------------------------------------------------------------------
+
+export type GodownTransferStatus =
+  | 'DRAFT'
+  | 'APPROVED'
+  | 'PENDING'
+  | 'IN_TRANSIT'
+  | 'PARTIALLY_RECEIVED'
+  | 'RECEIVED'
+  | 'DISPUTED'
+  | 'CANCELLED';
+
+export interface GodownTransferReceipt {
+  id: string;
+  receiptNo: string;
+  receivedDate: string;
+  receivedQuantity: number;
+  shortageQuantity: number;
+  excessQuantity: number;
+  receivingWeighmentId?: string;
+  receivingEmployee: string;
+  idempotencyKey?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface GodownTransfer {
+  id: string;
+  companyId: string;
+  transferNo: string;
+  sourceYardId: string;
+  destinationYardId: string;
+  materialId: string;
+  gradeId?: string;
+  gradeName?: string;
+  lotAllocations: MaterialDispatchAllocation[];
+  quantityDispatched: number;
+  quantityReceived: number;
+  shortageQuantity: number;
+  excessQuantity: number;
+  dispatchWeighmentId?: string;
+  receivingWeighmentId?: string;
+  vehicleRegistration: string;
+  driverName?: string;
+  driverPhone?: string;
+  dispatchEmployee: string;
+  receivingEmployee?: string;
+  transferDate: string;
+  expectedDate?: string;
+  receivingDate?: string;
+  supportingDocumentIds?: string[];
+  status: GodownTransferStatus;
+  disputeReason?: string;
+  receipts: GodownTransferReceipt[];
+  idempotencyKey?: string;
+  notes?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// ----------------------------------------------------------------------------
+// PHASES 7 & 9 — DOCUMENT MANAGEMENT & SUPABASE FREE-TIER QUOTA MONITOR
+// ----------------------------------------------------------------------------
+
+export type ManagedDocumentType =
+  | 'PURCHASE_INVOICE'
+  | 'SALES_INVOICE'
+  | 'WEIGHBRIDGE_SLIP'
+  | 'DELIVERY_CHALLAN'
+  | 'VEHICLE_DOC'
+  | 'GST_DOCUMENT'
+  | 'SUPPORTING_DOC'
+  | 'BACKUP_ARCHIVE';
+
+export interface ManagedDocument {
+  id: string;
+  companyId: string;
+  documentType: ManagedDocumentType;
+  documentNumber?: string;
+  transactionRef?: string;
+  partyName?: string;
+  storageProvider: 'GOOGLE_DRIVE' | 'SUPABASE_STORAGE' | 'LOCAL_IDB';
+  remoteFileId?: string;
+  storagePath?: string;
+  originalFileName: string;
+  originalMimeType: string;
+  originalSizeBytes: number;
+  previewDataUrl?: string;
+  previewMimeType?: 'image/webp' | 'image/jpeg';
+  previewSizeBytes?: number;
+  sha256Checksum: string;
+  ocrText?: string;
+  ocrVerified?: boolean;
+  uploadStatus: 'PENDING_UPLOAD' | 'UPLOADED' | 'VERIFIED' | 'FAILED';
+  migrationStatus?: 'LEGACY_BASE64' | 'MIGRATED' | 'ROLLED_BACK';
+  legacyDocumentId?: string;
+  uploadedBy: string;
+  uploadedAt: string;
+}
+
+export interface StorageQuotaConfig {
+  postgresLimitMb: number; // Default configurable assumption: 500 MB
+  fileStorageLimitMb: number; // Default configurable assumption: 1024 MB (1 GB)
+  egressLimitMb: number; // Default configurable assumption: 5120 MB (5 GB)
+  warningThresholdPct: number; // 70
+  criticalThresholdPct: number; // 85
+  adminAlertThresholdPct: number; // 95
+  restrictUploadsAtAdminAlert: boolean;
+}
+
+export type QuotaAlertLevel = 'OK' | 'WARNING' | 'CRITICAL' | 'ADMIN_ALERT';
+
+export interface StorageMonitorSnapshot {
+  databaseUsedMb: number;
+  databaseLimitMb: number;
+  databaseUsagePct: number;
+  fileStorageUsedMb: number;
+  fileStorageLimitMb: number;
+  fileStorageUsagePct: number;
+  remainingDatabaseMb: number;
+  remainingFileStorageMb: number;
+  egressLimitMb: number;
+  documentCount: number;
+  originalTotalBytes: number;
+  compressedPreviewTotalBytes: number;
+  compressionSavingsBytes: number;
+  largestFiles: { id: string; name: string; type: string; sizeBytes: number; provider: string }[];
+  monthlyGrowthBytes: number;
+  backupTotalBytes: number;
+  failedUploadCount: number;
+  pendingUploadCount: number;
+  alertLevel: QuotaAlertLevel;
+  uploadsRestricted: boolean;
+  evaluatedAt: string;
+}

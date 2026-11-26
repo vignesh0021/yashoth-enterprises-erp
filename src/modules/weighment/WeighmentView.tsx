@@ -29,6 +29,9 @@ export const WeighmentView: React.FC = () => {
   // Form State
   const [method, setMethod] = useState<WeighingMethod>('WEIGHBRIDGE_SLIP');
   const [slipRef, setSlipRef] = useState('WB-2026-9901');
+  const [weighbridgeName, setWeighbridgeName] = useState('');
+  const [partyName, setPartyName] = useState('');
+  const [weighbridgeCharge, setWeighbridgeCharge] = useState<number>(100);
   const [vehicleReg, setVehicleReg] = useState('TN 18 BY 0420');
   const [grossWeight, setGrossWeight] = useState(12500);
   const [tareWeight, setTareWeight] = useState(4500);
@@ -103,6 +106,10 @@ export const WeighmentView: React.FC = () => {
       const newW = recordWeighment({
         weighingMethod: method,
         slipReference: slipRef.trim() || undefined,
+        billNumber: slipRef.trim() || undefined,
+        weighbridgeName: weighbridgeName.trim() || undefined,
+        partyName: partyName.trim() || undefined,
+        weighbridgeCharge: Number(weighbridgeCharge) || 0,
         vehicleRegistration: vehicleReg.trim().toUpperCase() || undefined,
         grossWeight: Number(grossWeight),
         tareWeight: Number(tareWeight),
@@ -301,6 +308,39 @@ export const WeighmentView: React.FC = () => {
                 onChange={(e) => setVehicleReg(e.target.value)}
                 className="w-full min-h-[48px] px-3.5 py-2.5 border border-slate-200 rounded-xl font-mono uppercase font-bold text-base bg-white text-slate-900 focus:border-red-600 focus:ring-2 focus:ring-red-600/20"
                 placeholder="e.g. TN 18 BY 0420"
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1.5 text-xs">Weighbridge Name &amp; Location</label>
+              <input
+                type="text"
+                value={weighbridgeName}
+                onChange={(e) => setWeighbridgeName(e.target.value)}
+                className="w-full min-h-[48px] px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-white text-slate-900 focus:border-red-600"
+                placeholder="e.g. Thangavel Electronic Weigh Bridge"
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1.5 text-xs">Party / Godown Name</label>
+              <input
+                type="text"
+                value={partyName}
+                onChange={(e) => setPartyName(e.target.value)}
+                className="w-full min-h-[48px] px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm bg-white text-slate-900 focus:border-red-600"
+                placeholder="e.g. Vinoth Godown / IMOP"
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1.5 text-xs">Weighbridge Charge (₹)</label>
+              <input
+                type="number"
+                value={weighbridgeCharge}
+                onChange={(e) => setWeighbridgeCharge(parseFloat(e.target.value) || 0)}
+                className="w-full min-h-[48px] px-3.5 py-2.5 border border-slate-200 rounded-xl font-mono font-bold text-base bg-white text-slate-900 focus:border-red-600"
+                placeholder="100"
               />
             </div>
           </div>

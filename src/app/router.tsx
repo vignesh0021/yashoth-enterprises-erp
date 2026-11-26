@@ -1,5 +1,5 @@
 import React from 'react';
-import { createBrowserRouter } from 'react-router-dom';
+import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AppLayout } from '../components/layout/AppLayout.tsx';
 import { DashboardView } from '../modules/dashboard/DashboardView.tsx';
 import { PurchasesView } from '../modules/purchases/PurchasesView.tsx';
@@ -40,6 +40,7 @@ export const router = createBrowserRouter([
       { path: 'reports', element: <ReportsView /> },
       { path: 'owner-reports', element: <OwnerSummaryReportsView /> },
       { path: 'settings', element: <SettingsView /> },
+      { path: '*', element: <Navigate to="/" replace /> },
     ],
   },
 ]);

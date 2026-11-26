@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { useERP } from '../../context/ERPContext.tsx';
 import { formatINR, formatWeight } from '../../utils/calculations.ts';
+import { getLocalDateStr } from '../../utils/visualReportExporter.ts';
 import { STANDARD_CHART_OF_ACCOUNTS } from '../../../backend/business-rules/accountingEngine.ts';
+import { AllBusinessReportsTab } from './AllBusinessReportsTab.tsx';
 import { 
   BarChart3, 
   Download, 
@@ -44,6 +46,7 @@ export const ReportsView: React.FC = () => {
   } = useERP();
 
   const [activeReport, setActiveReport] = useState<
+    | 'ALL_20_REPORTS'
     | 'TRIAL_BALANCE'
     | 'PROFIT_LOSS'
     | 'BALANCE_SHEET'
@@ -56,10 +59,10 @@ export const ReportsView: React.FC = () => {
     | 'EXCEL_WORKBOOKS'
   >('TRIAL_BALANCE');
 
-  // Filter states
-  const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
+  // Filter states (IST-safe local date)
+  const [asOfDate, setAsOfDate] = useState(getLocalDateStr());
   const [fromDate, setFromDate] = useState('2026-04-01');
-  const [toDate, setToDate] = useState(new Date().toISOString().split('T')[0]);
+  const [toDate, setToDate] = useState(getLocalDateStr());
   const [selectedAccountCode, setSelectedAccountCode] = useState('1010');
   const [selectedPartyId, setSelectedPartyId] = useState(parties[0]?.id || '');
 
@@ -119,6 +122,7 @@ export const ReportsView: React.FC = () => {
       {/* Report Selector Pills */}
       <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 pb-1 text-xs font-semibold">
         {[
+          { id: 'ALL_20_REPORTS', label: 'All 20 Business Reports' },
           { id: 'TRIAL_BALANCE', label: 'Trial Balance' },
           { id: 'PROFIT_LOSS', label: 'Profit & Loss (P&L)' },
           { id: 'BALANCE_SHEET', label: 'Balance Sheet' },
@@ -146,6 +150,7 @@ export const ReportsView: React.FC = () => {
 
       {/* Main Content Area */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        {activeReport === 'ALL_20_REPORTS' && <AllBusinessReportsTab />}
         
         {/* 1. TRIAL BALANCE */}
         {activeReport === 'TRIAL_BALANCE' && (

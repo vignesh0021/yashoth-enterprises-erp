@@ -48,7 +48,12 @@ import type {
   Contractor,
   ContractorWorkEntry,
   ContractorPayment,
-  DailyCashClosingRecord
+  DailyCashClosingRecord,
+  MaterialDispatch,
+  GodownTransfer,
+  ManagedDocument,
+  StorageQuotaConfig,
+  StorageMonitorSnapshot
 } from '../types/index.ts';
 
 import { authService } from '../services/authService.ts';
@@ -129,8 +134,31 @@ import {
   executeRestore,
   executeRestoreWithRollback,
   calculateNextScheduledRun,
-  exportRegistryAsCSV
+  exportRegistryAsCSV,
+  applyBackupRetention
 } from '../../backend/business-rules/backupEngine.ts';
+import {
+  postMultiSourceDispatch,
+  type MultiSourceDispatchInput,
+  type MultiSourceDispatchResult,
+} from '../../backend/business-rules/dispatchAndWeighbridgeEngine.ts';
+import {
+  createGodownTransfer,
+  dispatchGodownTransfer,
+  receiveGodownTransfer,
+  flagTransferDispute,
+  cancelGodownTransfer,
+  type CreateTransferInput,
+} from '../../backend/business-rules/transferEngine.ts';
+import {
+  computeStorageMonitorSnapshot,
+  DEFAULT_STORAGE_QUOTA_CONFIG,
+  detectDuplicateDocument,
+  migrateBase64DocumentsToDrive,
+  rollbackDocumentMigration,
+  type DocumentMigrationReport,
+} from '../../backend/business-rules/documentStorageEngine.ts';
+import { indexedDbService } from '../services/indexedDbService.ts';
 import {
   generateAllCompanyWorkbooks,
   generateConsolidatedMasterWorkbook,
@@ -393,8 +421,26 @@ interface ERPContextType {
   // Option 2 & 3: Multi-Member Team Cloud Sync & Daily Snapshots
   getCurrentDatabasePayload: () => BackupDatabasePayload;
   applyRestoredPayload: (data: BackupDatabasePayload) => void;
-  syncPushToCloud: (actorOverride?: string) => Promise<{ success: boolean; revision: number; error?: string }>;
+  syncPushToCloud: (actorOverride?: string) => Promise<{ success: boolean; revision: number; remoteVerified?: boolean; remoteFileId?: string; isLocalOnly?: boolean; error?: string }>;
   syncPullFromCloud: () => Promise<{ success: boolean; payload?: BackupDatabasePayload; revision?: number; syncedBy?: string; syncedAt?: string; error?: string }>;
+
+  // Phases 2, 3, 7, 9: Multi-Source Dispatch, Internal Godown Transfers, Managed Documents & Quota Monitor
+  materialDispatches: MaterialDispatch[];
+  createAndPostDispatch: (input: Omit<MultiSourceDispatchInput, 'companyId'>) => MultiSourceDispatchResult;
+  updateDispatchStatus: (dispatchId: string, updates: Partial<Pick<MaterialDispatch, 'status' | 'approvalStatus' | 'unloadingStatus' | 'notes'>>) => void;
+  godownTransfers: GodownTransfer[];
+  createTransfer: (input: Omit<CreateTransferInput, 'companyId' | 'createdBy'>) => GodownTransfer;
+  dispatchTransfer: (transferId: string, explicitLotRequests?: { lotId: string; quantity: number }[]) => GodownTransfer;
+  receiveTransfer: (transferId: string, params: { receivedQuantity: number; receivedDate: string; receivingEmployee: string; receivingWeighmentId?: string; idempotencyKey?: string; finalizeWithShortage?: boolean; notes?: string }) => GodownTransfer;
+  disputeTransfer: (transferId: string, reason: string) => GodownTransfer;
+  cancelTransfer: (transferId: string, reason?: string) => GodownTransfer;
+  managedDocuments: ManagedDocument[];
+  registerManagedDocument: (doc: Omit<ManagedDocument, 'id' | 'companyId' | 'uploadedAt'>) => { success: boolean; document?: ManagedDocument; duplicateWarning?: string; error?: string };
+  migrateLegacyDocumentsToDrive: (purgeBase64AfterVerification?: boolean) => Promise<{ success: boolean; report?: DocumentMigrationReport; error?: string }>;
+  rollbackLastDocumentMigration: () => boolean;
+  storageQuotaConfig: StorageQuotaConfig;
+  updateStorageQuotaConfig: (updates: Partial<StorageQuotaConfig>) => void;
+  getStorageMonitorSnapshot: () => StorageMonitorSnapshot;
 }
 
 const ERPContext = createContext<ERPContextType | undefined>(undefined);
@@ -523,6 +569,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [contractorWorkEntries, setContractorWorkEntries] = useState<ContractorWorkEntry[]>(() => load<ContractorWorkEntry[]>('contractorWorkEntries', []));
   const [contractorPayments, setContractorPayments] = useState<ContractorPayment[]>(() => load<ContractorPayment[]>('contractorPayments', []));
   const [dailyCashClosings, setDailyCashClosings] = useState<DailyCashClosingRecord[]>(() => load<DailyCashClosingRecord[]>('dailyCashClosings', []));
+  const [materialDispatches, setMaterialDispatches] = useState<MaterialDispatch[]>(() => load<MaterialDispatch[]>('materialDispatches', []));
+  const [godownTransfers, setGodownTransfers] = useState<GodownTransfer[]>(() => load<GodownTransfer[]>('godownTransfers', []));
+  const [managedDocuments, setManagedDocuments] = useState<ManagedDocument[]>(() => load<ManagedDocument[]>('managedDocuments', []));
+  const [storageQuotaConfig, setStorageQuotaConfig] = useState<StorageQuotaConfig>(() => load<StorageQuotaConfig>('storageQuotaConfig', DEFAULT_STORAGE_QUOTA_CONFIG));
+  const [lastMigrationRollbackSnapshot, setLastMigrationRollbackSnapshot] = useState<UploadedDocument[] | null>(null);
 
   // Persist state updates to localStorage
   useEffect(() => {
@@ -566,6 +617,20 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(STORAGE_PREFIX + 'contractorWorkEntries', JSON.stringify(contractorWorkEntries));
       localStorage.setItem(STORAGE_PREFIX + 'contractorPayments', JSON.stringify(contractorPayments));
       localStorage.setItem(STORAGE_PREFIX + 'dailyCashClosings', JSON.stringify(dailyCashClosings));
+      localStorage.setItem(STORAGE_PREFIX + 'materialDispatches', JSON.stringify(materialDispatches));
+      localStorage.setItem(STORAGE_PREFIX + 'godownTransfers', JSON.stringify(godownTransfers));
+      localStorage.setItem(STORAGE_PREFIX + 'managedDocuments', JSON.stringify(managedDocuments));
+      localStorage.setItem(STORAGE_PREFIX + 'storageQuotaConfig', JSON.stringify(storageQuotaConfig));
+      // Mirror operational state into IndexedDB for offline resilience
+      void indexedDbService.put('business_cache', 'erp_operational_cache', {
+        activeCompanyId,
+        materialDispatches,
+        godownTransfers,
+        managedDocuments,
+        inventoryLots,
+        stockMovements,
+        updatedAt: new Date().toISOString(),
+      });
     } catch (e) {
       console.warn('Error saving to localStorage', e);
     }
@@ -575,7 +640,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     weighments, collectionJobs, purchases, inventoryLots, stockMovements,
     sales, invoices, payments, stockCounts, auditLogs, commercialDocuments, journalEntries,
     backupHistory, restoreLogs, backupSchedule, dailyTasks, workNotes, uploadedDocuments,
-    salaryRecords, employeeAdvances, dailyLabourEntries, labourPayments, contractors, contractorWorkEntries, contractorPayments, dailyCashClosings
+    salaryRecords, employeeAdvances, dailyLabourEntries, labourPayments, contractors, contractorWorkEntries, contractorPayments, dailyCashClosings,
+    materialDispatches, godownTransfers, managedDocuments, storageQuotaConfig
   ]);
 
   // Supabase Realtime Subscriptions for Multi-Device Live Synchronization
@@ -1102,7 +1168,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       customer,
       company,
       nextInvoiceSeq,
-      currentUser.fullName
+      currentUser.fullName,
+      materials
     );
 
     setSales((prev) => prev.map((s) => (s.id === salesId ? result.updatedSales : s)));
@@ -3645,6 +3712,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     contractorWorkEntries,
     contractorPayments,
     dailyCashClosings,
+    materialDispatches,
+    godownTransfers,
+    managedDocuments,
   });
 
   const applyRestoredPayload = (data: BackupDatabasePayload) => {
@@ -3703,6 +3773,9 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (data.contractorWorkEntries) setContractorWorkEntries(data.contractorWorkEntries);
     if (data.contractorPayments) setContractorPayments(data.contractorPayments);
     if (data.dailyCashClosings) setDailyCashClosings(data.dailyCashClosings);
+    if (data.materialDispatches) setMaterialDispatches(data.materialDispatches);
+    if (data.godownTransfers) setGodownTransfers(data.godownTransfers);
+    if (data.managedDocuments) setManagedDocuments(data.managedDocuments);
   };
 
   const restoreBackup = (jsonStr: string): boolean => {
@@ -3750,24 +3823,40 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         destination: options?.destination || 'LOCAL_FILE',
       });
 
-      // Handle Google Drive destination
+      // Handle Google Drive destination (GZIP + Retry + Mandatory Post-Upload SHA-256 Remote Verification)
       if (options?.destination === 'GOOGLE_DRIVE') {
         const mimeType = options?.isEncrypted ? 'application/octet-stream' : 'application/json';
-        const uploadRes = await googleDriveService.uploadBackupFile(backupResult.filename, backupResult.rawJson, mimeType);
-        if (!uploadRes.success) {
-          throw new Error(uploadRes.error || 'Google Drive backup failed: remote confirmation not received.');
+        const uploadRes = await googleDriveService.uploadBackupFileVerified({
+          filename: backupResult.filename,
+          content: backupResult.rawJson,
+          mimeType,
+          compressGzip: !options?.isEncrypted,
+        });
+        if (!uploadRes.success || !uploadRes.remoteVerified || !uploadRes.fileId) {
+          throw new Error(uploadRes.error || 'Google Drive backup failed: remote confirmation & checksum verification not received.');
         }
+        backupResult.historyItem.remoteFileId = uploadRes.fileId;
+        backupResult.historyItem.remoteVerified = true;
+        backupResult.historyItem.remoteVerifiedAt = new Date().toISOString();
+        backupResult.historyItem.compressionFormat = uploadRes.compressionFormat;
+        backupResult.historyItem.compressedSizeBytes = uploadRes.uploadedSizeBytes;
+        backupResult.historyItem.retryCount = uploadRes.retryCount;
+        backupResult.historyItem.status = 'VERIFIED';
       }
 
-      // Handle Supabase Cloud Backup destination
+      // Handle Supabase Cloud Backup destination (NEVER claim localStorage is cloud backup!)
       if (options?.destination === 'SUPABASE_CLOUD') {
         const pushRes = await teamSyncService.pushToCloud(
           currentState,
           currentUser.email || currentUser.fullName || 'System Admin'
         );
-        if (!pushRes.success) {
-          throw new Error(pushRes.error || 'Supabase Cloud backup failed.');
+        if (!pushRes.success || !pushRes.remoteVerified) {
+          throw new Error(pushRes.error || 'Cloud backup failed: remote upload not verified.');
         }
+        backupResult.historyItem.remoteFileId = pushRes.remoteFileId;
+        backupResult.historyItem.remoteVerified = true;
+        backupResult.historyItem.remoteVerifiedAt = new Date().toISOString();
+        backupResult.historyItem.status = 'VERIFIED';
       }
 
       // Download file to client device if running in browser (skip forced download for cloud-only destinations)
@@ -3792,8 +3881,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         URL.revokeObjectURL(url);
       }
 
-      // Record in backup history
-      setBackupHistory((prev) => [backupResult.historyItem, ...prev]);
+      // Record in backup history with safe retention (never deletes last valid backup)
+      setBackupHistory((prev) => {
+        const updated = [backupResult.historyItem, ...prev];
+        const { kept } = applyBackupRetention(updated, backupSchedule.retentionCount || 30);
+        return kept;
+      });
 
       // Audit log
       logAudit(
@@ -4059,6 +4152,219 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => clearInterval(intervalId);
   }, [backupSchedule]);
 
+  // Phases 2, 3, 7 & 9 Handlers: Multi-Source Dispatch, Internal Godown Transfers, Managed Documents & Quota Monitor
+  const createAndPostDispatch = (input: Omit<MultiSourceDispatchInput, 'companyId'>): MultiSourceDispatchResult => {
+    enforceAuthorization(currentUser, 'sales:dispatch', activeCompanyId);
+    const result = postMultiSourceDispatch(
+      { ...input, companyId: activeCompanyId },
+      inventoryLots,
+      stockMovements,
+      materialDispatches,
+      currentUser.fullName || 'Operator'
+    );
+    setMaterialDispatches((prev) => [result.dispatch, ...prev]);
+    setInventoryLots(result.updatedLots);
+    setStockMovements((prev) => [...result.newMovements, ...prev]);
+    logAudit('POST_MULTI_SOURCE_DISPATCH', 'MATERIAL_DISPATCH', result.dispatch.id, null, {
+      dispatchNo: result.dispatch.dispatchNo,
+      destination: result.dispatch.destinationName,
+      netWeight: result.dispatch.netWeight,
+      allocations: result.dispatch.allocations.length,
+      discrepancy: result.discrepancy,
+    });
+    return result;
+  };
+
+  const updateDispatchStatus = (
+    dispatchId: string,
+    updates: Partial<Pick<MaterialDispatch, 'status' | 'approvalStatus' | 'unloadingStatus' | 'notes'>>
+  ) => {
+    setMaterialDispatches((prev) =>
+      prev.map((d) =>
+        d.id === dispatchId ? { ...d, ...updates, updatedAt: new Date().toISOString() } : d
+      )
+    );
+    logAudit('UPDATE_DISPATCH_STATUS', 'MATERIAL_DISPATCH', dispatchId, null, updates);
+  };
+
+  const createTransfer = (input: Omit<CreateTransferInput, 'companyId' | 'createdBy'>): GodownTransfer => {
+    const trf = createGodownTransfer(
+      { ...input, companyId: activeCompanyId, createdBy: currentUser.fullName || 'Operator' },
+      godownTransfers
+    );
+    setGodownTransfers((prev) => [trf, ...prev]);
+    logAudit('CREATE_GODOWN_TRANSFER', 'GODOWN_TRANSFER', trf.id, null, trf);
+    return trf;
+  };
+
+  const dispatchTransfer = (
+    transferId: string,
+    explicitLotRequests?: { lotId: string; quantity: number }[]
+  ): GodownTransfer => {
+    const trf = godownTransfers.find((t) => t.id === transferId);
+    if (!trf) throw new Error('Godown transfer not found');
+    const res = dispatchGodownTransfer(
+      trf,
+      inventoryLots,
+      stockMovements,
+      currentUser.fullName || 'Operator',
+      explicitLotRequests
+    );
+    setGodownTransfers((prev) => prev.map((t) => (t.id === transferId ? res.updatedTransfer : t)));
+    setInventoryLots(res.updatedLots);
+    setStockMovements((prev) => [...res.newMovements, ...prev]);
+    logAudit('DISPATCH_GODOWN_TRANSFER', 'GODOWN_TRANSFER', transferId, trf, res.updatedTransfer);
+    return res.updatedTransfer;
+  };
+
+  const receiveTransfer = (
+    transferId: string,
+    params: {
+      receivedQuantity: number;
+      receivedDate: string;
+      receivingEmployee: string;
+      receivingWeighmentId?: string;
+      idempotencyKey?: string;
+      finalizeWithShortage?: boolean;
+      notes?: string;
+    }
+  ): GodownTransfer => {
+    const trf = godownTransfers.find((t) => t.id === transferId);
+    if (!trf) throw new Error('Godown transfer not found');
+    const res = receiveGodownTransfer(trf, params, inventoryLots, stockMovements);
+    setGodownTransfers((prev) => prev.map((t) => (t.id === transferId ? res.updatedTransfer : t)));
+    setInventoryLots((prev) => [res.newDestinationLot, ...prev]);
+    setStockMovements((prev) => [res.newMovement, ...prev]);
+    logAudit('RECEIVE_GODOWN_TRANSFER', 'GODOWN_TRANSFER', transferId, trf, res.updatedTransfer);
+    return res.updatedTransfer;
+  };
+
+  const disputeTransfer = (transferId: string, reason: string): GodownTransfer => {
+    const trf = godownTransfers.find((t) => t.id === transferId);
+    if (!trf) throw new Error('Godown transfer not found');
+    const updated = flagTransferDispute(trf, reason);
+    setGodownTransfers((prev) => prev.map((t) => (t.id === transferId ? updated : t)));
+    logAudit('DISPUTE_GODOWN_TRANSFER', 'GODOWN_TRANSFER', transferId, trf, updated);
+    return updated;
+  };
+
+  const cancelTransfer = (transferId: string, reason?: string): GodownTransfer => {
+    const trf = godownTransfers.find((t) => t.id === transferId);
+    if (!trf) throw new Error('Godown transfer not found');
+    const updated = cancelGodownTransfer(trf, reason);
+    setGodownTransfers((prev) => prev.map((t) => (t.id === transferId ? updated : t)));
+    logAudit('CANCEL_GODOWN_TRANSFER', 'GODOWN_TRANSFER', transferId, trf, updated);
+    return updated;
+  };
+
+  const getStorageMonitorSnapshot = (): StorageMonitorSnapshot => {
+    return computeStorageMonitorSnapshot({
+      databasePayload: getCurrentDatabasePayload(),
+      managedDocuments: managedDocuments.filter((d) => d.companyId === activeCompanyId),
+      uploadedDocuments: uploadedDocuments.filter((d) => !d.companyId || d.companyId === activeCompanyId),
+      backupHistory,
+      quotaConfig: storageQuotaConfig,
+    });
+  };
+
+  const updateStorageQuotaConfig = (updates: Partial<StorageQuotaConfig>) => {
+    setStorageQuotaConfig((prev) => ({ ...prev, ...updates }));
+  };
+
+  const registerManagedDocument = (
+    doc: Omit<ManagedDocument, 'id' | 'companyId' | 'uploadedAt'>
+  ): { success: boolean; document?: ManagedDocument; duplicateWarning?: string; error?: string } => {
+    const quota = getStorageMonitorSnapshot();
+    if (quota.uploadsRestricted && doc.storageProvider === 'SUPABASE_STORAGE') {
+      return {
+        success: false,
+        error: 'Storage quota reached 95% administrator alert threshold. Supabase uploads are temporarily restricted — upload to Google Drive or archive old files.',
+      };
+    }
+
+    const dup = detectDuplicateDocument(
+      {
+        companyId: activeCompanyId,
+        sha256Checksum: doc.sha256Checksum,
+        documentNumber: doc.documentNumber,
+        documentType: doc.documentType,
+        transactionRef: doc.transactionRef,
+      },
+      managedDocuments
+    );
+
+    if (dup.isDuplicate && dup.sameTransaction) {
+      return { success: false, error: dup.reason || 'Duplicate document already attached to this transaction.' };
+    }
+
+    const newDoc: ManagedDocument = {
+      ...doc,
+      id: 'mdoc-' + Math.random().toString(36).substring(2, 10),
+      companyId: activeCompanyId,
+      uploadedAt: new Date().toISOString(),
+    };
+    setManagedDocuments((prev) => [newDoc, ...prev]);
+    logAudit('REGISTER_MANAGED_DOCUMENT', 'MANAGED_DOCUMENT', newDoc.id, null, {
+      fileName: newDoc.originalFileName,
+      provider: newDoc.storageProvider,
+      sha256: newDoc.sha256Checksum,
+    });
+    return {
+      success: true,
+      document: newDoc,
+      duplicateWarning: dup.isDuplicate ? dup.reason : undefined,
+    };
+  };
+
+  const migrateLegacyDocumentsToDrive = async (
+    purgeBase64AfterVerification: boolean = false
+  ): Promise<{ success: boolean; report?: DocumentMigrationReport; error?: string }> => {
+    if (!googleDriveService.isAuthenticated()) {
+      return {
+        success: false,
+        error: 'Connect Google Drive first before migrating legacy Base64 attachments.',
+      };
+    }
+
+    const res = await migrateBase64DocumentsToDrive({
+      companyId: activeCompanyId,
+      legacyDocuments: uploadedDocuments,
+      actor: currentUser.fullName || 'Admin',
+      purgeBase64AfterVerification,
+      adapter: {
+        uploadOriginal: (filename, content, mimeType) =>
+          googleDriveService.uploadBackupFile(filename, content, mimeType),
+        verifyRemoteFile: (fileId, expectedSha256) =>
+          googleDriveService.verifyRemoteFile(fileId, expectedSha256),
+      },
+    });
+
+    setLastMigrationRollbackSnapshot(res.report.rollbackSnapshot);
+    setUploadedDocuments(res.updatedLegacyDocuments);
+    if (res.newManagedDocuments.length > 0) {
+      setManagedDocuments((prev) => [...res.newManagedDocuments, ...prev]);
+    }
+    logAudit('MIGRATE_BASE64_DOCUMENTS', 'MANAGED_DOCUMENT', activeCompanyId, null, {
+      identified: res.report.totalIdentified,
+      migrated: res.report.migratedCount,
+      failed: res.report.failedCount,
+    });
+    return { success: res.report.failedCount === 0, report: res.report };
+  };
+
+  const rollbackLastDocumentMigration = (): boolean => {
+    if (!lastMigrationRollbackSnapshot) return false;
+    const { restoredLegacyDocuments, updatedManagedDocuments } = rollbackDocumentMigration(
+      lastMigrationRollbackSnapshot,
+      managedDocuments
+    );
+    setUploadedDocuments(restoredLegacyDocuments);
+    setManagedDocuments(updatedManagedDocuments);
+    setLastMigrationRollbackSnapshot(null);
+    logAudit('ROLLBACK_DOCUMENT_MIGRATION', 'MANAGED_DOCUMENT', activeCompanyId, null, { restored: restoredLegacyDocuments.length });
+    return true;
+  };
+
   return (
     <ERPContext.Provider
       value={{
@@ -4231,6 +4537,22 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         applyRestoredPayload,
         syncPushToCloud,
         syncPullFromCloud,
+        materialDispatches: materialDispatches.filter((d) => !d.companyId || d.companyId === activeCompanyId),
+        createAndPostDispatch,
+        updateDispatchStatus,
+        godownTransfers: godownTransfers.filter((t) => !t.companyId || t.companyId === activeCompanyId),
+        createTransfer,
+        dispatchTransfer,
+        receiveTransfer,
+        disputeTransfer,
+        cancelTransfer,
+        managedDocuments: managedDocuments.filter((d) => !d.companyId || d.companyId === activeCompanyId),
+        registerManagedDocument,
+        migrateLegacyDocumentsToDrive,
+        rollbackLastDocumentMigration,
+        storageQuotaConfig,
+        updateStorageQuotaConfig,
+        getStorageMonitorSnapshot,
       }}
     >
       {children}

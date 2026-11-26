@@ -9,6 +9,8 @@
  * 5. Persistent storage in localStorage with auto-sync on network reconnect.
  */
 
+import { indexedDbService, type PendingUploadItem, type SyncHistoryRecord } from './indexedDbService.ts';
+
 export type OfflineEntityType =
   | 'WEIGHMENT'
   | 'PURCHASE'
@@ -16,7 +18,10 @@ export type OfflineEntityType =
   | 'EXPENSE'
   | 'PAYMENT'
   | 'ATTENDANCE'
-  | 'PARTY';
+  | 'PARTY'
+  | 'DISPATCH'
+  | 'TRANSFER'
+  | 'DOCUMENT';
 
 export type OfflineAction = 'CREATE' | 'UPDATE' | 'DELETE';
 
@@ -24,6 +29,7 @@ export type OfflineMutationStatus = 'PENDING' | 'SYNCING' | 'SYNCED' | 'CONFLICT
 
 export interface OfflineMutation<T = any> {
   id: string;
+  idempotencyKey?: string;
   companyId: string;
   entityType: OfflineEntityType;
   entityId: string;
@@ -72,6 +78,9 @@ class OfflineSyncService {
   private statusListeners: Set<(status: SyncStatus) => void> = new Set();
   private memoryQueue: OfflineMutation[] = [];
   private memoryConflicts: ConflictLog[] = [];
+  private memoryUploads: PendingUploadItem[] = [];
+  private memorySyncHistory: SyncHistoryRecord[] = [];
+  private processedIdempotencyKeys: Set<string> = new Set();
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -132,9 +141,25 @@ class OfflineSyncService {
     action: OfflineAction;
     payload: T;
     baseServerTimestamp?: string;
+    idempotencyKey?: string;
   }): OfflineMutation<T> {
+    const idempotencyKey =
+      params.idempotencyKey || `${params.companyId}:${params.entityType}:${params.entityId}:${params.action}`;
+    const queue = this.loadQueue();
+
+    // Prevent duplicate enqueue with the same idempotencyKey when already pending or synced
+    if (params.idempotencyKey) {
+      const existing = queue.find(
+        (m) => m.idempotencyKey === params.idempotencyKey && m.companyId === params.companyId
+      );
+      if (existing) {
+        return existing as OfflineMutation<T>;
+      }
+    }
+
     const mutation: OfflineMutation<T> = {
       id: `mut-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      idempotencyKey,
       companyId: params.companyId,
       entityType: params.entityType,
       entityId: params.entityId,
@@ -146,7 +171,6 @@ class OfflineSyncService {
       retryCount: 0,
     };
 
-    const queue = this.loadQueue();
     queue.push(mutation);
     this.saveQueue(queue);
     this.notifyStatus();
@@ -318,6 +342,12 @@ class OfflineSyncService {
     const pendingList = queue.filter((m) => m.status === 'PENDING' || m.status === 'FAILED');
 
     for (const mutation of pendingList) {
+      // Idempotency guard: prevent duplicate posting if key was already synced
+      if (mutation.idempotencyKey && this.processedIdempotencyKeys.has(mutation.idempotencyKey)) {
+        mutation.status = 'SYNCED';
+        continue;
+      }
+
       try {
         mutation.status = 'SYNCING';
         this.saveQueue(queue);
@@ -326,6 +356,9 @@ class OfflineSyncService {
 
         if (result.success) {
           mutation.status = 'SYNCED';
+          if (mutation.idempotencyKey) {
+            this.processedIdempotencyKeys.add(mutation.idempotencyKey);
+          }
           synced++;
         } else if (result.currentServerRecord) {
           // Server conflict returned
@@ -346,14 +379,113 @@ class OfflineSyncService {
     }
 
     this.saveQueue(queue);
+    const nowIso = new Date().toISOString();
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(STORAGE_LAST_SYNC_KEY, new Date().toISOString());
+      localStorage.setItem(STORAGE_LAST_SYNC_KEY, nowIso);
     }
+
+    // Record sync history in IndexedDB
+    const historyEntry: SyncHistoryRecord = {
+      id: `sync-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      companyId: pendingList[0]?.companyId || 'ALL',
+      timestamp: nowIso,
+      syncedCount: synced,
+      failedCount: failed,
+      conflictCount: conflicts,
+      uploadsCompleted: 0,
+      status: failed === 0 && conflicts === 0 ? 'SUCCESS' : synced > 0 ? 'PARTIAL' : 'FAILED',
+    };
+    this.memorySyncHistory.unshift(historyEntry);
+    this.memorySyncHistory = this.memorySyncHistory.slice(0, 50);
+    void indexedDbService.put('sync_history', historyEntry.id, historyEntry);
 
     this.isSyncing = false;
     this.notifyStatus();
 
     return { synced, conflicts, failed };
+  }
+
+  // --------------------------------------------------------------------------
+  // PENDING DOCUMENT UPLOAD QUEUE (INDEXEDDB) & SYNC TELEMETRY (PHASE 10)
+  // --------------------------------------------------------------------------
+  public async enqueuePendingUpload(
+    upload: Omit<PendingUploadItem, 'id' | 'retryCount' | 'status' | 'createdAt'>
+  ): Promise<PendingUploadItem> {
+    const item: PendingUploadItem = {
+      ...upload,
+      id: `upl-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      retryCount: 0,
+      status: 'PENDING',
+      createdAt: new Date().toISOString(),
+    };
+    this.memoryUploads.unshift(item);
+    await indexedDbService.put('upload_queue', item.id, item);
+    this.notifyStatus();
+    return item;
+  }
+
+  public getPendingUploads(companyId?: string): PendingUploadItem[] {
+    return this.memoryUploads.filter(
+      (u) => (!companyId || u.companyId === companyId) && (u.status === 'PENDING' || u.status === 'FAILED')
+    );
+  }
+
+  public async flushPendingUploads(
+    uploader: (item: PendingUploadItem) => Promise<{ success: boolean; error?: string }>
+  ): Promise<{ uploaded: number; failed: number }> {
+    let uploaded = 0;
+    let failed = 0;
+    for (const item of this.memoryUploads) {
+      if (item.status !== 'PENDING' && item.status !== 'FAILED') continue;
+      item.status = 'UPLOADING';
+      try {
+        const res = await uploader(item);
+        if (res.success) {
+          item.status = 'UPLOADED';
+          uploaded++;
+          await indexedDbService.delete('upload_queue', item.id);
+        } else {
+          item.status = 'FAILED';
+          item.retryCount++;
+          item.error = res.error || 'Upload failed';
+          failed++;
+          await indexedDbService.put('upload_queue', item.id, item);
+        }
+      } catch (err: any) {
+        item.status = 'FAILED';
+        item.retryCount++;
+        item.error = err?.message || 'Upload exception';
+        failed++;
+        await indexedDbService.put('upload_queue', item.id, item);
+      }
+    }
+    this.notifyStatus();
+    return { uploaded, failed };
+  }
+
+  public getSyncHistory(companyId?: string): SyncHistoryRecord[] {
+    return companyId
+      ? this.memorySyncHistory.filter((h) => h.companyId === companyId || h.companyId === 'ALL')
+      : this.memorySyncHistory;
+  }
+
+  public getFullTelemetry(companyId?: string): SyncStatus & {
+    failedCount: number;
+    pendingUploadCount: number;
+    indexedDbEnabled: boolean;
+    history: SyncHistoryRecord[];
+  } {
+    const base = this.getStatus(companyId);
+    const queue = this.loadQueue();
+    const filteredQueue = companyId ? queue.filter((m) => m.companyId === companyId) : queue;
+    const failedCount = filteredQueue.filter((m) => m.status === 'FAILED').length;
+    return {
+      ...base,
+      failedCount,
+      pendingUploadCount: this.getPendingUploads(companyId).length,
+      indexedDbEnabled: indexedDbService.isIndexedDbAvailable(),
+      history: this.getSyncHistory(companyId),
+    };
   }
 
   private triggerAutoSync(): void {
@@ -377,6 +509,8 @@ class OfflineSyncService {
   private saveQueue(queue: OfflineMutation[]): void {
     const filtered = queue.filter((m, idx, arr) => m.status !== 'SYNCED' || arr.length - idx < 50);
     this.memoryQueue = filtered;
+    // Persist to IndexedDB (primary offline store) + lightweight localStorage fallback
+    void indexedDbService.put('mutation_queue', 'queue_v1', filtered);
     try {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(STORAGE_QUEUE_KEY, JSON.stringify(filtered));
@@ -411,6 +545,12 @@ class OfflineSyncService {
   public clearAllDataForTesting(): void {
     this.memoryQueue = [];
     this.memoryConflicts = [];
+    this.memoryUploads = [];
+    this.memorySyncHistory = [];
+    this.processedIdempotencyKeys.clear();
+    void indexedDbService.clearStore('mutation_queue');
+    void indexedDbService.clearStore('upload_queue');
+    void indexedDbService.clearStore('sync_history');
     try {
       if (typeof localStorage !== 'undefined') {
         localStorage.removeItem(STORAGE_QUEUE_KEY);

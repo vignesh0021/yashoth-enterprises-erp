@@ -4,6 +4,7 @@ import { SalesHeader } from '../../types/index.ts';
 import { StatusBadge } from '../../components/common/StatusBadge.tsx';
 import { Modal } from '../../components/common/Modal.tsx';
 import { InvoiceRenderer } from '../../components/invoice/InvoiceRenderer.tsx';
+import { MultiSourceDispatchTab } from './MultiSourceDispatchTab.tsx';
 import { 
   formatINR, 
   formatWeight, 
@@ -45,6 +46,7 @@ export const SalesView: React.FC = () => {
     currentUser 
   } = useERP();
 
+  const [activeTab, setActiveTab] = useState<'ORDERS' | 'MULTI_DISPATCH'>('ORDERS');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeInvoice, setActiveInvoice] = useState<any | null>(null);
 
@@ -224,7 +226,32 @@ export const SalesView: React.FC = () => {
         </button>
       </div>
 
-      {/* Sales Orders List */}
+      {/* Module Tabs */}
+      <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-1.5 text-xs font-bold">
+        <button
+          type="button"
+          onClick={() => setActiveTab('ORDERS')}
+          className={`px-3.5 py-2 min-h-[40px] rounded-xl border transition-all cursor-pointer ${
+            activeTab === 'ORDERS' ? 'bg-red-600 text-white border-red-600 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          Sales Orders &amp; Invoices
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('MULTI_DISPATCH')}
+          className={`px-3.5 py-2 min-h-[40px] rounded-xl border transition-all cursor-pointer ${
+            activeTab === 'MULTI_DISPATCH' ? 'bg-red-600 text-white border-red-600 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          Multi-Source Dispatch &amp; Weighbridge
+        </button>
+      </div>
+
+      {activeTab === 'MULTI_DISPATCH' ? (
+        <MultiSourceDispatchTab />
+      ) : (
+      /* Sales Orders List */
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -330,6 +357,7 @@ export const SalesView: React.FC = () => {
           </table>
         </div>
       </div>
+      )}
 
       {/* New Sales Order Modal */}
       <Modal

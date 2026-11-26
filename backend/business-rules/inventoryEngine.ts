@@ -305,6 +305,7 @@ export function verifyFifoCogsIntegrity(
 export function createStockMovement(
   existingMovements: StockMovement[],
   params: {
+    companyId?: string;
     movementType: MovementType;
     transactionRef: string;
     materialId: string;
@@ -325,7 +326,7 @@ export function createStockMovement(
 
   // If outward movement, verify stock balance will not drop below zero
   if (quantity < 0) {
-    const currentStock = calculateCurrentStock(existingMovements, materialId, yardId);
+    const currentStock = calculateCurrentStock(existingMovements, materialId, yardId, params.companyId);
     if (currentStock + quantity < -0.0001) {
       throw new Error(
         `Negative stock violation: Attempted outward movement of ${Math.abs(quantity)} KG exceeds current stock of ${currentStock} KG.`
@@ -335,6 +336,7 @@ export function createStockMovement(
 
   const movement: StockMovement = {
     id: 'mov-' + Math.random().toString(36).substring(2, 11),
+    companyId: params.companyId,
     movementType,
     transactionRef,
     materialId,
@@ -381,4 +383,264 @@ export function reverseStockMovement(
   });
 
   return reversal;
+}
+
+// ============================================================================
+// PHASE 1 — EXPLICIT MULTI-SOURCE LOT ALLOCATION & COMPLETE STOCK LEDGER
+// ============================================================================
+
+export interface ExplicitLotRequest {
+  lotId: string;
+  quantity: number;
+}
+
+export interface ExplicitLotAllocationDetail {
+  id: string;
+  lotId: string;
+  lotNumber: string;
+  sourceType: NonNullable<InventoryLot['sourceType']>;
+  supplierPartyId?: string;
+  supplierName?: string;
+  sourcePurchaseId?: string;
+  originalInvoiceNo?: string;
+  allocatedQuantity: number;
+  unitCost: number;
+  totalCost: number;
+}
+
+/**
+ * Allocates exact user-verified quantities from specific source lots (e.g. IMOP lot + IMH lot + Opening Godown lot).
+ * Never merges distinct purchase sources; enforces non-negative remaining quantity and company isolation.
+ */
+export function allocateLotsExplicit(
+  activeLots: InventoryLot[],
+  requests: ExplicitLotRequest[],
+  options?: { companyId?: string; yardId?: string; materialId?: string }
+): {
+  updatedLots: InventoryLot[];
+  allocations: ExplicitLotAllocationDetail[];
+  totalAllocated: number;
+  totalCogs: number;
+} {
+  if (!requests || requests.length === 0) {
+    throw new Error('At least one source stock lot allocation is required.');
+  }
+
+  const updatedLots = activeLots.map((l) => ({ ...l }));
+  const lotMap = new Map(updatedLots.map((l) => [l.id, l]));
+  const allocations: ExplicitLotAllocationDetail[] = [];
+  let totalAllocated = 0;
+  let totalCogs = 0;
+
+  for (const req of requests) {
+    const qty = roundTo3(req.quantity);
+    if (qty <= 0) {
+      throw new Error(`Allocated quantity for lot ${req.lotId} must be greater than zero.`);
+    }
+
+    const lot = lotMap.get(req.lotId);
+    if (!lot) {
+      throw new Error(`Source lot "${req.lotId}" was not found.`);
+    }
+    if (options?.companyId && lot.companyId && lot.companyId !== options.companyId) {
+      throw new Error(`Cross-company stock violation: Lot ${lot.lotNumber} does not belong to active company.`);
+    }
+    if (options?.yardId && lot.yardId !== options.yardId) {
+      throw new Error(`Lot ${lot.lotNumber} belongs to yard ${lot.yardId}, not source yard ${options.yardId}.`);
+    }
+    if (options?.materialId && lot.materialId !== options.materialId) {
+      throw new Error(`Material mismatch on lot ${lot.lotNumber}: expected ${options.materialId}, found ${lot.materialId}.`);
+    }
+    if (lot.isExhausted || roundTo3(lot.remainingQuantity) < qty) {
+      throw new Error(
+        `Insufficient stock in lot ${lot.lotNumber} (${lot.supplierName || lot.sourceType || 'Stock'}). Available: ${roundTo3(lot.remainingQuantity)} KG, Requested: ${qty} KG.`
+      );
+    }
+
+    const cost = roundTo2(qty * lot.unitCost);
+    lot.remainingQuantity = roundTo3(lot.remainingQuantity - qty);
+    lot.dispatchedQuantity = roundTo3((lot.dispatchedQuantity || 0) + qty);
+    if (lot.remainingQuantity <= 0.0001) {
+      lot.remainingQuantity = 0;
+      lot.isExhausted = true;
+    }
+
+    allocations.push({
+      id: 'alloc-' + Math.random().toString(36).substring(2, 10),
+      lotId: lot.id,
+      lotNumber: lot.lotNumber,
+      sourceType: lot.sourceType || (lot.sourcePurchaseId ? 'PURCHASE' : 'OPENING_STOCK'),
+      supplierPartyId: lot.supplierPartyId,
+      supplierName: lot.supplierName,
+      sourcePurchaseId: lot.sourcePurchaseId,
+      originalInvoiceNo: lot.originalInvoiceNo,
+      allocatedQuantity: qty,
+      unitCost: lot.unitCost,
+      totalCost: cost,
+    });
+
+    totalAllocated = roundTo3(totalAllocated + qty);
+    totalCogs = roundTo2(totalCogs + cost);
+  }
+
+  return { updatedLots, allocations, totalAllocated, totalCogs };
+}
+
+export interface StockLedgerBreakdown {
+  openingStock: number;
+  purchaseInward: number;
+  transferIn: number;
+  salesReturn: number;
+  approvedPositiveAdjustment: number;
+  salesOutward: number;
+  transferOut: number;
+  purchaseReturn: number;
+  materialConsumption: number;
+  approvedNegativeAdjustment: number;
+  reversalsNet: number;
+  closingStock: number;
+}
+
+/**
+ * Computes the complete Phase 1.4 Stock Ledger formula:
+ * Opening + Purchase Inward + Transfer In + Sales Return + Approved Positive Adjustment
+ * - Sales Outward - Transfer Out - Purchase Return - Material Consumption - Approved Negative Adjustment
+ * = Closing Stock
+ */
+export function computeStockLedgerSummary(
+  movements: StockMovement[],
+  filter?: {
+    companyId?: string;
+    yardId?: string;
+    materialId?: string;
+    gradeId?: string;
+    lotId?: string;
+    fromDate?: string;
+    toDate?: string;
+  }
+): StockLedgerBreakdown {
+  const scoped = movements.filter((m) => {
+    if (filter?.companyId && m.companyId && m.companyId !== filter.companyId) return false;
+    if (filter?.yardId && m.yardId !== filter.yardId) return false;
+    if (filter?.materialId && m.materialId !== filter.materialId) return false;
+    if (filter?.gradeId && m.gradeId !== filter.gradeId) return false;
+    if (filter?.lotId && m.lotId !== filter.lotId) return false;
+    const d = m.createdAt ? m.createdAt.slice(0, 10) : '';
+    if (filter?.fromDate && d && d < filter.fromDate) return false;
+    if (filter?.toDate && d && d > filter.toDate) return false;
+    return true;
+  });
+
+  let openingStock = 0;
+  let purchaseInward = 0;
+  let transferIn = 0;
+  let salesReturn = 0;
+  let approvedPositiveAdjustment = 0;
+  let salesOutward = 0;
+  let transferOut = 0;
+  let purchaseReturn = 0;
+  let materialConsumption = 0;
+  let approvedNegativeAdjustment = 0;
+  let reversalsNet = 0;
+
+  for (const m of scoped) {
+    const q = m.quantity;
+    switch (m.movementType) {
+      case 'OPENING_STOCK':
+        openingStock = roundTo3(openingStock + q);
+        break;
+      case 'PURCHASE_RECEIPT':
+      case 'COLLECTION_RECEIPT':
+        purchaseInward = roundTo3(purchaseInward + Math.abs(q));
+        break;
+      case 'YARD_TRANSFER_IN':
+        transferIn = roundTo3(transferIn + Math.abs(q));
+        break;
+      case 'SALES_RETURN':
+        salesReturn = roundTo3(salesReturn + Math.abs(q));
+        break;
+      case 'APPROVED_POSITIVE_ADJUSTMENT':
+        approvedPositiveAdjustment = roundTo3(approvedPositiveAdjustment + Math.abs(q));
+        break;
+      case 'SALES_DISPATCH':
+        salesOutward = roundTo3(salesOutward + Math.abs(q));
+        break;
+      case 'YARD_TRANSFER_OUT':
+        transferOut = roundTo3(transferOut + Math.abs(q));
+        break;
+      case 'PURCHASE_RETURN':
+        purchaseReturn = roundTo3(purchaseReturn + Math.abs(q));
+        break;
+      case 'MATERIAL_CONSUMPTION':
+        materialConsumption = roundTo3(materialConsumption + Math.abs(q));
+        break;
+      case 'APPROVED_NEGATIVE_ADJUSTMENT':
+      case 'STOCK_LOSS':
+        approvedNegativeAdjustment = roundTo3(approvedNegativeAdjustment + Math.abs(q));
+        break;
+      case 'STOCK_ADJUSTMENT':
+        if (q >= 0) approvedPositiveAdjustment = roundTo3(approvedPositiveAdjustment + q);
+        else approvedNegativeAdjustment = roundTo3(approvedNegativeAdjustment + Math.abs(q));
+        break;
+      case 'REVERSAL':
+        reversalsNet = roundTo3(reversalsNet + q);
+        break;
+    }
+  }
+
+  const closingStock = roundTo3(
+    openingStock +
+      purchaseInward +
+      transferIn +
+      salesReturn +
+      approvedPositiveAdjustment +
+      reversalsNet -
+      salesOutward -
+      transferOut -
+      purchaseReturn -
+      materialConsumption -
+      approvedNegativeAdjustment
+  );
+
+  return {
+    openingStock,
+    purchaseInward,
+    transferIn,
+    salesReturn,
+    approvedPositiveAdjustment,
+    salesOutward,
+    transferOut,
+    purchaseReturn,
+    materialConsumption,
+    approvedNegativeAdjustment,
+    reversalsNet,
+    closingStock,
+  };
+}
+
+/**
+ * Verifies that completed internal godown transfers never artificially inflate or deflate consolidated company stock.
+ */
+export function verifyInternalTransferNeutrality(
+  movements: StockMovement[],
+  companyId?: string
+): { isNeutral: boolean; totalTransferOut: number; totalTransferIn: number; inTransitDelta: number } {
+  const scoped = movements.filter((m) => !companyId || !m.companyId || m.companyId === companyId);
+  const totalTransferOut = roundTo3(
+    scoped
+      .filter((m) => m.movementType === 'YARD_TRANSFER_OUT')
+      .reduce((s, m) => s + Math.abs(m.quantity), 0)
+  );
+  const totalTransferIn = roundTo3(
+    scoped
+      .filter((m) => m.movementType === 'YARD_TRANSFER_IN')
+      .reduce((s, m) => s + Math.abs(m.quantity), 0)
+  );
+  const inTransitDelta = roundTo3(totalTransferOut - totalTransferIn);
+  return {
+    isNeutral: Math.abs(inTransitDelta) < 0.001,
+    totalTransferOut,
+    totalTransferIn,
+    inTransitDelta,
+  };
 }

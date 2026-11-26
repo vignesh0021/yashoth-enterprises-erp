@@ -2,6 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { useERP } from '../../context/ERPContext.tsx';
 import { Modal } from '../../components/common/Modal.tsx';
 import { formatINR, formatWeight, roundTo2, roundTo3, kgToTon } from '../../utils/calculations.ts';
+import { getLocalDateStr } from '../../utils/visualReportExporter.ts';
+import { PendingOperationsPanel } from './PendingOperationsPanel.tsx';
 import { calculateReconciledAccountBalance } from '../../../backend/business-rules/financeEngine.ts';
 import { evaluateFleetCompliance } from '../../../backend/business-rules/vehicleComplianceEngine.ts';
 import { useNavigate } from 'react-router-dom';
@@ -77,13 +79,13 @@ export const DashboardView: React.FC = () => {
   } = useERP();
 
   const navigate = useNavigate();
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateStr();
   const officialEmail = 'yashothenterprises44@gmail.com';
   const ewayBillPortalUrl = 'https://ewaybillgst.gov.in/Login.aspx';
 
   // Modal State for the Portions
   const [activeDetailModal, setActiveDetailModal] = useState<
-    'FINANCE' | 'TASKS' | 'VEHICLES' | 'DOCS' | 'EWAY' | 'STOCK' | 'EMPLOYEES' | null
+    'FINANCE' | 'TASKS' | 'VEHICLES' | 'DOCS' | 'EWAY' | 'STOCK' | 'EMPLOYEES' | 'PENDING_OPS' | null
   >(null);
 
   // New Daily Task Input State
@@ -105,15 +107,15 @@ export const DashboardView: React.FC = () => {
     setTimeout(() => setToastMsg(null), 4000);
   };
 
-  // 3-Member Multi-Device Cloud Sync Handlers
+  // Verified Remote Cloud Sync Handler (Never claims localStorage is cloud backup)
   const handleCloudPush = async () => {
     setIsSyncingCloud(true);
     try {
       const res = await syncPushToCloud(officialEmail);
-      if (res.success) {
-        showToast('success', `☁️ Pushed to Cloud Hub (Rev ${res.revision}). All 3 devices now share this live data!`);
+      if (res.success && res.remoteVerified) {
+        showToast('success', `☁️ Verified cloud backup uploaded (Rev ${res.revision}, File ID: ${res.remoteFileId?.slice(0, 14) || 'OK'}).`);
       } else {
-        showToast('error', res.error || 'Cloud sync failed.');
+        showToast('error', res.error || 'Cloud backup NOT confirmed — connect Google Drive in Settings -> Backup & Restore.');
       }
     } finally {
       setIsSyncingCloud(false);
@@ -334,6 +336,15 @@ export const DashboardView: React.FC = () => {
 
         {/* Quick Top Bar Actions */}
         <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto flex-wrap">
+          <button
+            onClick={() => setActiveDetailModal('PENDING_OPS')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[11px] font-bold shadow-xs transition-colors min-h-[36px] cursor-pointer"
+            title="Open Owner Live Operations & Pending Material Dashboard (14 KPIs)"
+          >
+            <Clock className="w-3.5 h-3.5 text-red-100" />
+            <span>{language === 'ta' ? 'நிலுவை & நேரலை (14 KPI)' : 'Pending & Live Ops'}</span>
+          </button>
+
           <button
             onClick={handleCloudPush}
             disabled={isSyncingCloud}
@@ -1449,6 +1460,19 @@ export const DashboardView: React.FC = () => {
               </button>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {/* MODAL: PHASE 4 OWNER LIVE OPERATIONS & PENDING MATERIAL DASHBOARD */}
+      {activeDetailModal === 'PENDING_OPS' && (
+        <Modal
+          isOpen={true}
+          onClose={() => setActiveDetailModal(null)}
+          title="Live Operations & Pending Material Dashboard"
+          subtitle="All 14 live KPIs with drill-down & filterable pending material movements."
+          maxWidth="4xl"
+        >
+          <PendingOperationsPanel />
         </Modal>
       )}
 

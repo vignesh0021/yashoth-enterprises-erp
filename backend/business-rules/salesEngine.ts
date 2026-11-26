@@ -8,7 +8,8 @@ import type {
   Invoice, 
   InvoiceLine, 
   Party, 
-  CompanySettings 
+  CompanySettings,
+  Material
 } from '../../src/types/index.ts';
 import { 
   roundTo2, 
@@ -16,7 +17,7 @@ import {
   calcGstBreakdown, 
   numberToIndianWords 
 } from '../../src/utils/calculations.ts';
-import { allocateLotsFifo, createStockMovement } from './inventoryEngine.ts';
+import { allocateLotsFifo, allocateLotsExplicit, createStockMovement } from './inventoryEngine.ts';
 
 export interface DispatchSalesResult {
   updatedSales: SalesHeader;
@@ -32,7 +33,8 @@ export function dispatchSalesTransaction(
   customer: Party,
   company: CompanySettings,
   nextInvoiceSequence: number,
-  actor: string
+  actor: string,
+  materials?: Material[]
 ): DispatchSalesResult {
   if (sales.status === 'DISPATCHED' || sales.status === 'INVOICED') {
     throw new Error(`Sales order ${sales.salesNo} has already been dispatched.`);
@@ -52,20 +54,52 @@ export function dispatchSalesTransaction(
   const allMovements = [...existingMovements];
   let totalOrderCogs = 0;
 
-  const updatedLines = sales.lines.map((line, idx) => {
-    const { updatedLots, result } = allocateLotsFifo(
-      currentLots,
-      line.materialId,
-      sales.yardId,
-      line.quantity
-    );
+  const updatedLines = sales.lines.map((line) => {
+    let allocationsOut: {
+      lotId: string;
+      lotNumber: string;
+      allocatedQuantity: number;
+      unitCost: number;
+      totalCost: number;
+    }[] = [];
 
-    currentLots = updatedLots;
-    totalOrderCogs = roundTo2(totalOrderCogs + result.totalCogs);
+    if (line.lotAllocations && line.lotAllocations.length > 0) {
+      const explicit = allocateLotsExplicit(
+        currentLots,
+        line.lotAllocations.map((a) => ({ lotId: a.lotId, quantity: a.allocatedQuantity })),
+        { companyId: sales.companyId, yardId: sales.yardId, materialId: line.materialId }
+      );
+      if (Math.abs(explicit.totalAllocated - roundTo3(line.quantity)) > 0.005) {
+        throw new Error(
+          `Explicit lot allocation total (${explicit.totalAllocated} KG) does not match line quantity (${line.quantity} KG).`
+        );
+      }
+      currentLots = explicit.updatedLots;
+      totalOrderCogs = roundTo2(totalOrderCogs + explicit.totalCogs);
+      allocationsOut = explicit.allocations.map((a) => ({
+        lotId: a.lotId,
+        lotNumber: a.lotNumber,
+        allocatedQuantity: a.allocatedQuantity,
+        unitCost: a.unitCost,
+        totalCost: a.totalCost,
+      }));
+    } else {
+      const { updatedLots, result } = allocateLotsFifo(
+        currentLots,
+        line.materialId,
+        sales.yardId,
+        line.quantity,
+        sales.companyId
+      );
+      currentLots = updatedLots;
+      totalOrderCogs = roundTo2(totalOrderCogs + result.totalCogs);
+      allocationsOut = result.allocations;
+    }
 
     // Create outward movements for each lot allocation
-    for (const alloc of result.allocations) {
+    for (const alloc of allocationsOut) {
       const outwardMovement = createStockMovement(allMovements, {
+        companyId: sales.companyId,
         movementType: 'SALES_DISPATCH',
         transactionRef: sales.salesNo,
         materialId: line.materialId,
@@ -84,34 +118,39 @@ export function dispatchSalesTransaction(
 
     return {
       ...line,
-      lotAllocations: result.allocations.map((a) => ({
+      lotAllocations: allocationsOut.map((a) => ({
         id: 'sla-' + Math.random().toString(36).substring(2, 9),
         ...a,
       })),
     };
   });
 
-  // Calculate invoice values
+  // Calculate invoice values using actual line GST rate (default 18% if omitted)
   const isInterState = customer.stateCode !== company.stateCode;
   const taxableSum = updatedLines.reduce((sum, l) => sum + l.taxableAmount, 0);
-  const gstBreakdown = calcGstBreakdown(taxableSum, 18, isInterState);
+  const effectiveGstRate = updatedLines[0]?.gstRate ?? 18;
+  const gstBreakdown = calcGstBreakdown(taxableSum, effectiveGstRate, isInterState);
 
   const formattedSeq = String(nextInvoiceSequence).padStart(4, '0');
   const invoiceNo = `${company.invoicePrefix || 'YE/'}26-27/${formattedSeq}`;
 
-  const invoiceLines: InvoiceLine[] = updatedLines.map((l, i) => ({
-    id: 'invl-' + Math.random().toString(36).substring(2, 9),
-    serialNo: i + 1,
-    descriptionOfGoods: 'MS BORING SCRAP', // standard description or material name
-    hsnSac: '7204',
-    unit: company.defaultBaseUnit || 'KG',
-    quantity: roundTo3(l.quantity),
-    rate: roundTo2(l.ratePerUnit),
-    taxableValue: roundTo2(l.taxableAmount),
-  }));
+  const invoiceLines: InvoiceLine[] = updatedLines.map((l, i) => {
+    const mat = materials?.find((m) => m.id === l.materialId);
+    return {
+      id: 'invl-' + Math.random().toString(36).substring(2, 9),
+      serialNo: i + 1,
+      descriptionOfGoods: mat?.name || 'MS BORING SCRAP',
+      hsnSac: mat?.hsnCode || '7204',
+      unit: mat?.baseUnit || company.defaultBaseUnit || 'KG',
+      quantity: roundTo3(l.quantity),
+      rate: roundTo2(l.ratePerUnit),
+      taxableValue: roundTo2(l.taxableAmount),
+    };
+  });
 
   const invoiceSnapshot: Invoice = {
     id: 'inv-' + Math.random().toString(36).substring(2, 11),
+    companyId: sales.companyId || company.id,
     invoiceNo,
     invoiceDate: now.split('T')[0],
     salesHeaderId: sales.id,

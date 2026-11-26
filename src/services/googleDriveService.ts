@@ -27,7 +27,11 @@ export interface GoogleDriveStatus {
   hasClientId: boolean;
 }
 
-import { teamSyncService } from './teamSyncService.ts';
+import {
+  calculateSHA256,
+  compressBackupGzip,
+  decompressBackupGzip,
+} from '../../backend/business-rules/backupEngine.ts';
 
 function safeGetItem(key: string): string | null {
   try {
@@ -363,6 +367,146 @@ class GoogleDriveService {
   }
 
   /**
+   * Verifies that a remote Google Drive file exists, is downloadable, and matches expected SHA-256 checksum.
+   * NEVER claims backup success without remote verification.
+   */
+  public async verifyRemoteFile(
+    fileId: string,
+    expectedSha256?: string
+  ): Promise<{ verified: boolean; sizeBytes?: number; actualSha256?: string; error?: string }> {
+    if (!this.accessToken) {
+      return { verified: false, error: 'Not authenticated with Google Drive.' };
+    }
+    if (!fileId || !fileId.trim()) {
+      return { verified: false, error: 'Invalid Google Drive file ID.' };
+    }
+
+    try {
+      const dl = await this.downloadFile(fileId);
+      if (!dl.success || dl.content === undefined) {
+        return { verified: false, error: dl.error || 'Failed to read back remote file for verification.' };
+      }
+
+      const actualSha256 = await calculateSHA256(dl.content);
+      if (expectedSha256 && actualSha256.toLowerCase() !== expectedSha256.toLowerCase()) {
+        return {
+          verified: false,
+          sizeBytes: dl.content.length,
+          actualSha256,
+          error: `Remote checksum mismatch! Expected ${expectedSha256.slice(0, 16)}..., got ${actualSha256.slice(0, 16)}...`,
+        };
+      }
+
+      return {
+        verified: true,
+        sizeBytes: dl.content.length,
+        actualSha256,
+      };
+    } catch (err: any) {
+      return { verified: false, error: err?.message || 'Remote file verification failed.' };
+    }
+  }
+
+  /**
+   * Production Phase 8 verified backup upload:
+   * 1. Optionally GZIP-compresses payload (saves ~70–85% Google Drive quota).
+   * 2. Uploads with automatic retry (exponential backoff).
+   * 3. Reads back & verifies remote file ID and SHA-256 integrity.
+   * Only returns success=true when ALL steps succeed!
+   */
+  public async uploadBackupFileVerified(params: {
+    filename: string;
+    content: string;
+    mimeType?: string;
+    compressGzip?: boolean;
+    maxRetries?: number;
+  }): Promise<{
+    success: boolean;
+    fileId?: string;
+    remoteVerified: boolean;
+    compressionFormat: 'NONE' | 'GZIP';
+    originalSizeBytes: number;
+    uploadedSizeBytes: number;
+    sha256Checksum: string;
+    retryCount: number;
+    error?: string;
+  }> {
+    const originalSizeBytes = new TextEncoder().encode(params.content).byteLength;
+    const maxRetries = Math.max(1, params.maxRetries ?? 3);
+
+    if (!this.accessToken) {
+      return {
+        success: false,
+        remoteVerified: false,
+        compressionFormat: params.compressGzip ? 'GZIP' : 'NONE',
+        originalSizeBytes,
+        uploadedSizeBytes: 0,
+        sha256Checksum: '',
+        retryCount: 0,
+        error: 'Google Drive is not authenticated. Connect your Google account before uploading cloud backups.',
+      };
+    }
+
+    let uploadContent = params.content;
+    let uploadFilename = params.filename;
+    let uploadMime = params.mimeType || 'application/json';
+    let compressionFormat: 'NONE' | 'GZIP' = 'NONE';
+
+    if (params.compressGzip) {
+      const gz = await compressBackupGzip(params.content);
+      uploadContent = gz.base64;
+      uploadFilename = params.filename.endsWith('.gz') ? params.filename : `${params.filename}.gz`;
+      uploadMime = 'application/gzip';
+      compressionFormat = 'GZIP';
+    }
+
+    const expectedChecksum = await calculateSHA256(params.content);
+    const uploadedSizeBytes = new TextEncoder().encode(uploadContent).byteLength;
+    let lastError = 'Unknown upload failure';
+    let attempts = 0;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      attempts = attempt;
+      const upRes = await this.uploadBackupFile(uploadFilename, uploadContent, uploadMime);
+      if (upRes.success && upRes.fileId) {
+        // Mandatory post-upload remote verification
+        const verifyRes = await this.verifyRemoteFile(upRes.fileId, expectedChecksum);
+        if (verifyRes.verified) {
+          return {
+            success: true,
+            fileId: upRes.fileId,
+            remoteVerified: true,
+            compressionFormat,
+            originalSizeBytes,
+            uploadedSizeBytes,
+            sha256Checksum: expectedChecksum,
+            retryCount: attempt - 1,
+          };
+        }
+        lastError = verifyRes.error || 'Remote upload checksum verification failed.';
+      } else {
+        lastError = upRes.error || 'Google Drive upload failed.';
+      }
+
+      // Short retry backoff (bounded for tests & responsive UX)
+      if (attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, Math.min(50 * attempt, 200)));
+      }
+    }
+
+    return {
+      success: false,
+      remoteVerified: false,
+      compressionFormat,
+      originalSizeBytes,
+      uploadedSizeBytes,
+      sha256Checksum: expectedChecksum,
+      retryCount: Math.max(0, attempts - 1),
+      error: `Backup upload failed after ${attempts} attempt(s): ${lastError}`,
+    };
+  }
+
+  /**
    * Lists backup files created by this ERP in Google Drive.
    */
   public async listBackups(): Promise<GoogleDriveFile[]> {
@@ -386,7 +530,7 @@ class GoogleDriveService {
   }
 
   /**
-   * Downloads a backup file from Google Drive by ID.
+   * Downloads a backup file from Google Drive by ID (automatically decompressing GZIP archives).
    */
   public async downloadFile(fileId: string): Promise<{ success: boolean; content?: string; error?: string }> {
     if (!this.accessToken) {
@@ -405,8 +549,18 @@ class GoogleDriveService {
         throw new Error(`Failed to download file: HTTP ${response.status}`);
       }
 
-      const content = await response.text();
-      return { success: true, content };
+      const rawText = await response.text();
+      // If content is Base64 GZIP (starts with H4sI...), transparently decompress to JSON text
+      if (rawText.trim().startsWith('H4sI')) {
+        try {
+          const decompressed = await decompressBackupGzip(rawText.trim());
+          return { success: true, content: decompressed };
+        } catch {
+          return { success: true, content: rawText };
+        }
+      }
+
+      return { success: true, content: rawText };
     } catch (err: any) {
       return { success: false, error: err.message || 'Download failed.' };
     }

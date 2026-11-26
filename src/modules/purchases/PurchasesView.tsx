@@ -60,6 +60,9 @@ export const PurchasesView: React.FC = () => {
   const [sourceType, setSourceType] = useState<PurchaseSourceType>('DIRECT_SUPPLIER');
   const [yardId, setYardId] = useState(yards[0]?.id || '');
   const [vehicleReg, setVehicleReg] = useState('TN 18 BY 0420');
+  const [poNumber, setPoNumber] = useState('');
+  const [supplierInvoiceNo, setSupplierInvoiceNo] = useState('');
+  const [driverName, setDriverName] = useState('');
 
   // Single line item entry state
   const [materialId, setMaterialId] = useState(materials[0]?.id || '');
@@ -153,6 +156,17 @@ export const PurchasesView: React.FC = () => {
       createPurchase({
         transactionDate: new Date().toISOString(),
         supplierPartyId: supplierId,
+        supplierName: suppliers.find((s) => s.id === supplierId)?.legalName,
+        poNumber: poNumber.trim() || undefined,
+        supplierInvoiceNo: supplierInvoiceNo.trim() || undefined,
+        driverName: driverName.trim() || undefined,
+        grossWeight,
+        tareWeight,
+        netWeight,
+        acceptedWeight: payableWeight,
+        rejectedWeight: deductions,
+        paymentStatus: 'UNPAID',
+        isUserVerified: true,
         sourceType,
         yardId,
         vehicleRegistration: vehicleReg,
@@ -429,6 +443,39 @@ export const PurchasesView: React.FC = () => {
                 onChange={(e) => setVehicleReg(e.target.value)}
                 className="w-full p-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-red-500 font-mono"
                 placeholder="e.g. TN 18 BY 0420"
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Purchase Order #</label>
+              <input
+                type="text"
+                value={poNumber}
+                onChange={(e) => setPoNumber(e.target.value)}
+                className="w-full p-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-red-500 font-mono"
+                placeholder="e.g. 64-2026"
+              />
+            </div>
+
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Supplier Invoice #</label>
+              <input
+                type="text"
+                value={supplierInvoiceNo}
+                onChange={(e) => setSupplierInvoiceNo(e.target.value)}
+                className="w-full p-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-red-500 font-mono"
+                placeholder="e.g. IN4202605071"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="font-bold text-slate-700 block mb-1">Driver Details</label>
+              <input
+                type="text"
+                value={driverName}
+                onChange={(e) => setDriverName(e.target.value)}
+                className="w-full p-2 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-red-500"
+                placeholder="Driver name & mobile"
               />
             </div>
           </div>

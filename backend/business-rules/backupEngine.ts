@@ -322,6 +322,9 @@ export function filterDatabaseForCompany(
     tripStops: (payload.tripStops || []).filter(isMatch),
     paymentAuthorizations: (payload.paymentAuthorizations || []).filter(isMatch),
     documentAttachments: (payload.documentAttachments || []).filter(isMatch),
+    ...(payload.materialDispatches ? { materialDispatches: payload.materialDispatches.filter(isMatch) } : {}),
+    ...(payload.godownTransfers ? { godownTransfers: payload.godownTransfers.filter(isMatch) } : {}),
+    ...(payload.managedDocuments ? { managedDocuments: payload.managedDocuments.filter(isMatch) } : {}),
   };
 }
 
@@ -783,6 +786,9 @@ export function executeRestore(
       ...(optMerge(currentState.tripStops, backupData.tripStops) !== undefined ? { tripStops: optMerge(currentState.tripStops, backupData.tripStops) } : {}),
       ...(optMerge(currentState.paymentAuthorizations, backupData.paymentAuthorizations) !== undefined ? { paymentAuthorizations: optMerge(currentState.paymentAuthorizations, backupData.paymentAuthorizations) } : {}),
       ...(optMerge(currentState.documentAttachments, backupData.documentAttachments) !== undefined ? { documentAttachments: optMerge(currentState.documentAttachments, backupData.documentAttachments) } : {}),
+      ...(optMerge(currentState.materialDispatches, backupData.materialDispatches) !== undefined ? { materialDispatches: optMerge(currentState.materialDispatches, backupData.materialDispatches) } : {}),
+      ...(optMerge(currentState.godownTransfers, backupData.godownTransfers) !== undefined ? { godownTransfers: optMerge(currentState.godownTransfers, backupData.godownTransfers) } : {}),
+      ...(optMerge(currentState.managedDocuments, backupData.managedDocuments) !== undefined ? { managedDocuments: optMerge(currentState.managedDocuments, backupData.managedDocuments) } : {}),
     };
     recordsRestored = computeRecordCounts(restoredState);
   } else {
@@ -840,6 +846,15 @@ export function executeRestore(
       tripStops: mergeArrays(currentState.tripStops, backupData.tripStops),
       paymentAuthorizations: mergeArrays(currentState.paymentAuthorizations, backupData.paymentAuthorizations),
       documentAttachments: mergeArrays(currentState.documentAttachments, backupData.documentAttachments),
+      ...(currentState.materialDispatches || backupData.materialDispatches
+        ? { materialDispatches: mergeArrays(currentState.materialDispatches, backupData.materialDispatches) }
+        : {}),
+      ...(currentState.godownTransfers || backupData.godownTransfers
+        ? { godownTransfers: mergeArrays(currentState.godownTransfers, backupData.godownTransfers) }
+        : {}),
+      ...(currentState.managedDocuments || backupData.managedDocuments
+        ? { managedDocuments: mergeArrays(currentState.managedDocuments, backupData.managedDocuments) }
+        : {}),
     };
 
     recordsRestored = computeRecordCounts(filterDatabaseForCompany(restoredState, targetCompId));
@@ -1046,4 +1061,106 @@ export function exportRegistryAsCSV(
   );
 
   return [headerRow, ...dataRows].join('\n');
+}
+
+// ============================================================================
+// PHASE 8 — GZIP COMPRESSION & RETENTION GOVERNANCE
+// ============================================================================
+
+/**
+ * Compresses UTF-8 JSON backup text into GZIP bytes using Web CompressionStream (with Node fallback).
+ */
+export async function compressBackupGzip(plaintext: string): Promise<{
+  bytes: Uint8Array;
+  base64: string;
+  originalSizeBytes: number;
+  compressedSizeBytes: number;
+}> {
+  const rawBytes = new TextEncoder().encode(plaintext);
+
+  if (typeof CompressionStream !== 'undefined') {
+    const cs = new CompressionStream('gzip');
+    const writer = cs.writable.getWriter();
+    writer.write(rawBytes);
+    writer.close();
+    const compressedBuf = await new Response(cs.readable).arrayBuffer();
+    const out = new Uint8Array(compressedBuf);
+    return {
+      bytes: out,
+      base64: bytesToBase64(out),
+      originalSizeBytes: rawBytes.byteLength,
+      compressedSizeBytes: out.byteLength,
+    };
+  }
+
+  // Fallback for older runtimes without CompressionStream
+  return {
+    bytes: rawBytes,
+    base64: bytesToBase64(rawBytes),
+    originalSizeBytes: rawBytes.byteLength,
+    compressedSizeBytes: rawBytes.byteLength,
+  };
+}
+
+/**
+ * Decompresses GZIP bytes (or Base64-encoded GZIP bytes) back to UTF-8 JSON text.
+ */
+export async function decompressBackupGzip(input: Uint8Array | string): Promise<string> {
+  const bytes = typeof input === 'string' ? base64ToBytes(input) : input;
+  const isGzipMagic = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+  if (!isGzipMagic) {
+    return new TextDecoder().decode(bytes);
+  }
+
+  if (typeof DecompressionStream !== 'undefined') {
+    const ds = new DecompressionStream('gzip');
+    const writer = ds.writable.getWriter();
+    writer.write(bytes as any);
+    writer.close();
+    const plainBuf = await new Response(ds.readable).arrayBuffer();
+    return new TextDecoder().decode(plainBuf);
+  }
+
+  throw new Error('GZIP DecompressionStream is not available in this runtime.');
+}
+
+/**
+ * Computes retention pruning while NEVER deleting the last remaining valid backup.
+ */
+export function applyBackupRetention(
+  history: BackupHistoryItem[],
+  retentionCount: number
+): { kept: BackupHistoryItem[]; pruned: BackupHistoryItem[] } {
+  const minKeep = Math.max(1, retentionCount || 1);
+  const validBackups = history.filter((b) => b.status === 'SUCCESS' || b.status === 'VERIFIED');
+  const failedBackups = history.filter((b) => b.status === 'FAILED');
+
+  if (validBackups.length <= minKeep) {
+    return { kept: [...validBackups, ...failedBackups], pruned: [] };
+  }
+
+  const sortedValid = [...validBackups].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+
+  const keptValid = sortedValid.slice(0, minKeep);
+  const prunedValid = sortedValid.slice(minKeep);
+  return {
+    kept: [...keptValid, ...failedBackups],
+    pruned: prunedValid,
+  };
+}
+
+/**
+ * Prevents repeated identical full backups from consuming unnecessary storage when checksum is unchanged.
+ */
+export function isRedundantBackup(
+  candidateChecksum: string,
+  recentHistory: BackupHistoryItem[],
+  destination: BackupDestination
+): boolean {
+  const latestSameDest = recentHistory.find(
+    (b) => b.destination === destination && (b.status === 'SUCCESS' || b.status === 'VERIFIED')
+  );
+  return Boolean(latestSameDest && latestSameDest.sha256Checksum === candidateChecksum);
 }

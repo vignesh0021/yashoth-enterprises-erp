@@ -1169,3 +1169,95 @@ export function isOwnerPayrollExcluded(person: { isOwner?: boolean; payrollEligi
 }
 
 
+
+// ============================================================================
+// WHOLE-MONTH CALENDAR-DAY SALARY CALCULATION (WITH PAID WEEK OFF & PAID LEAVE)
+// ============================================================================
+
+export function getCalendarDaysInMonth(yearMonth: string): number {
+  const [y, m] = yearMonth.split('-').map(Number);
+  if (!y || !m || m < 1 || m > 12) return 30;
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
+export interface MonthlyAttendancePayBreakdown {
+  daysInMonth: number;
+  presentDays: number;
+  doubleShiftDays: number;
+  halfDays: number;
+  paidLeaveDays: number;
+  weekOffDays: number;
+  absentDays: number;
+  totalOtHours: number;
+  effectivePaidDays: number;
+  attendancePercentage: number;
+  perDayRate: number;
+  basePay: number;
+  otPay: number;
+  grossEarnings: number;
+  advanceDeduction: number;
+  netSalaryPayable: number;
+}
+
+/**
+ * Calculates monthly attendance wages using whole-month calendar days (28/29/30/31):
+ * - Salaried staff (monthlySalary > 0):
+ *     perDayRate = monthlySalary / daysInMonth
+ *     effectivePaidDays = Present + (2x Shift * 2) + (Half Day * 0.5) + Paid Week Off + Paid Leave
+ * - Daily wage staff (monthlySalary === 0):
+ *     perDayRate = dailyWageRate
+ *     effectivePaidDays = Present + (2x Shift * 2) + (Half Day * 0.5) + Paid Leave
+ *     (Week Off is tracked as a rest day with 0 wage for daily-wage workers)
+ */
+export function calculateEmployeeMonthlyAttendancePay(
+  emp: { monthlySalary: number; dailyWageRate: number; currentAdvanceBalance?: number },
+  monthEntries: { status: string; overtimeHours?: number }[],
+  yearMonth: string
+): MonthlyAttendancePayBreakdown {
+  const daysInMonth = getCalendarDaysInMonth(yearMonth);
+
+  const doubleShiftDays = monthEntries.filter((a) => a.status === 'DOUBLE_SHIFT').length;
+  const presentDays = monthEntries.filter((a) => a.status === 'PRESENT' || a.status === 'OVERTIME').length;
+  const halfDays = monthEntries.filter((a) => a.status === 'HALF_DAY').length;
+  const paidLeaveDays = monthEntries.filter((a) => a.status === 'LEAVE').length;
+  const weekOffDays = monthEntries.filter((a) => a.status === 'WEEK_OFF').length;
+  const absentDays = monthEntries.filter((a) => a.status === 'ABSENT').length;
+  const totalOtHours = monthEntries.reduce((sum, a) => sum + (a.overtimeHours || 0), 0);
+
+  const isSalaried = (emp.monthlySalary || 0) > 0;
+  const perDayRate = isSalaried ? emp.monthlySalary / daysInMonth : emp.dailyWageRate || 0;
+  const effectivePaidDays =
+    presentDays +
+    doubleShiftDays * 2 +
+    halfDays * 0.5 +
+    paidLeaveDays +
+    (isSalaried ? weekOffDays : 0);
+
+  const totalDaysLogged = monthEntries.length || 1;
+  const attendancePercentage = Math.min(100, Math.round((effectivePaidDays / totalDaysLogged) * 100));
+
+  const basePay = Math.round(perDayRate * effectivePaidDays);
+  const otPay = Math.round(totalOtHours * (perDayRate / 8) * 1.5);
+  const grossEarnings = basePay + otPay;
+  const advanceDeduction = emp.currentAdvanceBalance || 0;
+  const netSalaryPayable = Math.max(0, grossEarnings - advanceDeduction);
+
+  return {
+    daysInMonth,
+    presentDays,
+    doubleShiftDays,
+    halfDays,
+    paidLeaveDays,
+    weekOffDays,
+    absentDays,
+    totalOtHours,
+    effectivePaidDays,
+    attendancePercentage,
+    perDayRate: roundTo2(perDayRate),
+    basePay,
+    otPay,
+    grossEarnings,
+    advanceDeduction,
+    netSalaryPayable,
+  };
+}

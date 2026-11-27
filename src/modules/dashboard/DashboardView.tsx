@@ -4,7 +4,7 @@ import { Modal } from '../../components/common/Modal.tsx';
 import { formatINR, formatWeight, roundTo2, roundTo3, kgToTon } from '../../utils/calculations.ts';
 import { getLocalDateStr } from '../../utils/visualReportExporter.ts';
 import { PendingOperationsPanel } from './PendingOperationsPanel.tsx';
-import { calculateReconciledAccountBalance } from '../../../backend/business-rules/financeEngine.ts';
+import { calculateReconciledAccountBalance, getCalendarDaysInMonth } from '../../../backend/business-rules/financeEngine.ts';
 import { evaluateFleetCompliance } from '../../../backend/business-rules/vehicleComplianceEngine.ts';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -204,13 +204,16 @@ export const DashboardView: React.FC = () => {
   ).length;
   const absentCount = todayAttendance.filter((a) => a.status === 'ABSENT').length;
   const doubleShiftCount = todayAttendance.filter((a) => a.status === 'DOUBLE_SHIFT').length;
+  const daysInCurrentMonth = getCalendarDaysInMonth(todayStr.slice(0, 7));
   const todayDailyWages = todayAttendance.reduce((sum, att) => {
     const emp = employees.find((e) => e.id === att.employeeId);
     if (!emp) return sum;
-    const baseRate = emp.dailyWageRate || (emp.monthlySalary ? Math.round(emp.monthlySalary / 26) : 0);
+    const isSalaried = (emp.monthlySalary || 0) > 0;
+    const baseRate = isSalaried ? Math.round(emp.monthlySalary / daysInCurrentMonth) : emp.dailyWageRate || 0;
     if (att.status === 'DOUBLE_SHIFT') return sum + baseRate * 2;
     if (att.status === 'HALF_DAY') return sum + baseRate * 0.5;
-    if (att.status === 'PRESENT' || att.status === 'OVERTIME') return sum + baseRate;
+    if (att.status === 'PRESENT' || att.status === 'OVERTIME' || att.status === 'LEAVE') return sum + baseRate;
+    if (att.status === 'WEEK_OFF' && isSalaried) return sum + baseRate;
     return sum;
   }, 0);
 

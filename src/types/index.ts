@@ -737,7 +737,7 @@ export interface Employee {
   isActive: boolean;
 }
 
-export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'HALF_DAY' | 'LEAVE' | 'OVERTIME' | 'DOUBLE_SHIFT';
+export type AttendanceStatus = 'PRESENT' | 'ABSENT' | 'HALF_DAY' | 'LEAVE' | 'WEEK_OFF' | 'OVERTIME' | 'DOUBLE_SHIFT';
 
 export interface AttendanceEntry {
   id: string;

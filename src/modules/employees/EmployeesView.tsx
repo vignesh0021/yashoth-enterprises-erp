@@ -4,6 +4,8 @@ import { Employee, AttendanceStatus, AttendanceEntry } from '../../types/index.t
 import { StatusBadge } from '../../components/common/StatusBadge.tsx';
 import { Modal } from '../../components/common/Modal.tsx';
 import { formatINR } from '../../utils/calculations.ts';
+import { getLocalDateStr } from '../../utils/visualReportExporter.ts';
+import { calculateEmployeeMonthlyAttendancePay } from '../../../backend/business-rules/financeEngine.ts';
 import { 
   UserCheck, 
   Calendar, 
@@ -83,7 +85,7 @@ export const EmployeesView: React.FC = () => {
     currentUser 
   } = useERP();
 
-  const todayIso = new Date().toISOString().split('T')[0];
+  const todayIso = getLocalDateStr();
   const [selectedDate, setSelectedDate] = useState(todayIso);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
@@ -193,16 +195,22 @@ export const EmployeesView: React.FC = () => {
       return;
     }
     if (calendarBrush !== 'CYCLE') {
+      const remarkLabel =
+        calendarBrush === 'LEAVE'
+          ? 'Paid Leave'
+          : calendarBrush === 'WEEK_OFF'
+          ? 'Weekly Off'
+          : `Calendar mark (${calendarBrush.replace('_', ' ')})`;
       markAttendance(
         emp.id,
         dateStr,
         calendarBrush,
         calendarBrush === 'DOUBLE_SHIFT' ? 8 : 0,
-        `Calendar mark (${calendarBrush.replace('_', ' ')})`
+        remarkLabel
       );
       return;
     }
-    // Cycle: Unmarked -> PRESENT -> HALF_DAY -> DOUBLE_SHIFT -> ABSENT -> Clear
+    // Cycle: Unmarked -> PRESENT -> HALF_DAY -> DOUBLE_SHIFT -> LEAVE (Paid) -> WEEK_OFF -> ABSENT -> Clear
     if (!existing) {
       markAttendance(emp.id, dateStr, 'PRESENT', 0, 'Standard 8h shift');
     } else if (existing.status === 'PRESENT' || existing.status === 'OVERTIME') {
@@ -210,6 +218,10 @@ export const EmployeesView: React.FC = () => {
     } else if (existing.status === 'HALF_DAY') {
       markAttendance(emp.id, dateStr, 'DOUBLE_SHIFT', 8, 'Double shift 16h duty');
     } else if (existing.status === 'DOUBLE_SHIFT') {
+      markAttendance(emp.id, dateStr, 'LEAVE', 0, 'Paid Leave');
+    } else if (existing.status === 'LEAVE') {
+      markAttendance(emp.id, dateStr, 'WEEK_OFF', 0, 'Weekly Off');
+    } else if (existing.status === 'WEEK_OFF') {
       markAttendance(emp.id, dateStr, 'ABSENT', 0, 'Absent');
     } else {
       clearAttendanceDates(emp.id, [dateStr]);
@@ -217,21 +229,61 @@ export const EmployeesView: React.FC = () => {
   };
 
   const handleMarkMonthForEmployee = (emp: Employee, skipSundays: boolean) => {
-    const dates = getDatesInMonth(selectedMonth).filter((dt) => {
-      if (!skipSundays) return true;
+    const allDates = getDatesInMonth(selectedMonth);
+    const entries = allDates.map((dt) => {
       const [y, m, d] = dt.split('-').map(Number);
-      return new Date(Date.UTC(y, m - 1, d)).getUTCDay() !== 0;
-    });
-    batchMarkAttendance(
-      dates.map((dt) => ({
+      const isSunday = new Date(Date.UTC(y, m - 1, d)).getUTCDay() === 0;
+      if (skipSundays && isSunday) {
+        return {
+          employeeId: emp.id,
+          date: dt,
+          status: 'WEEK_OFF' as AttendanceStatus,
+          overtimeHours: 0,
+          remarks: 'Sunday Week Off',
+        };
+      }
+      return {
         employeeId: emp.id,
         date: dt,
-        status: 'PRESENT',
+        status: 'PRESENT' as AttendanceStatus,
         overtimeHours: 0,
         remarks: skipSundays ? 'Month Mon-Sat Present' : 'Full Month Present',
+      };
+    });
+    batchMarkAttendance(entries);
+    showToast(
+      'success',
+      skipSundays
+        ? `Marked Mon–Sat Present & Sundays Week Off for ${emp.fullName} (${selectedMonth}).`
+        : `Marked all ${entries.length} days Present for ${emp.fullName} (${selectedMonth}).`
+    );
+  };
+
+  const handleMarkSundaysWeekOff = (emp: Employee) => {
+    const existingDates = new Set(
+      attendance
+        .filter((a) => a.employeeId === emp.id && a.attendanceDate.startsWith(selectedMonth))
+        .map((a) => a.attendanceDate)
+    );
+    const unmarkedSundays = getDatesInMonth(selectedMonth).filter((dt) => {
+      const [y, m, d] = dt.split('-').map(Number);
+      const isSunday = new Date(Date.UTC(y, m - 1, d)).getUTCDay() === 0;
+      return isSunday && !existingDates.has(dt);
+    });
+    if (unmarkedSundays.length === 0) {
+      showToast('success', `All Sundays in ${selectedMonth} are already marked for ${emp.fullName}.`);
+      return;
+    }
+    batchMarkAttendance(
+      unmarkedSundays.map((dt) => ({
+        employeeId: emp.id,
+        date: dt,
+        status: 'WEEK_OFF' as AttendanceStatus,
+        overtimeHours: 0,
+        remarks: 'Sunday Week Off',
       }))
     );
-    showToast('success', `Marked ${dates.length} days Present for ${emp.fullName} (${selectedMonth}).`);
+    showToast('success', `Marked ${unmarkedSundays.length} unmarked Sunday(s) as Week Off (WO) for ${emp.fullName}.`);
   };
 
   const handleToggleEmployeeActive = (emp: Employee) => {
@@ -382,57 +434,16 @@ export const EmployeesView: React.FC = () => {
     }
   };
 
-  // Performance & Salary metrics calculation for selected employee
+  // Performance & Salary metrics calculation for selected employee (whole-month calendar days + Paid Week Off + Paid Leave)
   const getEmployeeStats = (emp: Employee) => {
     const empAttendance = attendance.filter((a) => a.employeeId === emp.id);
     const monthFiltered = empAttendance.filter((a) => a.attendanceDate.startsWith(selectedMonth));
-
-    const doubleShiftDays = monthFiltered.filter((a) => a.status === 'DOUBLE_SHIFT').length;
-    const presentDays = monthFiltered.filter((a) => a.status === 'PRESENT' || a.status === 'OVERTIME').length;
-    const halfDays = monthFiltered.filter((a) => a.status === 'HALF_DAY').length;
-    const absentDays = monthFiltered.filter((a) => a.status === 'ABSENT').length;
-    const totalDaysLogged = monthFiltered.length || 1;
-    const totalOtHours = monthFiltered.reduce((sum, a) => sum + (a.overtimeHours || 0), 0);
-
-    // Double shift awards 2 full effective shifts
-    const effectiveDays = presentDays + (doubleShiftDays * 2) + (halfDays * 0.5);
-    const attendancePercentage = Math.min(100, Math.round((effectiveDays / totalDaysLogged) * 100));
-
-    // Wage Calculations
-    let grossEarnings = 0;
-    let basePay = 0;
-    let otPay = 0;
-
-    if (emp.monthlySalary > 0) {
-      // Salaried staff
-      const perDaySalary = emp.monthlySalary / 26;
-      basePay = Math.round(perDaySalary * effectiveDays);
-      otPay = Math.round(totalOtHours * (perDaySalary / 8) * 1.5);
-      grossEarnings = basePay + otPay;
-    } else {
-      // Daily wage staff: base pay includes standard days + double shifts (2x) + half days (0.5x)
-      basePay = Math.round(emp.dailyWageRate * presentDays + (emp.dailyWageRate * 2) * doubleShiftDays + (emp.dailyWageRate / 2) * halfDays);
-      otPay = Math.round(totalOtHours * (emp.dailyWageRate / 8) * 1.5);
-      grossEarnings = basePay + otPay;
-    }
-
-    const advanceDeduction = emp.currentAdvanceBalance || 0;
-    const netSalaryPayable = Math.max(0, grossEarnings - advanceDeduction);
+    const pay = calculateEmployeeMonthlyAttendancePay(emp, monthFiltered, selectedMonth);
 
     return {
       allRecords: empAttendance,
       monthRecords: monthFiltered.sort((a, b) => b.attendanceDate.localeCompare(a.attendanceDate)),
-      doubleShiftDays,
-      presentDays,
-      halfDays,
-      absentDays,
-      totalOtHours,
-      attendancePercentage,
-      basePay,
-      otPay,
-      grossEarnings,
-      advanceDeduction,
-      netSalaryPayable,
+      ...pay,
     };
   };
 
@@ -550,6 +561,8 @@ export const EmployeesView: React.FC = () => {
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">Present</span>
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800">Paid Leave</span>
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-100 text-sky-800">Week Off</span>
             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800">Half Day</span>
             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">Double Shift</span>
             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700">Unmarked</span>
@@ -614,7 +627,7 @@ export const EmployeesView: React.FC = () => {
                   </div>
 
                   {/* Quick 1-Tap Status Grid */}
-                  <div className="grid grid-cols-5 gap-1.5">
+                  <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
                     <button
                       type="button"
                       onClick={() => handleStatusChange(emp.id, 'PRESENT', 0, 'Standard 8h shift')}
@@ -625,6 +638,28 @@ export const EmployeesView: React.FC = () => {
                       }`}
                     >
                       Present
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleStatusChange(emp.id, 'LEAVE', 0, 'Paid Leave')}
+                      className={`py-2 min-h-[40px] rounded-lg text-[11px] font-bold cursor-pointer ${
+                        currentStatus === 'LEAVE'
+                          ? 'bg-amber-500 text-white shadow-xs'
+                          : 'bg-amber-50 text-amber-800 border border-amber-200'
+                      }`}
+                    >
+                      Leave
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleStatusChange(emp.id, 'WEEK_OFF', 0, 'Weekly Off')}
+                      className={`py-2 min-h-[40px] rounded-lg text-[11px] font-bold cursor-pointer ${
+                        currentStatus === 'WEEK_OFF'
+                          ? 'bg-sky-600 text-white shadow-xs'
+                          : 'bg-sky-50 text-sky-800 border border-sky-200'
+                      }`}
+                    >
+                      Week Off
                     </button>
                     <button
                       type="button"
@@ -849,6 +884,30 @@ export const EmployeesView: React.FC = () => {
                           </button>
                           <button
                             type="button"
+                            onClick={() => handleStatusChange(emp.id, 'LEAVE', 0, 'Paid Leave')}
+                            className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-all ${
+                              currentStatus === 'LEAVE'
+                                ? 'bg-amber-500 text-white shadow-xs'
+                                : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+                            }`}
+                            title="Mark Paid Leave (Full Day Paid)"
+                          >
+                            Leave
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStatusChange(emp.id, 'WEEK_OFF', 0, 'Weekly Off')}
+                            className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-all ${
+                              currentStatus === 'WEEK_OFF'
+                                ? 'bg-sky-600 text-white shadow-xs'
+                                : 'bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100'
+                            }`}
+                            title="Mark Paid Week Off"
+                          >
+                            WO
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleStatusChange(emp.id, 'ABSENT', 0, 'Unexcused / Absent')}
                             className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-all ${
                               currentStatus === 'ABSENT'
@@ -984,10 +1043,12 @@ export const EmployeesView: React.FC = () => {
                 required
               >
                 <option value="PRESENT">Present (Standard 8h Shift)</option>
+                <option value="LEAVE">Paid Leave (Full Day Paid)</option>
+                <option value="WEEK_OFF">Week Off (Paid Weekly Off)</option>
                 <option value="DOUBLE_SHIFT">Double Shift (Continuous 16h Duty - 2x Pay)</option>
                 <option value="OVERTIME">Overtime (Custom OT Hours)</option>
                 <option value="HALF_DAY">Half Day (4h Shift)</option>
-                <option value="ABSENT">Absent</option>
+                <option value="ABSENT">Absent (Unpaid)</option>
               </select>
             </div>
 
@@ -1103,9 +1164,11 @@ export const EmployeesView: React.FC = () => {
                 className="w-full p-2.5 border border-slate-200 rounded-lg bg-white font-bold"
               >
                 <option value="PRESENT">Present (Standard 8h Shift)</option>
+                <option value="LEAVE">Paid Leave (Full Day Paid)</option>
+                <option value="WEEK_OFF">Week Off (Paid Weekly Off)</option>
                 <option value="HALF_DAY">Half Day (4h Shift)</option>
                 <option value="DOUBLE_SHIFT">Double Shift (16h / 2x Pay)</option>
-                <option value="ABSENT">Absent</option>
+                <option value="ABSENT">Absent (Unpaid)</option>
               </select>
             </div>
 
@@ -1253,6 +1316,8 @@ export const EmployeesView: React.FC = () => {
                             [
                               { id: 'CYCLE', label: 'Cycle', cls: 'bg-slate-900 text-white' },
                               { id: 'PRESENT', label: 'Present (P)', cls: 'bg-emerald-600 text-white' },
+                              { id: 'LEAVE', label: 'Paid Leave (PL)', cls: 'bg-amber-500 text-white' },
+                              { id: 'WEEK_OFF', label: 'Week Off (WO)', cls: 'bg-sky-600 text-white' },
                               { id: 'HALF_DAY', label: 'Half (H)', cls: 'bg-blue-600 text-white' },
                               { id: 'DOUBLE_SHIFT', label: '2x Shift', cls: 'bg-purple-600 text-white' },
                               { id: 'ABSENT', label: 'Absent (A)', cls: 'bg-rose-600 text-white' },
@@ -1281,7 +1346,14 @@ export const EmployeesView: React.FC = () => {
                           onClick={() => handleMarkMonthForEmployee(trackingEmployee, true)}
                           className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold cursor-pointer"
                         >
-                          Mark Mon–Sat Present
+                          Mark Mon–Sat Present (+ Sun WO)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleMarkSundaysWeekOff(trackingEmployee)}
+                          className="px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 rounded-lg text-[11px] font-bold cursor-pointer"
+                        >
+                          Mark Sundays Week Off
                         </button>
                         <button
                           type="button"
@@ -1331,6 +1403,12 @@ export const EmployeesView: React.FC = () => {
                           if (st === 'PRESENT' || st === 'OVERTIME') {
                             cellStyle = 'bg-emerald-50 border-emerald-400 text-emerald-900 hover:bg-emerald-100';
                             shortCode = rec?.overtimeHours ? `P+${rec.overtimeHours}h` : 'P';
+                          } else if (st === 'LEAVE') {
+                            cellStyle = 'bg-amber-50 border-amber-400 text-amber-900 hover:bg-amber-100';
+                            shortCode = 'PL';
+                          } else if (st === 'WEEK_OFF') {
+                            cellStyle = 'bg-sky-50 border-sky-400 text-sky-900 hover:bg-sky-100';
+                            shortCode = 'WO';
                           } else if (st === 'HALF_DAY') {
                             cellStyle = 'bg-blue-50 border-blue-400 text-blue-900 hover:bg-blue-100';
                             shortCode = 'H';
@@ -1361,10 +1439,18 @@ export const EmployeesView: React.FC = () => {
                     </div>
 
                     {/* Live Month Summary Strip */}
-                    <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-center">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-center">
                       <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-lg">
                         <span className="text-[10px] text-emerald-700 block font-bold">Present</span>
                         <span className="text-sm font-black text-emerald-900">{stats.presentDays}</span>
+                      </div>
+                      <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg">
+                        <span className="text-[10px] text-amber-800 block font-bold">Paid Leave</span>
+                        <span className="text-sm font-black text-amber-900">{stats.paidLeaveDays}</span>
+                      </div>
+                      <div className="p-2 bg-sky-50 border border-sky-200 rounded-lg">
+                        <span className="text-[10px] text-sky-800 block font-bold">Week Off</span>
+                        <span className="text-sm font-black text-sky-900">{stats.weekOffDays}</span>
                       </div>
                       <div className="p-2 bg-blue-50 border border-blue-200 rounded-lg">
                         <span className="text-[10px] text-blue-700 block font-bold">Half Day</span>
@@ -1383,7 +1469,9 @@ export const EmployeesView: React.FC = () => {
                         <span className="text-sm font-black text-indigo-900">{stats.totalOtHours}h</span>
                       </div>
                       <div className="p-2 bg-slate-900 text-white rounded-lg">
-                        <span className="text-[10px] text-slate-300 block font-bold">Net Pay</span>
+                        <span className="text-[10px] text-slate-300 block font-bold">
+                          Net Pay ({stats.effectivePaidDays}/{stats.daysInMonth}d)
+                        </span>
                         <span className="text-sm font-black text-emerald-400 font-mono">{formatINR(stats.netSalaryPayable)}</span>
                       </div>
                     </div>
@@ -1406,7 +1494,7 @@ export const EmployeesView: React.FC = () => {
                           </span>
                         </div>
                         <span className="text-[10px] text-slate-400 block mt-1">
-                          {stats.presentDays} Full · {stats.doubleShiftDays} Double · {stats.halfDays} Half
+                          {stats.presentDays} P · {stats.paidLeaveDays} PL · {stats.weekOffDays} WO · {stats.doubleShiftDays} 2x · {stats.halfDays} H
                         </span>
                       </div>
 
@@ -1452,7 +1540,7 @@ export const EmployeesView: React.FC = () => {
                           <span>Detailed Salary & Wage Breakdown ({selectedMonth})</span>
                         </span>
                         <span className="text-[11px] font-semibold text-slate-500">
-                          Wage Basis: {trackingEmployee.monthlySalary > 0 ? `₹${trackingEmployee.monthlySalary}/mo Fixed` : `₹${trackingEmployee.dailyWageRate}/day Daily Wage`}
+                          Wage Basis: {trackingEmployee.monthlySalary > 0 ? `₹${trackingEmployee.monthlySalary}/mo ÷ ${stats.daysInMonth} days = ₹${stats.perDayRate}/day` : `₹${trackingEmployee.dailyWageRate}/day Daily Wage`}
                         </span>
                       </div>
 
@@ -1460,18 +1548,34 @@ export const EmployeesView: React.FC = () => {
                         <div className="space-y-2 text-xs">
                           <div className="flex justify-between py-1 border-b border-slate-100 text-slate-700">
                             <span>Standard Full Days Worked:</span>
-                            <span className="font-mono font-semibold">{stats.presentDays} days × ₹{trackingEmployee.dailyWageRate || Math.round(trackingEmployee.monthlySalary / 26)}</span>
+                            <span className="font-mono font-semibold">{stats.presentDays} days × ₹{stats.perDayRate}</span>
                           </div>
+                          {stats.paidLeaveDays > 0 && (
+                            <div className="flex justify-between py-1 border-b border-slate-100 text-amber-800 font-semibold">
+                              <span>Paid Leave Days (PL):</span>
+                              <span className="font-mono">{stats.paidLeaveDays} days × ₹{stats.perDayRate} = {formatINR(Math.round(stats.paidLeaveDays * stats.perDayRate))}</span>
+                            </div>
+                          )}
+                          {stats.weekOffDays > 0 && (
+                            <div className="flex justify-between py-1 border-b border-slate-100 text-sky-800 font-semibold">
+                              <span>Week Off Days (WO{trackingEmployee.monthlySalary > 0 ? ' · Paid' : ' · Rest'}):</span>
+                              <span className="font-mono">
+                                {trackingEmployee.monthlySalary > 0
+                                  ? `${stats.weekOffDays} days × ₹${stats.perDayRate} = ${formatINR(Math.round(stats.weekOffDays * stats.perDayRate))}`
+                                  : `${stats.weekOffDays} rest days (₹0)`}
+                              </span>
+                            </div>
+                          )}
                           {stats.doubleShiftDays > 0 && (
                             <div className="flex justify-between py-1 border-b border-slate-100 text-purple-700 font-semibold">
                               <span>Double Shifts Worked (2x Pay):</span>
-                              <span className="font-mono">{stats.doubleShiftDays} shifts × ₹{(trackingEmployee.dailyWageRate || Math.round(trackingEmployee.monthlySalary / 26)) * 2} = {formatINR(stats.doubleShiftDays * (trackingEmployee.dailyWageRate || Math.round(trackingEmployee.monthlySalary / 26)) * 2)}</span>
+                              <span className="font-mono">{stats.doubleShiftDays} shifts × ₹{(stats.perDayRate * 2).toFixed(2)} = {formatINR(Math.round(stats.doubleShiftDays * stats.perDayRate * 2))}</span>
                             </div>
                           )}
                           {stats.halfDays > 0 && (
                             <div className="flex justify-between py-1 border-b border-slate-100 text-slate-700">
                               <span>Half Days Worked:</span>
-                              <span className="font-mono font-semibold">{stats.halfDays} days × ₹{(trackingEmployee.dailyWageRate || Math.round(trackingEmployee.monthlySalary / 26)) / 2}</span>
+                              <span className="font-mono font-semibold">{stats.halfDays} days × ₹{(stats.perDayRate / 2).toFixed(2)}</span>
                             </div>
                           )}
                           {stats.totalOtHours > 0 && (
@@ -1632,7 +1736,7 @@ export const EmployeesView: React.FC = () => {
                         </div>
                         <div>
                           <p><span className="text-slate-500">Department:</span> {trackingEmployee.department}</p>
-                          <p><span className="text-slate-500">Effective Days:</span> <span className="font-bold">{stats.presentDays + (stats.doubleShiftDays * 2) + stats.halfDays * 0.5} Days</span></p>
+                          <p><span className="text-slate-500">Effective Paid Days:</span> <span className="font-bold">{stats.effectivePaidDays} / {stats.daysInMonth} Days</span> <span className="text-[10px] text-slate-500">({stats.presentDays}P, {stats.paidLeaveDays}PL, {stats.weekOffDays}WO)</span></p>
                           <p><span className="text-slate-500">Overtime Logged:</span> <span className="font-bold text-purple-700">{stats.totalOtHours} Hours</span></p>
                         </div>
                       </div>

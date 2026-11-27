@@ -43,6 +43,7 @@ import type {
   UploadedDocument,
   MonthlySalaryRecord,
   EmployeeAdvance,
+  LabourAdvance,
   DailyLabourEntry,
   LabourPayment,
   Contractor,
@@ -168,6 +169,7 @@ import {
 import { googleDriveService } from '../services/googleDriveService.ts';
 import { dbRepository } from '../services/databaseRepository.ts';
 import { realtimeSyncService } from '../services/realtimeSyncService.ts';
+import { getLocalDateStr } from '../utils/visualReportExporter.ts';
 
 import { 
   INITIAL_COMPANY_SETTINGS, 
@@ -315,20 +317,22 @@ interface ERPContextType {
   // Small-Business Finance: Salary, Labour, Contractor, Daily Closing
   salaryRecords: MonthlySalaryRecord[];
   employeeAdvances: EmployeeAdvance[];
+  labourAdvances: LabourAdvance[];
   dailyLabourEntries: DailyLabourEntry[];
   labourPayments: LabourPayment[];
   contractors: Contractor[];
   contractorWorkEntries: ContractorWorkEntry[];
   contractorPayments: ContractorPayment[];
   dailyCashClosings: DailyCashClosingRecord[];
-  issueEmployeeAdvance: (params: { employeeId: string; employeeName: string; amount: number; paymentMode: 'CASH' | 'BANK'; accountId: string; notes?: string }) => Promise<EmployeeAdvance>;
+  issueEmployeeAdvance: (params: { employeeId: string; employeeName: string; amount: number; paymentMode: 'CASH' | 'BANK'; accountId: string; advanceDate?: string; notes?: string }) => Promise<EmployeeAdvance>;
+  issueLabourAdvance: (params: { workerNameOrGroup: string; amount: number; paymentMode: 'CASH' | 'BANK'; accountId: string; advanceDate?: string; notes?: string }) => Promise<LabourAdvance>;
   recordSalaryPayment: (params: Omit<MonthlySalaryRecord, 'id' | 'createdAt' | 'createdBy'>) => Promise<MonthlySalaryRecord>;
   updateSalaryRecord: (id: string, updates: Partial<MonthlySalaryRecord>) => void;
   deleteSalaryRecord: (id: string) => { success: boolean; message?: string };
   paySalaryInstallment: (params: { salaryRecordId: string; amount: number; paymentMode: 'CASH' | 'BANK'; accountId: string; notes?: string }) => Promise<{ success: boolean; message: string; salaryRecord?: MonthlySalaryRecord }>;
   reverseSalaryRecord: (salaryId: string, reason: string) => MonthlySalaryRecord;
-  recordDailyLabour: (params: Omit<DailyLabourEntry, 'id' | 'createdAt' | 'createdBy'>) => Promise<DailyLabourEntry>;
-  updateDailyLabour: (id: string, updates: Partial<DailyLabourEntry>) => void;
+  recordDailyLabour: (params: Omit<DailyLabourEntry, 'id' | 'createdAt' | 'createdBy'> & { advanceIsNewCashOutflow?: boolean }) => Promise<DailyLabourEntry>;
+  updateDailyLabour: (id: string, updates: Partial<DailyLabourEntry>, options?: { accountId?: string; paymentMode?: 'CASH' | 'BANK'; treatAdvanceIncreaseAsCashOutflow?: boolean }) => void;
   deleteDailyLabour: (id: string) => { success: boolean; message?: string };
   reverseDailyLabour: (labourId: string, reason: string) => DailyLabourEntry;
   recordLabourPayment: (params: { dailyLabourId: string; workerNameOrGroup: string; amount: number; paymentMode: 'CASH' | 'BANK'; accountId: string; notes?: string }) => Promise<LabourPayment>;
@@ -563,6 +567,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [uploadedDocuments, setUploadedDocuments] = useState<UploadedDocument[]>(() => load<UploadedDocument[]>('uploadedDocuments', []));
   const [salaryRecords, setSalaryRecords] = useState<MonthlySalaryRecord[]>(() => load<MonthlySalaryRecord[]>('salaryRecords', []));
   const [employeeAdvances, setEmployeeAdvances] = useState<EmployeeAdvance[]>(() => load<EmployeeAdvance[]>('employeeAdvances', []));
+  const [labourAdvances, setLabourAdvances] = useState<LabourAdvance[]>(() => load<LabourAdvance[]>('labourAdvances', []));
   const [dailyLabourEntries, setDailyLabourEntries] = useState<DailyLabourEntry[]>(() => load<DailyLabourEntry[]>('dailyLabourEntries', []));
   const [labourPayments, setLabourPayments] = useState<LabourPayment[]>(() => load<LabourPayment[]>('labourPayments', []));
   const [contractors, setContractors] = useState<Contractor[]>(() => load<Contractor[]>('contractors', []));
@@ -611,6 +616,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       localStorage.setItem(STORAGE_PREFIX + 'uploadedDocuments', JSON.stringify(uploadedDocuments));
       localStorage.setItem(STORAGE_PREFIX + 'salaryRecords', JSON.stringify(salaryRecords));
       localStorage.setItem(STORAGE_PREFIX + 'employeeAdvances', JSON.stringify(employeeAdvances));
+      localStorage.setItem(STORAGE_PREFIX + 'labourAdvances', JSON.stringify(labourAdvances));
       localStorage.setItem(STORAGE_PREFIX + 'dailyLabourEntries', JSON.stringify(dailyLabourEntries));
       localStorage.setItem(STORAGE_PREFIX + 'labourPayments', JSON.stringify(labourPayments));
       localStorage.setItem(STORAGE_PREFIX + 'contractors', JSON.stringify(contractors));
@@ -640,7 +646,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     weighments, collectionJobs, purchases, inventoryLots, stockMovements,
     sales, invoices, payments, stockCounts, auditLogs, commercialDocuments, journalEntries,
     backupHistory, restoreLogs, backupSchedule, dailyTasks, workNotes, uploadedDocuments,
-    salaryRecords, employeeAdvances, dailyLabourEntries, labourPayments, contractors, contractorWorkEntries, contractorPayments, dailyCashClosings,
+    salaryRecords, employeeAdvances, labourAdvances, dailyLabourEntries, labourPayments, contractors, contractorWorkEntries, contractorPayments, dailyCashClosings,
     materialDispatches, godownTransfers, managedDocuments, storageQuotaConfig
   ]);
 
@@ -1533,6 +1539,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     amount: number;
     paymentMode: 'CASH' | 'BANK';
     accountId: string;
+    advanceDate?: string;
     notes?: string;
   }): Promise<EmployeeAdvance> => {
     if (params.amount <= 0) {
@@ -1550,7 +1557,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     const now = new Date().toISOString();
-    const today = now.split('T')[0];
+    const advanceDate = params.advanceDate || getLocalDateStr();
     const id = 'eadv-' + Math.random().toString(36).substring(2, 11);
     const voucherNo = `ADV-26-${String(employeeAdvances.length + 1).padStart(4, '0')}`;
 
@@ -1572,30 +1579,12 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
-    const newAdvance: EmployeeAdvance = {
-      id,
-      companyId: activeCompanyId,
-      employeeId: params.employeeId,
-      employeeName: params.employeeName,
-      advanceDate: today,
-      amount: params.amount,
-      recoveredAmount: 0,
-      remainingBalance: params.amount,
-      status: 'OPEN',
-      paymentMode: params.paymentMode,
-      accountId: params.accountId,
-      voucherNo,
-      notes: params.notes,
-      createdAt: now,
-      createdBy: currentUser.fullName,
-    };
-
     const accCode = acc.accountType === 'BANK' ? '1020' : '1010';
     const je = createEmployeeAdvanceJournal(
       {
         id,
         employeeName: params.employeeName,
-        advanceDate: today,
+        advanceDate,
         amount: params.amount,
         paymentMode: params.paymentMode,
         voucherNo,
@@ -1605,15 +1594,36 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       currentUser.fullName
     );
 
+    const newAdvance: EmployeeAdvance = {
+      id,
+      companyId: activeCompanyId,
+      employeeId: params.employeeId,
+      employeeName: params.employeeName,
+      advanceDate,
+      amount: params.amount,
+      recoveredAmount: 0,
+      remainingBalance: params.amount,
+      status: 'OPEN',
+      paymentMode: params.paymentMode,
+      accountId: params.accountId,
+      voucherNo,
+      journalId: je.id,
+      notes: params.notes,
+      createdAt: now,
+      createdBy: currentUser.fullName,
+    };
+
     const accountTx: AccountTransaction = {
       id: 'atx-eadv-' + Math.random().toString(36).substring(2, 11),
+      companyId: activeCompanyId,
       accountId: params.accountId,
-      transactionDate: today,
-      transactionType: 'OPERATING_EXPENSE',
+      transactionDate: advanceDate,
+      transactionType: 'EMPLOYEE_ADVANCE',
       direction: 'CREDIT',
       amount: params.amount,
+      journalEntryId: je.id,
       referenceNo: voucherNo,
-      description: `Employee advance issued: ${params.employeeName}`,
+      description: `Employee advance issued: ${params.employeeName}${params.notes ? ` (${params.notes})` : ''}`,
       createdBy: currentUser.fullName,
       createdAt: now,
     };
@@ -1631,6 +1641,95 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     logAudit('ISSUE_EMPLOYEE_ADVANCE', 'EMPLOYEE_ADVANCE', id, null, newAdvance);
     return newAdvance;
+  };
+
+  // --- Daily Labour Cash/Bank Advance Issuance ---
+  const issueLabourAdvance = async (params: {
+    workerNameOrGroup: string;
+    amount: number;
+    paymentMode: 'CASH' | 'BANK';
+    accountId: string;
+    advanceDate?: string;
+    notes?: string;
+  }): Promise<LabourAdvance> => {
+    const workerName = params.workerNameOrGroup.trim();
+    if (!workerName) {
+      throw new Error('Worker or group name is required.');
+    }
+    if (params.amount <= 0) {
+      throw new Error('Labour advance amount must be greater than zero.');
+    }
+    const acc = accounts.find((a) => a.id === params.accountId);
+    if (!acc) throw new Error('Payment account not found.');
+
+    const curBal = getAccountBalance(params.accountId);
+    validateCashBankTransaction({
+      account: acc,
+      amount: params.amount,
+      direction: 'CREDIT',
+      currentBalance: curBal,
+    });
+
+    const now = new Date().toISOString();
+    const advanceDate = params.advanceDate || getLocalDateStr();
+    const id = 'ladv-' + Math.random().toString(36).substring(2, 11);
+    const voucherNo = `LADV-26-${String(labourAdvances.length + 1).padStart(4, '0')}`;
+    const accCode = acc.accountType === 'BANK' ? '1020' : '1010';
+
+    const je = createLabourAdvanceJournal(
+      {
+        id,
+        workerNameOrGroup: workerName,
+        advanceDate,
+        amount: params.amount,
+        paymentMode: params.paymentMode,
+        voucherNo,
+      },
+      accCode,
+      activeCompany,
+      currentUser.fullName
+    );
+
+    const accountTx: AccountTransaction = {
+      id: 'atx-ladv-' + Math.random().toString(36).substring(2, 11),
+      companyId: activeCompanyId,
+      accountId: params.accountId,
+      transactionDate: advanceDate,
+      transactionType: 'LABOUR_ADVANCE',
+      direction: 'CREDIT',
+      amount: params.amount,
+      journalEntryId: je.id,
+      referenceNo: voucherNo,
+      description: `Labour advance issued: ${workerName}${params.notes ? ` (${params.notes})` : ''}`,
+      createdBy: currentUser.fullName,
+      createdAt: now,
+    };
+
+    const newLabourAdv: LabourAdvance = {
+      id,
+      companyId: activeCompanyId,
+      workerNameOrGroup: workerName,
+      advanceDate,
+      amount: roundTo2(params.amount),
+      adjustedAmount: 0,
+      remainingBalance: roundTo2(params.amount),
+      status: 'OPEN',
+      paymentMode: params.paymentMode,
+      accountId: params.accountId,
+      voucherNo,
+      journalId: je.id,
+      accountTransactionId: accountTx.id,
+      notes: params.notes,
+      createdAt: now,
+      createdBy: currentUser.fullName,
+    };
+
+    setLabourAdvances((prev) => [newLabourAdv, ...prev]);
+    setAccountTransactions((prev) => [accountTx, ...prev]);
+    setJournalEntries((prev) => [je, ...prev]);
+
+    logAudit('ISSUE_LABOUR_ADVANCE', 'LABOUR_ADVANCE', id, null, newLabourAdv);
+    return newLabourAdv;
   };
 
   const recordSalaryPayment = async (params: Omit<MonthlySalaryRecord, 'id' | 'createdAt' | 'createdBy'>): Promise<MonthlySalaryRecord> => {
@@ -1958,16 +2057,23 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // --- Daily Wage Labour Management ---
-  const recordDailyLabour = async (params: Omit<DailyLabourEntry, 'id' | 'createdAt' | 'createdBy'>): Promise<DailyLabourEntry> => {
-    validateDailyLabourInput(params);
+  const recordDailyLabour = async (
+    params: Omit<DailyLabourEntry, 'id' | 'createdAt' | 'createdBy'> & { advanceIsNewCashOutflow?: boolean }
+  ): Promise<DailyLabourEntry> => {
+    const { advanceIsNewCashOutflow, ...labourFields } = params;
+    validateDailyLabourInput(labourFields);
 
-    const isPaid = (params.amountPaid || 0) > 0;
-    const acc = params.accountId ? accounts.find((a) => a.id === params.accountId) : undefined;
-    if (isPaid && acc) {
+    const isPaid = (labourFields.amountPaid || 0) > 0;
+    const isFreshAdvanceCash = Boolean(advanceIsNewCashOutflow) && (labourFields.advanceAmount || 0) > 0;
+    const totalImmediateCashOut = roundTo2(
+      (isPaid ? labourFields.amountPaid : 0) + (isFreshAdvanceCash ? labourFields.advanceAmount : 0)
+    );
+    const acc = labourFields.accountId ? accounts.find((a) => a.id === labourFields.accountId) : undefined;
+    if (totalImmediateCashOut > 0 && acc) {
       const curBal = getAccountBalance(acc.id);
       validateCashBankTransaction({
         account: acc,
-        amount: params.amountPaid,
+        amount: totalImmediateCashOut,
         direction: 'CREDIT',
         currentBalance: curBal,
       });
@@ -1976,10 +2082,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const id = 'dlab-' + Math.random().toString(36).substring(2, 11);
     const now = new Date().toISOString();
     const newEntry: DailyLabourEntry = {
-      ...params,
+      ...labourFields,
       id,
       companyId: activeCompanyId,
-      status: params.remainingBalance <= 0.01 && isPaid ? 'PAID' : (isPaid ? 'PARTIALLY_PAID' : 'PENDING'),
+      status: labourFields.remainingBalance <= 0.01 && (isPaid || labourFields.advanceAmount > 0) ? 'PAID' : (isPaid || labourFields.advanceAmount > 0 ? 'PARTIALLY_PAID' : 'PENDING'),
       createdAt: now,
       createdBy: currentUser.fullName,
     };
@@ -1989,54 +2095,140 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (dbRepository.isRemoteDatabaseAvailable()) {
       const rpcRes = await dbRepository.postDailyLabourAccrualAtomic({
         companyId: activeCompanyId,
-        workDate: params.workDate,
-        workerNameOrGroup: params.workerNameOrGroup,
-        workerCount: params.workerCount,
-        workingDays: params.workingDays,
-        dailyRate: params.dailyRate,
-        overtimeAmount: params.overtimeAmount || 0,
-        additionalCharges: params.additionalCharges || 0,
-        totalLabourCost: params.totalLabourCost,
-        advanceAmount: params.advanceAmount || 0,
-        amountPaid: params.amountPaid || 0,
-        remainingBalance: params.remainingBalance,
-        paymentMode: params.paymentMode,
-        accountId: params.accountId,
+        workDate: labourFields.workDate,
+        workerNameOrGroup: labourFields.workerNameOrGroup,
+        workerCount: labourFields.workerCount,
+        workingDays: labourFields.workingDays,
+        dailyRate: labourFields.dailyRate,
+        overtimeAmount: labourFields.overtimeAmount || 0,
+        additionalCharges: labourFields.additionalCharges || 0,
+        totalLabourCost: labourFields.totalLabourCost,
+        advanceAmount: labourFields.advanceAmount || 0,
+        amountPaid: labourFields.amountPaid || 0,
+        remainingBalance: labourFields.remainingBalance,
+        paymentMode: labourFields.paymentMode,
+        accountId: labourFields.accountId,
         actor: currentUser.fullName,
-        notes: params.notes,
+        notes: labourFields.notes,
       });
       if (!rpcRes.success) {
         throw new Error(rpcRes.error?.message || 'Failed to post daily labour to database.');
       }
     }
 
-    const je = createDailyLabourJournal(newEntry, accCode, activeCompany, currentUser.fullName);
+    const journalsToAdd: JournalEntry[] = [];
+    const txsToAdd: AccountTransaction[] = [];
 
-    if (isPaid && params.accountId) {
-      const voucherNo = `LPAY-26-${String(labourPayments.length + 1).padStart(4, '0')}`;
-      const accTx: AccountTransaction = {
-        id: 'atx-lab-' + Math.random().toString(36).substring(2, 11),
-        accountId: params.accountId,
-        transactionDate: params.workDate,
-        transactionType: 'OPERATING_EXPENSE',
+    // If advance was given in Cash/Bank today alongside this labour entry, record the actual Cash/Bank outflow + Dr 1070 / Cr Cash-Bank
+    if (isFreshAdvanceCash && labourFields.accountId) {
+      const advId = 'ladv-' + Math.random().toString(36).substring(2, 11);
+      const advVoucherNo = `LADV-26-${String(labourAdvances.length + 1).padStart(4, '0')}`;
+      const advJe = createLabourAdvanceJournal(
+        {
+          id: advId,
+          workerNameOrGroup: labourFields.workerNameOrGroup,
+          advanceDate: labourFields.workDate,
+          amount: labourFields.advanceAmount,
+          paymentMode: labourFields.paymentMode === 'BANK' ? 'BANK' : 'CASH',
+          voucherNo: advVoucherNo,
+        },
+        accCode,
+        activeCompany,
+        currentUser.fullName
+      );
+      const advTx: AccountTransaction = {
+        id: 'atx-ladv-' + Math.random().toString(36).substring(2, 11),
+        companyId: activeCompanyId,
+        accountId: labourFields.accountId,
+        transactionDate: labourFields.workDate,
+        transactionType: 'LABOUR_ADVANCE',
         direction: 'CREDIT',
-        amount: params.amountPaid,
-        referenceNo: voucherNo,
-        description: `Daily Labour Settlement: ${params.workerNameOrGroup} (${params.workDate})`,
+        amount: labourFields.advanceAmount,
+        journalEntryId: advJe.id,
+        referenceNo: advVoucherNo,
+        description: `Labour advance paid: ${labourFields.workerNameOrGroup} (${labourFields.workDate})`,
         createdBy: currentUser.fullName,
         createdAt: now,
       };
-      setAccountTransactions((prev) => [accTx, ...prev]);
+      const newAdvRecord: LabourAdvance = {
+        id: advId,
+        companyId: activeCompanyId,
+        workerNameOrGroup: labourFields.workerNameOrGroup,
+        advanceDate: labourFields.workDate,
+        amount: labourFields.advanceAmount,
+        adjustedAmount: labourFields.advanceAmount,
+        remainingBalance: 0,
+        status: 'FULLY_ADJUSTED',
+        paymentMode: labourFields.paymentMode === 'BANK' ? 'BANK' : 'CASH',
+        accountId: labourFields.accountId,
+        voucherNo: advVoucherNo,
+        journalId: advJe.id,
+        accountTransactionId: advTx.id,
+        notes: 'Issued and adjusted with daily labour entry',
+        createdAt: now,
+        createdBy: currentUser.fullName,
+      };
+      journalsToAdd.push(advJe);
+      txsToAdd.push(advTx);
+      setLabourAdvances((prev) => [newAdvRecord, ...prev]);
+    } else if ((labourFields.advanceAmount || 0) > 0) {
+      // Adjust previously issued open labour advances FIFO for matching worker/group
+      let remToAdjust = labourFields.advanceAmount;
+      const targetName = labourFields.workerNameOrGroup.trim().toLowerCase();
+      setLabourAdvances((prev) =>
+        prev.map((adv) => {
+          if (
+            remToAdjust <= 0 ||
+            adv.status === 'FULLY_ADJUSTED' ||
+            adv.status === 'REVERSED' ||
+            adv.workerNameOrGroup.trim().toLowerCase() !== targetName
+          ) {
+            return adv;
+          }
+          const apply = Math.min(adv.remainingBalance, remToAdjust);
+          remToAdjust = roundTo2(remToAdjust - apply);
+          const nextAdjusted = roundTo2(adv.adjustedAmount + apply);
+          const nextRemaining = roundTo2(Math.max(0, adv.amount - nextAdjusted));
+          return {
+            ...adv,
+            adjustedAmount: nextAdjusted,
+            remainingBalance: nextRemaining,
+            status: nextRemaining <= 0.01 ? 'FULLY_ADJUSTED' : 'PARTIALLY_ADJUSTED',
+          };
+        })
+      );
+    }
+
+    const je = createDailyLabourJournal(newEntry, accCode, activeCompany, currentUser.fullName);
+    journalsToAdd.push(je);
+
+    if (isPaid && labourFields.accountId) {
+      const voucherNo = `LPAY-26-${String(labourPayments.length + 1).padStart(4, '0')}`;
+      const accTx: AccountTransaction = {
+        id: 'atx-lab-' + Math.random().toString(36).substring(2, 11),
+        companyId: activeCompanyId,
+        accountId: labourFields.accountId,
+        transactionDate: labourFields.workDate,
+        transactionType: 'OPERATING_EXPENSE',
+        direction: 'CREDIT',
+        amount: labourFields.amountPaid,
+        journalEntryId: je.id,
+        referenceNo: voucherNo,
+        description: `Daily Labour Settlement: ${labourFields.workerNameOrGroup} (${labourFields.workDate})`,
+        createdBy: currentUser.fullName,
+        createdAt: now,
+      };
+      txsToAdd.push(accTx);
 
       const lpay: LabourPayment = {
         id: 'lpay-' + Math.random().toString(36).substring(2, 11),
         companyId: activeCompanyId,
         dailyLabourId: id,
-        workerNameOrGroup: params.workerNameOrGroup,
-        paymentDate: params.workDate,
-        amount: params.amountPaid,
-        paymentMode: (params.paymentMode as any) || 'CASH',
-        accountId: params.accountId,
+        workerNameOrGroup: labourFields.workerNameOrGroup,
+        paymentDate: labourFields.workDate,
+        amount: labourFields.amountPaid,
+        paymentMode: (labourFields.paymentMode as any) || 'CASH',
+        accountId: labourFields.accountId,
         voucherNo,
         status: 'POSTED',
         createdAt: now,
@@ -2045,16 +2237,169 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setLabourPayments((prev) => [lpay, ...prev]);
     }
 
+    if (txsToAdd.length > 0) {
+      setAccountTransactions((prev) => [...txsToAdd, ...prev]);
+    }
     setDailyLabourEntries((prev) => [newEntry, ...prev]);
-    setJournalEntries((prev) => [je, ...prev]);
+    setJournalEntries((prev) => [...journalsToAdd, ...prev]);
 
     logAudit('RECORD_DAILY_LABOUR', 'DAILY_LABOUR', id, null, newEntry);
     return newEntry;
   };
 
-  const updateDailyLabour = (id: string, updates: Partial<DailyLabourEntry>) => {
-    setDailyLabourEntries((prev) => prev.map((l) => (l.id === id ? { ...l, ...updates } : l)));
-    logAudit('UPDATE_DAILY_LABOUR', 'DAILY_LABOUR', id, null, updates);
+  const updateDailyLabour = (
+    id: string,
+    updates: Partial<DailyLabourEntry>,
+    options?: { accountId?: string; paymentMode?: 'CASH' | 'BANK'; treatAdvanceIncreaseAsCashOutflow?: boolean }
+  ) => {
+    const existing = dailyLabourEntries.find((l) => l.id === id);
+    if (!existing) return;
+
+    const now = new Date().toISOString();
+    const today = getLocalDateStr();
+    const effectiveAccountId = options?.accountId || updates.accountId || existing.accountId || accounts.find((a) => a.accountType === 'CASH')?.id || accounts[0]?.id;
+    const acc = effectiveAccountId ? accounts.find((a) => a.id === effectiveAccountId) : undefined;
+    const accCode = acc?.accountType === 'BANK' ? '1020' : '1010';
+    const payMode: 'CASH' | 'BANK' = options?.paymentMode || (acc?.accountType === 'BANK' ? 'BANK' : 'CASH');
+
+    const newTxs: AccountTransaction[] = [];
+    const newJes: JournalEntry[] = [];
+
+    // Count delta advance if increased and marked as real cash outflow
+    const advDelta = roundTo2((updates.advanceAmount ?? existing.advanceAmount) - (existing.advanceAmount || 0));
+    if (advDelta > 0 && options?.treatAdvanceIncreaseAsCashOutflow !== false && effectiveAccountId) {
+      const advId = 'ladv-' + Math.random().toString(36).substring(2, 11);
+      const voucherNo = `LADV-26-${String(labourAdvances.length + 1).padStart(4, '0')}`;
+      const advJe = createLabourAdvanceJournal(
+        {
+          id: advId,
+          workerNameOrGroup: updates.workerNameOrGroup || existing.workerNameOrGroup,
+          advanceDate: today,
+          amount: advDelta,
+          paymentMode: payMode,
+          voucherNo,
+        },
+        accCode,
+        activeCompany,
+        currentUser.fullName
+      );
+      const advTx: AccountTransaction = {
+        id: 'atx-ladv-' + Math.random().toString(36).substring(2, 11),
+        companyId: activeCompanyId,
+        accountId: effectiveAccountId,
+        transactionDate: today,
+        transactionType: 'LABOUR_ADVANCE',
+        direction: 'CREDIT',
+        amount: advDelta,
+        journalEntryId: advJe.id,
+        referenceNo: voucherNo,
+        description: `Labour advance update: ${updates.workerNameOrGroup || existing.workerNameOrGroup}`,
+        createdBy: currentUser.fullName,
+        createdAt: now,
+      };
+      newTxs.push(advTx);
+      newJes.push(advJe);
+      setLabourAdvances((prev) => [
+        {
+          id: advId,
+          companyId: activeCompanyId,
+          workerNameOrGroup: updates.workerNameOrGroup || existing.workerNameOrGroup,
+          advanceDate: today,
+          amount: advDelta,
+          adjustedAmount: advDelta,
+          remainingBalance: 0,
+          status: 'FULLY_ADJUSTED',
+          paymentMode: payMode,
+          accountId: effectiveAccountId,
+          voucherNo,
+          journalId: advJe.id,
+          accountTransactionId: advTx.id,
+          notes: 'Updated via Daily Labour edit',
+          createdAt: now,
+          createdBy: currentUser.fullName,
+        },
+        ...prev,
+      ]);
+    }
+
+    // Count delta payment if amountPaid increased
+    const paidDelta = roundTo2((updates.amountPaid ?? existing.amountPaid) - (existing.amountPaid || 0));
+    if (paidDelta > 0 && effectiveAccountId) {
+      const voucherNo = `LPAY-26-${String(labourPayments.length + 1).padStart(4, '0')}`;
+      const payId = 'lpay-' + Math.random().toString(36).substring(2, 11);
+      const payJe = createLabourPaymentJournal(
+        {
+          dailyLabourId: id,
+          workerNameOrGroup: updates.workerNameOrGroup || existing.workerNameOrGroup,
+          amount: paidDelta,
+          paymentMode: payMode,
+          paymentId: payId,
+          voucherNo,
+          paymentDate: today,
+        },
+        accCode,
+        activeCompany,
+        currentUser.fullName
+      );
+      const payTx: AccountTransaction = {
+        id: 'atx-lpay-' + Math.random().toString(36).substring(2, 11),
+        companyId: activeCompanyId,
+        accountId: effectiveAccountId,
+        transactionDate: today,
+        transactionType: 'OPERATING_EXPENSE',
+        direction: 'CREDIT',
+        amount: paidDelta,
+        journalEntryId: payJe.id,
+        referenceNo: voucherNo,
+        description: `Daily Labour Payment Update: ${updates.workerNameOrGroup || existing.workerNameOrGroup}`,
+        createdBy: currentUser.fullName,
+        createdAt: now,
+      };
+      newTxs.push(payTx);
+      newJes.push(payJe);
+      setLabourPayments((prev) => [
+        {
+          id: payId,
+          companyId: activeCompanyId,
+          dailyLabourId: id,
+          workerNameOrGroup: updates.workerNameOrGroup || existing.workerNameOrGroup,
+          paymentDate: today,
+          amount: paidDelta,
+          paymentMode: payMode,
+          accountId: effectiveAccountId,
+          voucherNo,
+          status: 'POSTED',
+          journalId: payJe.id,
+          createdAt: now,
+          createdBy: currentUser.fullName,
+        },
+        ...prev,
+      ]);
+    }
+
+    if (newTxs.length > 0) setAccountTransactions((prev) => [...newTxs, ...prev]);
+    if (newJes.length > 0) setJournalEntries((prev) => [...newJes, ...prev]);
+
+    setDailyLabourEntries((prev) =>
+      prev.map((l) => {
+        if (l.id !== id) return l;
+        const merged = { ...l, ...updates };
+        const recalculatedBal = roundTo2(
+          Math.max(0, (merged.totalLabourCost || 0) - (merged.advanceAmount || 0) - (merged.amountPaid || 0))
+        );
+        return {
+          ...merged,
+          remainingBalance: recalculatedBal,
+          status:
+            recalculatedBal <= 0.01 && ((merged.amountPaid || 0) > 0 || (merged.advanceAmount || 0) > 0)
+              ? 'PAID'
+              : (merged.amountPaid || 0) > 0 || (merged.advanceAmount || 0) > 0
+                ? 'PARTIALLY_PAID'
+                : 'PENDING',
+        };
+      })
+    );
+    logAudit('UPDATE_DAILY_LABOUR', 'DAILY_LABOUR', id, existing, updates);
   };
 
   const deleteDailyLabour = (id: string): { success: boolean; message?: string } => {
@@ -3582,6 +3927,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setJournalEntries(INITIAL_JOURNAL_ENTRIES);
     setSalaryRecords(INITIAL_SALARY_RECORDS);
     setEmployeeAdvances(INITIAL_EMPLOYEE_ADVANCES);
+    setLabourAdvances([]);
     setDailyLabourEntries(INITIAL_DAILY_LABOUR);
     setLabourPayments(INITIAL_LABOUR_PAYMENTS);
     setContractors(INITIAL_CONTRACTORS);
@@ -3623,6 +3969,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setUploadedDocuments([]);
     setSalaryRecords([]);
     setEmployeeAdvances([]);
+    setLabourAdvances([]);
     setDailyLabourEntries([]);
     setLabourPayments([]);
     setContractors([]);
@@ -3665,6 +4012,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       uploadedDocuments,
       salaryRecords,
       employeeAdvances,
+      labourAdvances,
       dailyLabourEntries,
       labourPayments,
       contractors,
@@ -3706,6 +4054,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     uploadedDocuments,
     salaryRecords,
     employeeAdvances,
+    labourAdvances,
     dailyLabourEntries,
     labourPayments,
     contractors,
@@ -3767,6 +4116,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     if (data.salaryRecords) setSalaryRecords(data.salaryRecords);
     if (data.employeeAdvances) setEmployeeAdvances(data.employeeAdvances);
+    if (data.labourAdvances) setLabourAdvances(data.labourAdvances);
     if (data.dailyLabourEntries) setDailyLabourEntries(data.dailyLabourEntries);
     if (data.labourPayments) setLabourPayments(data.labourPayments);
     if (data.contractors) setContractors(data.contractors);
@@ -4441,6 +4791,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         reverseExpense,
         salaryRecords,
         employeeAdvances,
+        labourAdvances,
         dailyLabourEntries,
         labourPayments,
         contractors,
@@ -4448,6 +4799,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         contractorPayments,
         dailyCashClosings,
         issueEmployeeAdvance,
+        issueLabourAdvance,
         recordSalaryPayment,
         updateSalaryRecord,
         deleteSalaryRecord,

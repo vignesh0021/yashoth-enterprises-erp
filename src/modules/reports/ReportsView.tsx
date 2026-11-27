@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useERP } from '../../context/ERPContext.tsx';
 import { formatINR, formatWeight } from '../../utils/calculations.ts';
 import { getLocalDateStr } from '../../utils/visualReportExporter.ts';
+import { SendReportButton } from '../../components/common/ModuleReportModal.tsx';
 import { STANDARD_CHART_OF_ACCOUNTS } from '../../../backend/business-rules/accountingEngine.ts';
 import { AllBusinessReportsTab } from './AllBusinessReportsTab.tsx';
 import { 
@@ -110,13 +111,16 @@ export const ReportsView: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => window.print()}
-          className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
-        >
-          <Printer className="w-4 h-4" />
-          <span>Print Current Statement</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <SendReportButton moduleId="REPORTS" />
+          <button
+            onClick={() => window.print()}
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+          >
+            <Printer className="w-4 h-4" />
+            <span>Print Current Statement</span>
+          </button>
+        </div>
       </div>
 
       {/* Report Selector Pills */}

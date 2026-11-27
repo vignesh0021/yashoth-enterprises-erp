@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useERP } from '../../context/ERPContext.tsx';
 import { StatusBadge } from '../../components/common/StatusBadge.tsx';
 import { Modal } from '../../components/common/Modal.tsx';
+import { SendReportButton } from '../../components/common/ModuleReportModal.tsx';
 import { formatINR, formatWeight, roundTo2, roundTo3 } from '../../utils/calculations.ts';
 import { MaterialsMasterTab } from './MaterialsMasterTab.tsx';
 import { GodownTransfersTab } from './GodownTransfersTab.tsx';
@@ -104,7 +105,8 @@ export const InventoryView: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <SendReportButton moduleId="INVENTORY" />
           <button
             onClick={handleOpenReconcile}
             className="flex items-center gap-2 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-sm transition-all"

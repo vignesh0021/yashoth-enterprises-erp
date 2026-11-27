@@ -3,6 +3,7 @@ import { useERP } from '../../context/ERPContext.tsx';
 import { Party, PartyType } from '../../types/index.ts';
 import { StatusBadge } from '../../components/common/StatusBadge.tsx';
 import { Modal } from '../../components/common/Modal.tsx';
+import { SendReportButton } from '../../components/common/ModuleReportModal.tsx';
 import { formatINR } from '../../utils/calculations.ts';
 import { calculatePartyNetBalance } from '../../../backend/business-rules/financeEngine.ts';
 import { 
@@ -183,13 +184,16 @@ export const PartiesView: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={handleOpenAdd}
-          className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add New Party</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <SendReportButton moduleId="PARTIES" />
+          <button
+            onClick={handleOpenAdd}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add New Party</span>
+          </button>
+        </div>
       </div>
 
       {/* Feedback banner */}

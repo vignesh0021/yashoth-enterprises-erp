@@ -3,6 +3,7 @@ import { useERP } from '../../context/ERPContext.tsx';
 import { useLanguage } from '../../context/LanguageContext.tsx';
 import { LanguageToggle } from '../../components/common/LanguageToggle.tsx';
 import { Modal } from '../../components/common/Modal.tsx';
+import { SendReportButton } from '../../components/common/ModuleReportModal.tsx';
 import { 
   Settings, 
   Building, 
@@ -124,23 +125,26 @@ export const SettingsView: React.FC = () => {
               : 'Configure company profile, invoice numbering, RBAC security roles, and migrate legacy Excel registers safely.'}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            if (window.confirm('Clear ALL dummy / operational records (invoices, stock, parties, cashbook, tasks, documents) and start clean? Company profile and yard setup will be preserved.')) {
-              try {
-                clearAllOperationalData();
-                alert('All operational & dummy data cleared.');
-              } catch (err: any) {
-                alert(err?.message || 'Only Owner Admin can clear all operational data.');
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <SendReportButton moduleId="SETTINGS" label="Send Audit Report" />
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm('Clear ALL dummy / operational records (invoices, stock, parties, cashbook, tasks, documents) and start clean? Company profile and yard setup will be preserved.')) {
+                try {
+                  clearAllOperationalData();
+                  alert('All operational & dummy data cleared.');
+                } catch (err: any) {
+                  alert(err?.message || 'Only Owner Admin can clear all operational data.');
+                }
               }
-            }
-          }}
-          className="shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold cursor-pointer transition-colors"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-          <span>Clear All Dummy / Operational Data</span>
-        </button>
+            }}
+            className="shrink-0 inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold cursor-pointer transition-colors"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Clear All Dummy / Operational Data</span>
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}

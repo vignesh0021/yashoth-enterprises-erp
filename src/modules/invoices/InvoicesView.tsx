@@ -3,6 +3,7 @@ import { useERP } from '../../context/ERPContext.tsx';
 import { Invoice, InvoiceLine, Party, Material } from '../../types/index.ts';
 import { StatusBadge } from '../../components/common/StatusBadge.tsx';
 import { Modal } from '../../components/common/Modal.tsx';
+import { SendReportButton } from '../../components/common/ModuleReportModal.tsx';
 import { InvoiceRenderer } from '../../components/invoice/InvoiceRenderer.tsx';
 import { EwayBillRenderer } from '../../components/invoice/EwayBillRenderer.tsx';
 import { verifyGstin } from '../../../backend/business-rules/ewayBillEngine.ts';
@@ -502,6 +503,7 @@ export const InvoicesView: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          <SendReportButton moduleId="INVOICES" />
           <button
             onClick={() => setIsUploadInvoiceModalOpen(true)}
             className="flex items-center gap-2 px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-md transition-all cursor-pointer min-h-[44px]"

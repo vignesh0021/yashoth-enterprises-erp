@@ -28,6 +28,7 @@ import {
   CalendarRange
 } from 'lucide-react';
 import { QuickContactModal } from '../../components/QuickContactModal.tsx';
+import { SendReportButton } from '../../components/common/ModuleReportModal.tsx';
 
 const shiftIsoDate = (isoDate: string, deltaDays: number): string => {
   const [y, m, d] = isoDate.split('-').map(Number);
@@ -81,6 +82,8 @@ export const EmployeesView: React.FC = () => {
     addEmployee, 
     updateEmployee, 
     deleteEmployee, 
+    accounts,
+    issueEmployeeAdvance,
     company, 
     currentUser 
   } = useERP();
@@ -114,7 +117,20 @@ export const EmployeesView: React.FC = () => {
   const [dailyWage, setDailyWage] = useState<number>(650);
   const [monthlySalary, setMonthlySalary] = useState<number>(0);
   const [advanceBalance, setAdvanceBalance] = useState<number>(0);
+  const [advEditPayMode, setAdvEditPayMode] = useState<'CASH' | 'BANK'>('CASH');
+  const [advEditAccountId, setAdvEditAccountId] = useState<string>('');
+  const [advEditDate, setAdvEditDate] = useState<string>(todayIso);
+  const [advEditIsOpening, setAdvEditIsOpening] = useState<boolean>(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+
+  // Dedicated "+ Give Staff Advance" Modal State
+  const [isGiveAdvModalOpen, setIsGiveAdvModalOpen] = useState(false);
+  const [giveAdvEmpId, setGiveAdvEmpId] = useState<string>('');
+  const [giveAdvAmount, setGiveAdvAmount] = useState<number>(1000);
+  const [giveAdvDate, setGiveAdvDate] = useState<string>(todayIso);
+  const [giveAdvPayMode, setGiveAdvPayMode] = useState<'CASH' | 'BANK'>('CASH');
+  const [giveAdvAccountId, setGiveAdvAccountId] = useState<string>('');
+  const [giveAdvNotes, setGiveAdvNotes] = useState<string>('');
 
   // Form State for Custom Shift & Overtime Modal
   const [isOtModalOpen, setIsOtModalOpen] = useState(false);
@@ -292,6 +308,58 @@ export const EmployeesView: React.FC = () => {
     showToast('success', `${emp.fullName} marked ${nextActive ? 'Active' : 'Inactive'}.`);
   };
 
+  const getDefaultAccountId = (mode: 'CASH' | 'BANK') => {
+    const match = accounts.find((a) => a.accountType === mode && a.isActive !== false);
+    return match?.id || accounts[0]?.id || '';
+  };
+
+  const handleOpenGiveAdvance = (preselectEmpId?: string) => {
+    const activeEmps = employees.filter((e) => e.isActive !== false);
+    setGiveAdvEmpId(preselectEmpId || activeEmps[0]?.id || employees[0]?.id || '');
+    setGiveAdvAmount(1000);
+    setGiveAdvDate(todayIso);
+    setGiveAdvPayMode('CASH');
+    setGiveAdvAccountId(getDefaultAccountId('CASH'));
+    setGiveAdvNotes('');
+    setIsGiveAdvModalOpen(true);
+  };
+
+  const handleGiveAdvanceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const emp = employees.find((x) => x.id === giveAdvEmpId);
+    if (!emp) {
+      showToast('error', 'Please select an employee.');
+      return;
+    }
+    if (giveAdvAmount <= 0) {
+      showToast('error', 'Advance amount must be greater than ₹0.');
+      return;
+    }
+    const accountId = giveAdvAccountId || getDefaultAccountId(giveAdvPayMode);
+    if (!accountId) {
+      showToast('error', 'No Cash/Bank account configured. Add one in Finance → Cash & Bank.');
+      return;
+    }
+    try {
+      const adv = await issueEmployeeAdvance({
+        employeeId: emp.id,
+        employeeName: emp.fullName,
+        amount: Number(giveAdvAmount),
+        paymentMode: giveAdvPayMode,
+        accountId,
+        advanceDate: giveAdvDate || todayIso,
+        notes: giveAdvNotes.trim() || 'Staff advance disbursed',
+      });
+      setIsGiveAdvModalOpen(false);
+      showToast(
+        'success',
+        `Advance ${adv.voucherNo} of ${formatINR(adv.amount)} issued to ${emp.fullName}. Deducted from ${giveAdvPayMode} & linked to Staff Salary.`
+      );
+    } catch (err: any) {
+      showToast('error', err?.message || 'Failed to issue staff advance.');
+    }
+  };
+
   const handleOpenAdd = () => {
     setEditingEmployee(null);
     const nextSeq = employees.length + 1;
@@ -303,6 +371,10 @@ export const EmployeesView: React.FC = () => {
     setDailyWage(650);
     setMonthlySalary(0);
     setAdvanceBalance(0);
+    setAdvEditPayMode('CASH');
+    setAdvEditAccountId(getDefaultAccountId('CASH'));
+    setAdvEditDate(todayIso);
+    setAdvEditIsOpening(false);
     setIsModalOpen(true);
   };
 
@@ -316,38 +388,101 @@ export const EmployeesView: React.FC = () => {
     setDailyWage(emp.dailyWageRate);
     setMonthlySalary(emp.monthlySalary);
     setAdvanceBalance(emp.currentAdvanceBalance || 0);
+    setAdvEditPayMode('CASH');
+    setAdvEditAccountId(getDefaultAccountId('CASH'));
+    setAdvEditDate(todayIso);
+    setAdvEditIsOpening(false);
     setIsModalOpen(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
 
+    const targetAdv = Math.max(0, Number(advanceBalance) || 0);
+
     if (editingEmployee) {
-      updateEmployee(editingEmployee.id, {
-        employeeCode: code.trim().toUpperCase(),
-        fullName: name.trim(),
-        designation,
-        department,
-        phone,
-        dailyWageRate: Number(dailyWage),
-        monthlySalary: Number(monthlySalary),
-        currentAdvanceBalance: Number(advanceBalance),
-      });
-      setFeedbackMsg({ type: 'success', text: `Employee "${name}" profile updated successfully.` });
+      const prevAdv = editingEmployee.currentAdvanceBalance || 0;
+      const advDelta = Number((targetAdv - prevAdv).toFixed(2));
+      const shouldPostCashVoucher = advDelta > 0 && !advEditIsOpening;
+
+      if (shouldPostCashVoucher) {
+        const accountId = advEditAccountId || getDefaultAccountId(advEditPayMode);
+        if (!accountId) {
+          showToast('error', 'Select a Cash/Bank account to record this advance payout.');
+          return;
+        }
+        try {
+          updateEmployee(editingEmployee.id, {
+            employeeCode: code.trim().toUpperCase(),
+            fullName: name.trim(),
+            designation,
+            department,
+            phone,
+            dailyWageRate: Number(dailyWage),
+            monthlySalary: Number(monthlySalary),
+          });
+          const adv = await issueEmployeeAdvance({
+            employeeId: editingEmployee.id,
+            employeeName: name.trim(),
+            amount: advDelta,
+            paymentMode: advEditPayMode,
+            accountId,
+            advanceDate: advEditDate || todayIso,
+            notes: 'Advance updated via Employee Profile',
+          });
+          setFeedbackMsg({
+            type: 'success',
+            text: `Updated "${name}" & posted Cash/Bank advance voucher ${adv.voucherNo} for +${formatINR(advDelta)}.`,
+          });
+        } catch (err: any) {
+          showToast('error', err?.message || 'Failed to post advance Cash/Bank voucher.');
+          return;
+        }
+      } else {
+        updateEmployee(editingEmployee.id, {
+          employeeCode: code.trim().toUpperCase(),
+          fullName: name.trim(),
+          designation,
+          department,
+          phone,
+          dailyWageRate: Number(dailyWage),
+          monthlySalary: Number(monthlySalary),
+          currentAdvanceBalance: targetAdv,
+        });
+        setFeedbackMsg({ type: 'success', text: `Employee "${name}" profile updated successfully.` });
+      }
     } else {
-      addEmployee({
+      const newEmp = addEmployee({
         employeeCode: code.trim().toUpperCase(),
         fullName: name.trim(),
         designation,
         department,
         phone,
-        joiningDate: new Date().toISOString().split('T')[0],
+        joiningDate: todayIso,
         dailyWageRate: Number(dailyWage),
         monthlySalary: Number(monthlySalary),
-        currentAdvanceBalance: Number(advanceBalance),
+        currentAdvanceBalance: advEditIsOpening ? targetAdv : 0,
         isActive: true,
       });
+      if (targetAdv > 0 && !advEditIsOpening) {
+        const accountId = advEditAccountId || getDefaultAccountId(advEditPayMode);
+        if (accountId) {
+          try {
+            await issueEmployeeAdvance({
+              employeeId: newEmp.id,
+              employeeName: newEmp.fullName,
+              amount: targetAdv,
+              paymentMode: advEditPayMode,
+              accountId,
+              advanceDate: advEditDate || todayIso,
+              notes: 'Initial advance issued at onboarding',
+            });
+          } catch (err: any) {
+            showToast('error', err?.message || 'Employee added, but advance payout failed.');
+          }
+        }
+      }
       setFeedbackMsg({ type: 'success', text: `Employee "${name}" added to roster.` });
     }
 
@@ -518,6 +653,18 @@ export const EmployeesView: React.FC = () => {
             <CalendarRange className="w-4 h-4 shrink-0" />
             <span>Bulk Range</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => handleOpenGiveAdvance()}
+            className="flex items-center gap-1.5 px-3 py-2 min-h-[40px] bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer transition-colors"
+            title="Issue a staff advance with automatic Cash/Bank deduction and Salary recovery link"
+          >
+            <DollarSign className="w-4 h-4 shrink-0" />
+            <span>+ Give Advance</span>
+          </button>
+
+          <SendReportButton moduleId="EMPLOYEES" initialDate={selectedDate} />
 
           <button
             type="button"
@@ -1967,6 +2114,75 @@ export const EmployeesView: React.FC = () => {
             </div>
           </div>
 
+          {(() => {
+            const prevAdv = editingEmployee?.currentAdvanceBalance || 0;
+            const delta = Number(((Number(advanceBalance) || 0) - prevAdv).toFixed(2));
+            if (delta <= 0) return null;
+            return (
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-black text-amber-900">
+                    Cash/Bank Accounting for +{formatINR(delta)} Advance
+                  </span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-200/70 text-amber-900">
+                    Every Rupee Counted
+                  </span>
+                </div>
+                <label className="flex items-center gap-2 text-[11px] font-semibold text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={advEditIsOpening}
+                    onChange={(e) => setAdvEditIsOpening(e.target.checked)}
+                    className="rounded border-slate-300"
+                  />
+                  <span>Opening / Prior Balance (do not deduct from today&apos;s Cash/Bank)</span>
+                </label>
+                {!advEditIsOpening && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 mb-1">Paid Mode</label>
+                      <select
+                        value={advEditPayMode}
+                        onChange={(e) => {
+                          const mode = e.target.value as 'CASH' | 'BANK';
+                          setAdvEditPayMode(mode);
+                          setAdvEditAccountId(getDefaultAccountId(mode));
+                        }}
+                        className="w-full p-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold"
+                      >
+                        <option value="CASH">Cash (ரொக்கம்)</option>
+                        <option value="BANK">Bank / UPI (வங்கி)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 mb-1">Account</label>
+                      <select
+                        value={advEditAccountId}
+                        onChange={(e) => setAdvEditAccountId(e.target.value)}
+                        className="w-full p-1.5 bg-white border border-amber-300 rounded-lg text-xs"
+                      >
+                        {accounts.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.accountName} ({a.accountType})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-600 mb-1">Advance Date</label>
+                      <input
+                        type="date"
+                        value={advEditDate}
+                        onChange={(e) => setAdvEditDate(e.target.value)}
+                        className="w-full p-1.5 bg-white border border-amber-300 rounded-lg text-xs font-bold"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
             <button
               type="button"
@@ -1980,6 +2196,123 @@ export const EmployeesView: React.FC = () => {
               className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-sm cursor-pointer"
             >
               {editingEmployee ? 'Save Changes' : 'Add Employee'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* GIVE STAFF ADVANCE MODAL (DIRECT CASH/BANK VOUCHER + SALARY LINK)         */}
+      {/* ========================================================================= */}
+      <Modal
+        isOpen={isGiveAdvModalOpen}
+        onClose={() => setIsGiveAdvModalOpen(false)}
+        title="Give Staff Advance (பணியாளர் முன்பணம்)"
+        subtitle="Immediately deducts from Cash/Bank, posts Dr. 1060 Advance Ledger, and auto-links to Staff Salary recovery."
+      >
+        <form onSubmit={handleGiveAdvanceSubmit} className="space-y-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Select Staff Member *</label>
+              <select
+                value={giveAdvEmpId}
+                onChange={(e) => setGiveAdvEmpId(e.target.value)}
+                className="w-full p-2.5 border border-slate-300 rounded-xl bg-white font-bold text-slate-900"
+                required
+              >
+                {employees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.fullName} ({emp.employeeCode}) — Open Adv: {formatINR(emp.currentAdvanceBalance || 0)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Advance Date *</label>
+              <input
+                type="date"
+                value={giveAdvDate}
+                onChange={(e) => setGiveAdvDate(e.target.value)}
+                className="w-full p-2.5 border border-slate-300 rounded-xl bg-white font-bold text-slate-900"
+                required
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Advance Amount (₹) *</label>
+              <input
+                type="number"
+                min="1"
+                step="any"
+                value={giveAdvAmount === 0 ? '' : giveAdvAmount}
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setGiveAdvAmount(e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)}
+                className="w-full p-2.5 border border-slate-300 rounded-xl font-mono font-black text-rose-700"
+                required
+              />
+            </div>
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Payment Mode</label>
+              <select
+                value={giveAdvPayMode}
+                onChange={(e) => {
+                  const m = e.target.value as 'CASH' | 'BANK';
+                  setGiveAdvPayMode(m);
+                  setGiveAdvAccountId(getDefaultAccountId(m));
+                }}
+                className="w-full p-2.5 border border-slate-300 rounded-xl bg-white font-bold"
+              >
+                <option value="CASH">Cash (ரொக்கம்)</option>
+                <option value="BANK">Bank / UPI (வங்கி)</option>
+              </select>
+            </div>
+            <div>
+              <label className="font-bold text-slate-700 block mb-1">Account *</label>
+              <select
+                value={giveAdvAccountId}
+                onChange={(e) => setGiveAdvAccountId(e.target.value)}
+                className="w-full p-2.5 border border-slate-300 rounded-xl bg-white"
+                required
+              >
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.accountName} ({a.accountType})
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="font-bold text-slate-700 block mb-1">Reason / Notes</label>
+            <input
+              type="text"
+              value={giveAdvNotes}
+              onChange={(e) => setGiveAdvNotes(e.target.value)}
+              placeholder="e.g. Festival advance, medical need, mid-month cash..."
+              className="w-full p-2.5 border border-slate-300 rounded-xl"
+            />
+          </div>
+
+          <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-900 font-semibold">
+            Accounting Check: Deducts Cash/Bank immediately, records Voucher in Staff Advance Ledger, shows in Daily Cash Closing &amp; Daily Expenses outflow strip, and auto-reduces Net Salary Payable (no P&amp;L double-counting).
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsGiveAdvModalOpen(false)}
+              className="px-4 py-2 border border-slate-200 text-slate-600 rounded-lg font-bold cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg shadow-sm cursor-pointer"
+            >
+              Issue Advance &amp; Deduct Cash/Bank
             </button>
           </div>
         </form>

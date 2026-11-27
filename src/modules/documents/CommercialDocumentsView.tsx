@@ -3,6 +3,7 @@ import { useERP } from '../../context/ERPContext.tsx';
 import { CommercialDocType, CommercialDocument } from '../../types/index.ts';
 import { STANDARD_SCRAP_PRESETS } from '../../../backend/business-rules/commercialDocumentEngine.ts';
 import { formatINR } from '../../utils/calculations.ts';
+import { SendReportButton } from '../../components/common/ModuleReportModal.tsx';
 import { 
   FileCheck2, 
   FileText, 
@@ -382,6 +383,7 @@ export const CommercialDocumentsView: React.FC = () => {
 
         {/* 1-Tap Action Buttons (Android-first 48px touch targets) */}
         <div className="grid grid-cols-1 sm:flex sm:items-center gap-2 flex-wrap">
+          <SendReportButton moduleId="DOCUMENTS" />
           <button
             onClick={() => openQuickBuilder('QUOTATION')}
             className="flex items-center justify-center gap-1.5 px-4 py-2.5 bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-sm transition-all cursor-pointer min-h-[48px]"

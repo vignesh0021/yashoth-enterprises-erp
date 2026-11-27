@@ -11,9 +11,13 @@ import {
   Users,
   FileSpreadsheet,
   Search,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext.tsx';
 import { formatINR } from '../../utils/calculations.ts';
+import { SendReportButton } from '../../components/common/ModuleReportModal.tsx';
+import { getLocalDateStr, shiftLocalDateStr } from '../../utils/visualReportExporter.ts';
 import {
   computeOwnerBusinessOverview,
   computeOwnerPeriodSummary,
@@ -47,8 +51,8 @@ export const OwnerSummaryReportsView: React.FC = () => {
     journalEntries,
   } = useERP();
 
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const [period, setPeriod] = useState<PeriodFilter>('MONTHLY');
+  const todayStr = getLocalDateStr();
+  const [period, setPeriod] = useState<PeriodFilter>('DAILY');
   const [anchorDate, setAnchorDate] = useState(todayStr);
   const [customStart, setCustomStart] = useState(todayStr.slice(0, 7) + '-01');
   const [customEnd, setCustomEnd] = useState(todayStr);
@@ -203,6 +207,12 @@ export const OwnerSummaryReportsView: React.FC = () => {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 print:hidden">
+          <SendReportButton
+            moduleId="OWNER_REPORTS"
+            label="Send Report"
+            initialPeriod={period === 'DAILY' ? 'DAY' : period === 'WEEKLY' ? 'WEEK' : period === 'MONTHLY' ? 'MONTH' : 'CUSTOM'}
+            initialDate={period === 'CUSTOM' ? customStart : anchorDate}
+          />
           <button
             type="button"
             onClick={handleExportXlsx}
@@ -256,16 +266,58 @@ export const OwnerSummaryReportsView: React.FC = () => {
               period === p ? 'bg-red-700 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
-            {p}
+            {p === 'DAILY' ? 'Particular Date' : p === 'CUSTOM' ? 'Custom Range' : p}
           </button>
         ))}
         {period !== 'CUSTOM' ? (
-          <input
-            type="date"
-            value={anchorDate}
-            onChange={(e) => setAnchorDate(e.target.value)}
-            className="px-2.5 py-1.5 border border-slate-300 rounded-lg font-semibold"
-          />
+          <div className="flex flex-wrap items-center gap-1.5">
+            {period === 'DAILY' && (
+              <button
+                type="button"
+                onClick={() => setAnchorDate((d) => shiftLocalDateStr(d, -1))}
+                className="p-1.5 border border-slate-300 rounded-lg hover:bg-slate-100 cursor-pointer"
+                title="Previous Date"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <input
+              type="date"
+              value={anchorDate}
+              onChange={(e) => e.target.value && setAnchorDate(e.target.value)}
+              className="px-2.5 py-1.5 border border-slate-300 rounded-lg font-semibold"
+            />
+            {period === 'DAILY' && (
+              <button
+                type="button"
+                onClick={() => setAnchorDate((d) => shiftLocalDateStr(d, 1))}
+                className="p-1.5 border border-slate-300 rounded-lg hover:bg-slate-100 cursor-pointer"
+                title="Next Date"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setAnchorDate(todayStr);
+                setPeriod('DAILY');
+              }}
+              className="px-2 py-1.5 border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded-lg font-bold text-[11px] cursor-pointer"
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAnchorDate(shiftLocalDateStr(todayStr, -1));
+                setPeriod('DAILY');
+              }}
+              className="px-2 py-1.5 border border-slate-200 bg-slate-50 hover:bg-slate-100 rounded-lg font-bold text-[11px] cursor-pointer"
+            >
+              Yesterday
+            </button>
+          </div>
         ) : (
           <div className="flex items-center gap-1.5">
             <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="px-2 py-1 border border-slate-300 rounded-lg" />

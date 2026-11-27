@@ -714,6 +714,14 @@ export function createAccountTransactionJournal(
       counterCode = '5040';
       counterName = 'Yard Utilities & Maintenance';
       break;
+    case 'EMPLOYEE_ADVANCE':
+      counterCode = '1060';
+      counterName = 'Employee Advances & Prepayments';
+      break;
+    case 'LABOUR_ADVANCE':
+      counterCode = '1070';
+      counterName = 'Contractor & Labour Advances';
+      break;
     default:
       counterCode = '5090';
       counterName = 'Round-Off & Decimal Variance';

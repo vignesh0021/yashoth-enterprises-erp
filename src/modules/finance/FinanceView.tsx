@@ -60,9 +60,11 @@ import {
   Share2
 } from 'lucide-react';
 import { VisualReportModal } from '../../components/common/VisualReportModal.tsx';
+import { SendReportButton } from '../../components/common/ModuleReportModal.tsx';
 import {
   getLocalDateStr,
   getLocalWeekRange,
+  shiftLocalDateStr,
   type VisualReportPeriod,
 } from '../../utils/visualReportExporter.ts';
 
@@ -79,6 +81,8 @@ export const FinanceView: React.FC = () => {
     payments,
     employees,
     salaryRecords,
+    employeeAdvances,
+    labourAdvances,
     dailyLabourEntries,
     contractors,
     contractorWorkEntries,
@@ -89,6 +93,8 @@ export const FinanceView: React.FC = () => {
     deleteExpense,
     payUnpaidExpense,
     reverseExpense,
+    issueEmployeeAdvance,
+    issueLabourAdvance,
     recordSalaryPayment,
     deleteSalaryRecord,
     recordDailyLabour,
@@ -384,7 +390,26 @@ export const FinanceView: React.FC = () => {
   const [dlabAmountPaid, setDlabAmountPaid] = useState<number>(1950);
   const [dlabPayMode, setDlabPayMode] = useState<'CASH' | 'BANK' | 'UNPAID'>('CASH');
   const [dlabAccountId, setDlabAccountId] = useState(accounts[0]?.id || '');
+  const [dlabAdvanceIsNewCashOutflow, setDlabAdvanceIsNewCashOutflow] = useState<boolean>(true);
   const [dlabNotes, setDlabNotes] = useState('');
+
+  // 4b. Dedicated Staff Advance Modal
+  const [isStaffAdvModalOpen, setIsStaffAdvModalOpen] = useState(false);
+  const [staffAdvEmpId, setStaffAdvEmpId] = useState(employees[0]?.id || '');
+  const [staffAdvAmount, setStaffAdvAmount] = useState<number>(1000);
+  const [staffAdvDate, setStaffAdvDate] = useState(todayStr);
+  const [staffAdvPayMode, setStaffAdvPayMode] = useState<'CASH' | 'BANK'>('CASH');
+  const [staffAdvAccountId, setStaffAdvAccountId] = useState(accounts[0]?.id || '');
+  const [staffAdvNotes, setStaffAdvNotes] = useState('');
+
+  // 4c. Dedicated Daily Labour Advance Modal
+  const [isLabourAdvModalOpen, setIsLabourAdvModalOpen] = useState(false);
+  const [labAdvWorker, setLabAdvWorker] = useState('');
+  const [labAdvAmount, setLabAdvAmount] = useState<number>(500);
+  const [labAdvDate, setLabAdvDate] = useState(todayStr);
+  const [labAdvPayMode, setLabAdvPayMode] = useState<'CASH' | 'BANK'>('CASH');
+  const [labAdvAccountId, setLabAdvAccountId] = useState(accounts[0]?.id || '');
+  const [labAdvNotes, setLabAdvNotes] = useState('');
 
   // 5. Contractor & Work Modals
   const [isContractorModalOpen, setIsContractorModalOpen] = useState(false);
@@ -438,7 +463,9 @@ export const FinanceView: React.FC = () => {
   const [txRef, setTxRef] = useState('');
 
   // 6c. Expense Manager Style Cashflow Filters & Analytics
-  const [cfPeriod, setCfPeriod] = useState<'TODAY' | 'WEEK' | 'MONTH' | 'ALL'>('MONTH');
+  const [cfPeriod, setCfPeriod] = useState<'TODAY' | 'SINGLE_DATE' | 'WEEK' | 'MONTH' | 'CUSTOM' | 'ALL'>('MONTH');
+  const [cfDate, setCfDate] = useState<string>(todayStr);
+  const [cfCustomEndDate, setCfCustomEndDate] = useState<string>(todayStr);
   const [cfMonth, setCfMonth] = useState<string>(currentMonthStr);
   const [cfAccountId, setCfAccountId] = useState<string>('ALL');
   const [cfDirection, setCfDirection] = useState<'ALL' | 'DEBIT' | 'CREDIT'>('ALL');
@@ -455,12 +482,16 @@ export const FinanceView: React.FC = () => {
     const weekStartDt = new Date(todayStr + 'T00:00:00Z');
     weekStartDt.setUTCDate(weekStartDt.getUTCDate() - 6);
     const weekStartStr = weekStartDt.toISOString().slice(0, 10);
+    const customFrom = cfDate <= cfCustomEndDate ? cfDate : cfCustomEndDate;
+    const customTo = cfDate <= cfCustomEndDate ? cfCustomEndDate : cfDate;
 
     const periodFiltered = accountTransactions.filter((tx) => {
       if (cfAccountId !== 'ALL' && tx.accountId !== cfAccountId) return false;
       if (cfPeriod === 'TODAY' && tx.transactionDate !== todayStr) return false;
+      if (cfPeriod === 'SINGLE_DATE' && tx.transactionDate !== cfDate) return false;
       if (cfPeriod === 'WEEK' && (tx.transactionDate < weekStartStr || tx.transactionDate > todayStr)) return false;
       if (cfPeriod === 'MONTH' && !tx.transactionDate.startsWith(cfMonth)) return false;
+      if (cfPeriod === 'CUSTOM' && (tx.transactionDate < customFrom || tx.transactionDate > customTo)) return false;
       return true;
     });
 
@@ -518,9 +549,9 @@ export const FinanceView: React.FC = () => {
       .slice(0, 5);
 
     return { totalInflow, totalOutflow, netFlow, listFiltered, groupedDays, topCategories };
-  }, [accountTransactions, accounts, cfAccountId, cfPeriod, cfMonth, cfDirection, cfSearch, todayStr]);
+  }, [accountTransactions, accounts, cfAccountId, cfPeriod, cfDate, cfCustomEndDate, cfMonth, cfDirection, cfSearch, todayStr]);
 
-  // Authoritative Cash Book Reconciliation (Daily / Mon-Sun Weekly / Monthly)
+  // Authoritative Cash Book Reconciliation (Particular Date / Daily / Mon-Sun Weekly / Monthly / Custom)
   const cashBookPeriodSummary = useMemo(() => {
     const dt = new Date(todayStr + 'T00:00:00Z');
     const day = dt.getUTCDay(); // 0=Sun..6=Sat
@@ -532,12 +563,18 @@ export const FinanceView: React.FC = () => {
 
     let startDate = todayStr;
     let endDate = todayStr;
-    if (cfPeriod === 'WEEK') {
+    if (cfPeriod === 'SINGLE_DATE') {
+      startDate = cfDate;
+      endDate = cfDate;
+    } else if (cfPeriod === 'WEEK') {
       startDate = monDt.toISOString().slice(0, 10);
       endDate = sunDt.toISOString().slice(0, 10);
     } else if (cfPeriod === 'MONTH') {
       startDate = `${cfMonth}-01`;
       endDate = `${cfMonth}-31`;
+    } else if (cfPeriod === 'CUSTOM') {
+      startDate = cfDate <= cfCustomEndDate ? cfDate : cfCustomEndDate;
+      endDate = cfDate <= cfCustomEndDate ? cfCustomEndDate : cfDate;
     } else if (cfPeriod === 'ALL') {
       startDate = '2000-01-01';
       endDate = '2099-12-31';
@@ -550,11 +587,19 @@ export const FinanceView: React.FC = () => {
       startDate,
       endDate,
     });
-  }, [accounts, accountTransactions, expenses, cfPeriod, cfMonth, todayStr]);
+  }, [accounts, accountTransactions, expenses, cfPeriod, cfDate, cfCustomEndDate, cfMonth, todayStr]);
 
   const handleExportCashBookPng = () => {
     const mappedPeriod: VisualReportPeriod =
-      cfPeriod === 'WEEK' ? 'WEEK' : cfPeriod === 'MONTH' ? 'MONTH' : 'DAY';
+      cfPeriod === 'WEEK'
+        ? 'WEEK'
+        : cfPeriod === 'MONTH'
+          ? 'MONTH'
+          : cfPeriod === 'CUSTOM'
+            ? 'CUSTOM'
+            : cfPeriod === 'ALL'
+              ? 'ALL'
+              : 'DAY';
     openVisualReport(mappedPeriod);
   };
 
@@ -791,14 +836,90 @@ export const FinanceView: React.FC = () => {
         amountPaid: Number(dlabAmountPaid),
         remainingBalance: balance,
         paymentMode: dlabPayMode,
-        accountId: dlabAccountId,
+        accountId: dlabAccountId || accounts[0]?.id,
+        advanceIsNewCashOutflow: dlabAdvanceIsNewCashOutflow && Number(dlabAdvance) > 0,
         notes: dlabNotes,
       });
 
       setIsDailyLabourModalOpen(false);
-      showFeedback('success', `Daily labour entry for "${dlabWorkerName}" saved.`);
+      showFeedback(
+        'success',
+        `Daily labour entry for "${dlabWorkerName}" saved${dlabAdvance > 0 && dlabAdvanceIsNewCashOutflow ? ` (Advance ${formatINR(dlabAdvance)} deducted from Cash/Bank)` : ''}.`
+      );
     } catch (err: any) {
       showFeedback('error', err.message || 'Failed to save daily labour entry.');
+    }
+  };
+
+  const handleOpenStaffAdvanceModal = () => {
+    setStaffAdvEmpId(employees[0]?.id || '');
+    setStaffAdvAmount(1000);
+    setStaffAdvDate(todayStr);
+    setStaffAdvPayMode('CASH');
+    setStaffAdvAccountId(accounts.find((a) => a.accountType === 'CASH')?.id || accounts[0]?.id || '');
+    setStaffAdvNotes('');
+    setIsStaffAdvModalOpen(true);
+  };
+
+  const handleStaffAdvanceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const emp = employees.find((x) => x.id === staffAdvEmpId);
+    if (!emp) {
+      showFeedback('error', 'Select an employee.');
+      return;
+    }
+    const accId = staffAdvAccountId || accounts[0]?.id;
+    if (!accId) {
+      showFeedback('error', 'Select a Cash/Bank account.');
+      return;
+    }
+    try {
+      const adv = await issueEmployeeAdvance({
+        employeeId: emp.id,
+        employeeName: emp.fullName,
+        amount: Number(staffAdvAmount),
+        paymentMode: staffAdvPayMode,
+        accountId: accId,
+        advanceDate: staffAdvDate || todayStr,
+        notes: staffAdvNotes.trim() || 'Staff salary advance',
+      });
+      setIsStaffAdvModalOpen(false);
+      showFeedback('success', `Staff advance ${adv.voucherNo} (${formatINR(adv.amount)}) deducted from ${staffAdvPayMode} & linked to ${emp.fullName}'s salary.`);
+    } catch (err: any) {
+      showFeedback('error', err?.message || 'Failed to issue staff advance.');
+    }
+  };
+
+  const handleOpenLabourAdvanceModal = () => {
+    setLabAdvWorker('');
+    setLabAdvAmount(500);
+    setLabAdvDate(todayStr);
+    setLabAdvPayMode('CASH');
+    setLabAdvAccountId(accounts.find((a) => a.accountType === 'CASH')?.id || accounts[0]?.id || '');
+    setLabAdvNotes('');
+    setIsLabourAdvModalOpen(true);
+  };
+
+  const handleLabourAdvanceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const accId = labAdvAccountId || accounts[0]?.id;
+    if (!accId) {
+      showFeedback('error', 'Select a Cash/Bank account.');
+      return;
+    }
+    try {
+      const adv = await issueLabourAdvance({
+        workerNameOrGroup: labAdvWorker.trim(),
+        amount: Number(labAdvAmount),
+        paymentMode: labAdvPayMode,
+        accountId: accId,
+        advanceDate: labAdvDate || todayStr,
+        notes: labAdvNotes.trim() || 'Daily labour cash advance',
+      });
+      setIsLabourAdvModalOpen(false);
+      showFeedback('success', `Labour advance ${adv.voucherNo} (${formatINR(adv.amount)}) deducted from ${labAdvPayMode} & tracked in Labour Advance Ledger.`);
+    } catch (err: any) {
+      showFeedback('error', err?.message || 'Failed to issue labour advance.');
     }
   };
 
@@ -1124,6 +1245,7 @@ export const FinanceView: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          <SendReportButton moduleId="FINANCE" label={language === 'ta' ? 'அறிக்கை அனுப்பு' : 'Send Report'} />
           <button
             type="button"
             onClick={() => openVisualReport('DAY')}
@@ -1546,6 +1668,52 @@ export const FinanceView: React.FC = () => {
             </div>
           </div>
 
+          {/* Staff & Labour Advances Outflow Visibility Strip (Every Rupee Counted — No P&L Double-Count) */}
+          {(() => {
+            const todayStaffAdv = employeeAdvances
+              .filter((a) => a.status !== 'REVERSED' && a.advanceDate === todayStr)
+              .reduce((s, a) => s + a.amount, 0);
+            const todayLabAdv = labourAdvances
+              .filter((a) => a.status !== 'REVERSED' && a.advanceDate === todayStr)
+              .reduce((s, a) => s + a.amount, 0);
+            const openStaffAdv = employeeAdvances
+              .filter((a) => a.status !== 'REVERSED' && a.remainingBalance > 0)
+              .reduce((s, a) => s + a.remainingBalance, 0);
+            const openLabAdv = labourAdvances
+              .filter((a) => a.status !== 'REVERSED' && a.remainingBalance > 0)
+              .reduce((s, a) => s + a.remainingBalance, 0);
+            const todayTotalAdv = roundTo2(todayStaffAdv + todayLabAdv);
+            return (
+              <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-0.5">
+                  <div className="text-xs font-black text-amber-950 flex items-center gap-1.5">
+                    <Coins className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Cash/Bank Advances Paid Out (Staff &amp; Labour)</span>
+                  </div>
+                  <p className="text-[11px] text-amber-900/90">
+                    Today: <strong>{formatINR(todayTotalAdv)}</strong> (Staff {formatINR(todayStaffAdv)} · Labour {formatINR(todayLabAdv)}) &nbsp;|&nbsp; Open Recoverable: <strong>{formatINR(openStaffAdv + openLabAdv)}</strong>. Deducted from Cash/Bank immediately and recovered in Salary/Labour (zero P&amp;L double-count).
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleOpenStaffAdvanceModal}
+                    className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-[11px] font-bold cursor-pointer"
+                  >
+                    + Staff Advance
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenLabourAdvanceModal}
+                    className="px-2.5 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[11px] font-bold cursor-pointer"
+                  >
+                    + Labour Advance
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
             {/* Mobile Card List */}
             <div className="sm:hidden divide-y divide-slate-100">
@@ -1736,13 +1904,23 @@ export const FinanceView: React.FC = () => {
                 Gross + Allowances - Deductions - Advance Recovery = Net Salary Payable. Advance balances automatically tracked.
               </p>
             </div>
-            <button
-              onClick={handleOpenAddSalary}
-              className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Record Salary Payment (சம்பளம் வழங்குதல்)</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleOpenStaffAdvanceModal}
+                className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                <DollarSign className="w-3.5 h-3.5" />
+                <span>+ Give Staff Advance (முன்பணம்)</span>
+              </button>
+              <button
+                onClick={handleOpenAddSalary}
+                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Record Salary Payment (சம்பளம் வழங்குதல்)</span>
+              </button>
+            </div>
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
@@ -1809,9 +1987,62 @@ export const FinanceView: React.FC = () => {
               </table>
             </div>
           </div>
+
+          {/* Staff Advance Ledger (Cash/Bank Disbursed & Recovered) */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+            <div className="p-3 bg-amber-50/70 border-b border-amber-200 flex items-center justify-between">
+              <span className="text-xs font-black text-amber-950">
+                Staff Advance Vouchers Ledger ({employeeAdvances.length}) — Cash/Bank Outflow Tracked
+              </span>
+              <span className="text-[11px] font-bold text-amber-800">
+                Open Balance: {formatINR(employeeAdvances.filter((a) => a.status !== 'REVERSED').reduce((s, a) => s + a.remainingBalance, 0))}
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                  <tr>
+                    <th className="p-2.5">Voucher</th>
+                    <th className="p-2.5">Date</th>
+                    <th className="p-2.5">Employee</th>
+                    <th className="p-2.5">Mode</th>
+                    <th className="p-2.5 text-right">Amount</th>
+                    <th className="p-2.5 text-right">Recovered</th>
+                    <th className="p-2.5 text-right">Remaining</th>
+                    <th className="p-2.5 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {employeeAdvances.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-4 text-center text-slate-400">
+                        No staff advance vouchers issued yet. Tap &ldquo;+ Give Staff Advance&rdquo; above.
+                      </td>
+                    </tr>
+                  ) : (
+                    employeeAdvances.map((adv) => (
+                      <tr key={adv.id} className="hover:bg-slate-50/60">
+                        <td className="p-2.5 font-mono font-bold text-slate-900">{adv.voucherNo || adv.id}</td>
+                        <td className="p-2.5">{adv.advanceDate}</td>
+                        <td className="p-2.5 font-bold text-slate-900">{adv.employeeName}</td>
+                        <td className="p-2.5">{adv.paymentMode}</td>
+                        <td className="p-2.5 text-right font-black text-slate-900">{formatINR(adv.amount)}</td>
+                        <td className="p-2.5 text-right text-emerald-600 font-bold">{formatINR(adv.recoveredAmount)}</td>
+                        <td className="p-2.5 text-right text-rose-600 font-black">{formatINR(adv.remainingBalance)}</td>
+                        <td className="p-2.5 text-center">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${adv.status === 'FULLY_RECOVERED' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                            {adv.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
-
       {/* ------------------------------------------------------------- */}
       {/* TAB 4: DAILY WAGE LABOUR REGISTER                             */}
       {/* ------------------------------------------------------------- */}
@@ -1827,13 +2058,23 @@ export const FinanceView: React.FC = () => {
                 Total Labour Cost = Worker Count × Working Days × Daily Rate + Overtime + Additional Charges.
               </p>
             </div>
-            <button
-              onClick={() => setIsDailyLabourModalOpen(true)}
-              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Record Daily Labour (தினக்கூலி பதிவு)</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleOpenLabourAdvanceModal}
+                className="px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                <DollarSign className="w-3.5 h-3.5" />
+                <span>+ Give Labour Advance</span>
+              </button>
+              <button
+                onClick={() => setIsDailyLabourModalOpen(true)}
+                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Record Daily Labour (தினக்கூலி பதிவு)</span>
+              </button>
+            </div>
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
@@ -1885,6 +2126,60 @@ export const FinanceView: React.FC = () => {
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Daily Labour Advances Ledger */}
+          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+            <div className="p-3 bg-amber-50/70 border-b border-amber-200 flex items-center justify-between">
+              <span className="text-xs font-black text-amber-950">
+                Daily Labour Advance Vouchers ({labourAdvances.length}) — Deducted from Cash/Bank Immediately
+              </span>
+              <span className="text-[11px] font-bold text-amber-800">
+                Unadjusted: {formatINR(labourAdvances.filter((a) => a.status !== 'REVERSED').reduce((s, a) => s + a.remainingBalance, 0))}
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                  <tr>
+                    <th className="p-2.5">Voucher</th>
+                    <th className="p-2.5">Date</th>
+                    <th className="p-2.5">Worker / Gang</th>
+                    <th className="p-2.5">Mode</th>
+                    <th className="p-2.5 text-right">Issued</th>
+                    <th className="p-2.5 text-right">Adjusted</th>
+                    <th className="p-2.5 text-right">Remaining</th>
+                    <th className="p-2.5 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {labourAdvances.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="p-4 text-center text-slate-400">
+                        No daily labour advances issued yet. Tap &ldquo;+ Give Labour Advance&rdquo; above.
+                      </td>
+                    </tr>
+                  ) : (
+                    labourAdvances.map((adv) => (
+                      <tr key={adv.id} className="hover:bg-slate-50/60">
+                        <td className="p-2.5 font-mono font-bold text-slate-900">{adv.voucherNo}</td>
+                        <td className="p-2.5">{adv.advanceDate}</td>
+                        <td className="p-2.5 font-bold text-slate-900">{adv.workerNameOrGroup}</td>
+                        <td className="p-2.5">{adv.paymentMode}</td>
+                        <td className="p-2.5 text-right font-black text-slate-900">{formatINR(adv.amount)}</td>
+                        <td className="p-2.5 text-right text-emerald-600 font-bold">{formatINR(adv.adjustedAmount)}</td>
+                        <td className="p-2.5 text-right text-rose-600 font-black">{formatINR(adv.remainingBalance)}</td>
+                        <td className="p-2.5 text-center">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${adv.status === 'FULLY_ADJUSTED' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                            {adv.status}
+                          </span>
                         </td>
                       </tr>
                     ))
@@ -2096,8 +2391,10 @@ export const FinanceView: React.FC = () => {
                 {(
                   [
                     { id: 'TODAY', label: 'Today' },
+                    { id: 'SINGLE_DATE', label: 'Particular Date' },
                     { id: 'WEEK', label: '7 Days' },
                     { id: 'MONTH', label: 'Monthly' },
+                    { id: 'CUSTOM', label: 'Custom Range' },
                     { id: 'ALL', label: 'All Time' },
                   ] as const
                 ).map((p) => (
@@ -2115,6 +2412,51 @@ export const FinanceView: React.FC = () => {
                   </button>
                 ))}
               </div>
+
+              {cfPeriod === 'SINGLE_DATE' && (
+                <div className="flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setCfDate((d) => shiftLocalDateStr(d, -1))}
+                    className="p-1 rounded hover:bg-slate-200 text-slate-700 cursor-pointer"
+                    title="Previous Date"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <input
+                    type="date"
+                    value={cfDate}
+                    onChange={(e) => e.target.value && setCfDate(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer px-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCfDate((d) => shiftLocalDateStr(d, 1))}
+                    className="p-1 rounded hover:bg-slate-200 text-slate-700 cursor-pointer"
+                    title="Next Date"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
+              {cfPeriod === 'CUSTOM' && (
+                <div className="flex flex-wrap items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200">
+                  <input
+                    type="date"
+                    value={cfDate}
+                    onChange={(e) => e.target.value && setCfDate(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer px-1"
+                  />
+                  <span className="text-[11px] font-bold text-slate-500">to</span>
+                  <input
+                    type="date"
+                    value={cfCustomEndDate}
+                    onChange={(e) => e.target.value && setCfCustomEndDate(e.target.value)}
+                    className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer px-1"
+                  />
+                </div>
+              )}
 
               {cfPeriod === 'MONTH' && (
                 <div className="flex items-center gap-1 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200">
@@ -3743,7 +4085,7 @@ export const FinanceView: React.FC = () => {
 
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Advance Deducted</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Advance Amount (₹)</label>
               <input
                 type="number"
                 value={dlabAdvance}
@@ -3772,6 +4114,36 @@ export const FinanceView: React.FC = () => {
                 <option value="UNPAID">Unpaid (நிலுவை)</option>
               </select>
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">Cash/Bank Account</label>
+              <select
+                value={dlabAccountId}
+                onChange={(e) => setDlabAccountId(e.target.value)}
+                className="w-full p-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-900"
+              >
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.accountName} ({a.accountType})
+                  </option>
+                ))}
+              </select>
+            </div>
+            {dlabAdvance > 0 && (
+              <label className="flex items-start gap-2 p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-semibold text-amber-950 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={dlabAdvanceIsNewCashOutflow}
+                  onChange={(e) => setDlabAdvanceIsNewCashOutflow(e.target.checked)}
+                  className="mt-0.5 rounded border-amber-400"
+                />
+                <span>
+                  Deduct ₹{dlabAdvance} advance from Cash/Bank today (uncheck if adjusting an earlier Labour Advance voucher)
+                </span>
+              </label>
+            )}
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -4363,6 +4735,200 @@ export const FinanceView: React.FC = () => {
         </form>
       </Modal>
 
+      {/* Give Staff Advance Modal */}
+      <Modal
+        isOpen={isStaffAdvModalOpen}
+        onClose={() => setIsStaffAdvModalOpen(false)}
+        title="Give Staff Salary Advance (பணியாளர் முன்பணம்)"
+      >
+        <form onSubmit={handleStaffAdvanceSubmit} className="space-y-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Employee *</label>
+              <select
+                value={staffAdvEmpId}
+                onChange={(e) => setStaffAdvEmpId(e.target.value)}
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-bold text-slate-900"
+                required
+              >
+                {employees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.fullName} — Open Adv: {formatINR(e.currentAdvanceBalance || 0)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Advance Date *</label>
+              <input
+                type="date"
+                value={staffAdvDate}
+                onChange={(e) => setStaffAdvDate(e.target.value)}
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-bold text-slate-900"
+                required
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Amount (₹) *</label>
+              <input
+                type="number"
+                min="1"
+                value={staffAdvAmount}
+                onChange={(e) => setStaffAdvAmount(Number(e.target.value))}
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-black text-rose-700"
+                required
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Mode</label>
+              <select
+                value={staffAdvPayMode}
+                onChange={(e) => setStaffAdvPayMode(e.target.value as 'CASH' | 'BANK')}
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-bold"
+              >
+                <option value="CASH">Cash (ரொக்கம்)</option>
+                <option value="BANK">Bank / UPI (வங்கி)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Account *</label>
+              <select
+                value={staffAdvAccountId}
+                onChange={(e) => setStaffAdvAccountId(e.target.value)}
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl"
+                required
+              >
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.accountName}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700 mb-1">Notes</label>
+            <input
+              type="text"
+              value={staffAdvNotes}
+              onChange={(e) => setStaffAdvNotes(e.target.value)}
+              placeholder="Reason for advance..."
+              className="w-full p-2.5 bg-white border border-slate-300 rounded-xl"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setIsStaffAdvModalOpen(false)}
+              className="px-4 py-2 border border-slate-300 rounded-xl font-bold text-slate-700 cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold cursor-pointer"
+            >
+              Issue Staff Advance
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Give Daily Labour Advance Modal */}
+      <Modal
+        isOpen={isLabourAdvModalOpen}
+        onClose={() => setIsLabourAdvModalOpen(false)}
+        title="Give Daily Labour Advance (தினக்கூலி முன்பணம்)"
+      >
+        <form onSubmit={handleLabourAdvanceSubmit} className="space-y-4 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Worker / Group Name *</label>
+              <input
+                type="text"
+                value={labAdvWorker}
+                onChange={(e) => setLabAdvWorker(e.target.value)}
+                placeholder="e.g. Mani Scrap Sorting Gang"
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-bold text-slate-900"
+                required
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Advance Date *</label>
+              <input
+                type="date"
+                value={labAdvDate}
+                onChange={(e) => setLabAdvDate(e.target.value)}
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-bold text-slate-900"
+                required
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Amount (₹) *</label>
+              <input
+                type="number"
+                min="1"
+                value={labAdvAmount}
+                onChange={(e) => setLabAdvAmount(Number(e.target.value))}
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-black text-rose-700"
+                required
+              />
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Mode</label>
+              <select
+                value={labAdvPayMode}
+                onChange={(e) => setLabAdvPayMode(e.target.value as 'CASH' | 'BANK')}
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-bold"
+              >
+                <option value="CASH">Cash (ரொக்கம்)</option>
+                <option value="BANK">Bank / UPI (வங்கி)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">Account *</label>
+              <select
+                value={labAdvAccountId}
+                onChange={(e) => setLabAdvAccountId(e.target.value)}
+                className="w-full p-2.5 bg-white border border-slate-300 rounded-xl"
+                required
+              >
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>{a.accountName}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700 mb-1">Notes</label>
+            <input
+              type="text"
+              value={labAdvNotes}
+              onChange={(e) => setLabAdvNotes(e.target.value)}
+              placeholder="e.g. Morning advance before loading"
+              className="w-full p-2.5 bg-white border border-slate-300 rounded-xl"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => setIsLabourAdvModalOpen(false)}
+              className="px-4 py-2 border border-slate-300 rounded-xl font-bold text-slate-700 cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold cursor-pointer"
+            >
+              Issue Labour Advance
+            </button>
+          </div>
+        </form>
+      </Modal>
+
       <VisualReportModal
         isOpen={isVisualReportOpen}
         onClose={() => setIsVisualReportOpen(false)}
@@ -4373,6 +4939,7 @@ export const FinanceView: React.FC = () => {
         bankBalance={totalBankBalance}
         cashBookSummary={cashBookPeriodSummary}
         initialPeriod={visualReportPeriod}
+        initialDate={cfPeriod === 'SINGLE_DATE' || cfPeriod === 'CUSTOM' ? cfDate : todayStr}
         onFeedback={showFeedback}
       />
     </div>

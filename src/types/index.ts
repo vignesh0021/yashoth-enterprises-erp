@@ -486,6 +486,7 @@ export type TransactionType =
   | 'CONTRA_TRANSFER_OUT'
   | 'OPERATING_EXPENSE'
   | 'EMPLOYEE_ADVANCE'
+  | 'LABOUR_ADVANCE'
   | 'OWNER_INJECTION'
   | 'OWNER_DRAWING'
   | 'OWNER_LOAN_IN'
@@ -958,6 +959,7 @@ export interface BackupDatabasePayload {
   uploadedDocuments?: UploadedDocument[];
   salaryRecords?: MonthlySalaryRecord[];
   employeeAdvances?: EmployeeAdvance[];
+  labourAdvances?: LabourAdvance[];
   dailyLabourEntries?: DailyLabourEntry[];
   labourPayments?: LabourPayment[];
   contractors?: Contractor[];
@@ -1152,6 +1154,25 @@ export interface EmployeeAdvance {
   accountId: string;
   voucherNo?: string;
   journalId?: string;
+  notes?: string;
+  createdAt: string;
+  createdBy: string;
+}
+
+export interface LabourAdvance {
+  id: string;
+  companyId?: string;
+  workerNameOrGroup: string;
+  advanceDate: string;
+  amount: number;
+  adjustedAmount: number;
+  remainingBalance: number;
+  status: 'OPEN' | 'PARTIALLY_ADJUSTED' | 'FULLY_ADJUSTED' | 'REVERSED';
+  paymentMode: 'CASH' | 'BANK';
+  accountId: string;
+  voucherNo: string;
+  journalId?: string;
+  accountTransactionId?: string;
   notes?: string;
   createdAt: string;
   createdBy: string;

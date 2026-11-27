@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useERP } from '../../context/ERPContext.tsx';
 import { Vehicle, VehicleDocument } from '../../types/index.ts';
 import { Modal } from '../../components/common/Modal.tsx';
+import { SendReportButton } from '../../components/common/ModuleReportModal.tsx';
 import { StatusBadge } from '../../components/common/StatusBadge.tsx';
 import { formatWeight, formatINR } from '../../utils/calculations.ts';
 import {
@@ -631,6 +632,7 @@ export const VehiclesView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <SendReportButton moduleId="VEHICLES" />
           <button
             onClick={() => setIsUploadVehicleDocModalOpen(true)}
             className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-3.5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow-md transition-all min-h-[44px] cursor-pointer"

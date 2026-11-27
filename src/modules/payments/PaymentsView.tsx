@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useERP } from '../../context/ERPContext.tsx';
 import { PaymentDirection, PaymentMethod, Payment } from '../../types/index.ts';
 import { Modal } from '../../components/common/Modal.tsx';
+import { SendReportButton } from '../../components/common/ModuleReportModal.tsx';
 import { formatINR } from '../../utils/calculations.ts';
 import { 
   CreditCard, 
@@ -138,13 +139,16 @@ export const PaymentsView: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Record Payment Voucher</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <SendReportButton moduleId="PAYMENTS" />
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Record Payment Voucher</span>
+          </button>
+        </div>
       </div>
 
       {/* Payments List */}

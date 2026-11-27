@@ -3,6 +3,7 @@ import { useERP } from '../../context/ERPContext.tsx';
 import { useLanguage } from '../../context/LanguageContext.tsx';
 import { Weighment, WeighingMethod } from '../../types/index.ts';
 import { StatusBadge } from '../../components/common/StatusBadge.tsx';
+import { SendReportButton } from '../../components/common/ModuleReportModal.tsx';
 import { Modal } from '../../components/common/Modal.tsx';
 import { formatWeight, calcNetWeight, calcPayableWeight } from '../../utils/calculations.ts';
 import { 
@@ -152,13 +153,16 @@ export const WeighmentView: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={handleOpenAdd}
-          className="flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all cursor-pointer select-none"
-        >
-          <Plus className="w-4 h-4" />
-          <span>{t('weigh.record_slip', 'Record Weighment Slip')}</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <SendReportButton moduleId="WEIGHMENT" />
+          <button
+            onClick={handleOpenAdd}
+            className="flex items-center justify-center gap-2 px-5 py-3 min-h-[48px] bg-red-600 hover:bg-red-700 active:scale-[0.98] text-white rounded-xl text-xs font-bold shadow-md shadow-red-600/20 transition-all cursor-pointer select-none"
+          >
+            <Plus className="w-4 h-4" />
+            <span>{t('weigh.record_slip', 'Record Weighment Slip')}</span>
+          </button>
+        </div>
       </div>
 
       {/* Feedback Banner */}

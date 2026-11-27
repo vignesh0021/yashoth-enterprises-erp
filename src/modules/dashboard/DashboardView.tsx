@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useERP } from '../../context/ERPContext.tsx';
 import { Modal } from '../../components/common/Modal.tsx';
+import { SendReportButton } from '../../components/common/ModuleReportModal.tsx';
 import { formatINR, formatWeight, roundTo2, roundTo3, kgToTon } from '../../utils/calculations.ts';
 import { getLocalDateStr } from '../../utils/visualReportExporter.ts';
 import { PendingOperationsPanel } from './PendingOperationsPanel.tsx';
@@ -339,6 +340,12 @@ export const DashboardView: React.FC = () => {
 
         {/* Quick Top Bar Actions */}
         <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto flex-wrap">
+          <SendReportButton
+            moduleId="DASHBOARD"
+            compact
+            label={language === 'ta' ? 'அறிக்கை அனுப்பு' : 'Send Report'}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-[11px] font-bold shadow-xs transition-colors min-h-[36px] cursor-pointer"
+          />
           <button
             onClick={() => setActiveDetailModal('PENDING_OPS')}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-[11px] font-bold shadow-xs transition-colors min-h-[36px] cursor-pointer"

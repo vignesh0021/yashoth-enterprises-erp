@@ -1,7 +1,7 @@
 import type { Expense, Payment } from '../types';
 import type { CashBookPeriodSummary } from '../../backend/business-rules/financeEngine.ts';
 
-export type VisualReportPeriod = 'DAY' | 'WEEK' | 'MONTH';
+export type VisualReportPeriod = 'DAY' | 'WEEK' | 'MONTH' | 'CUSTOM' | 'ALL';
 
 /** Returns YYYY-MM-DD in the device's local timezone (avoids UTC off-by-one). */
 export function getLocalDateStr(date: Date = new Date()): string {
@@ -9,6 +9,76 @@ export function getLocalDateStr(date: Date = new Date()): string {
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+/** Shifts a YYYY-MM-DD string by deltaDays in local timezone. */
+export function shiftLocalDateStr(dateStr: string, deltaDays: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y || 2026, (m || 1) - 1, (d || 1) + deltaDays);
+  return getLocalDateStr(dt);
+}
+
+/** Resolves start/end dates and readable label for Particular Date, Week, Month, Custom Range, or All Time. */
+export function resolveVisualReportRange(
+  period: VisualReportPeriod,
+  anchorDate: string,
+  customEndDate?: string
+): {
+  startDate: string;
+  endDate: string;
+  label: string;
+  shortTag: string;
+  weekDays: string[];
+} {
+  const safeAnchor = anchorDate || getLocalDateStr();
+  if (period === 'WEEK') {
+    const wk = getLocalWeekRange(safeAnchor);
+    return {
+      startDate: wk.startDate,
+      endDate: wk.endDate,
+      label: `Week (${wk.startDate} to ${wk.endDate})`,
+      shortTag: 'WEEK-WISE',
+      weekDays: wk.days,
+    };
+  }
+  if (period === 'MONTH') {
+    const mo = getLocalMonthRange(safeAnchor.substring(0, 7));
+    return {
+      startDate: mo.startDate,
+      endDate: mo.endDate,
+      label: `Month (${safeAnchor.substring(0, 7)})`,
+      shortTag: 'MONTH-WISE',
+      weekDays: [],
+    };
+  }
+  if (period === 'CUSTOM') {
+    const rawEnd = customEndDate || safeAnchor;
+    const startDate = safeAnchor <= rawEnd ? safeAnchor : rawEnd;
+    const endDate = safeAnchor <= rawEnd ? rawEnd : safeAnchor;
+    return {
+      startDate,
+      endDate,
+      label: `Range (${startDate} to ${endDate})`,
+      shortTag: 'CUSTOM-RANGE',
+      weekDays: [],
+    };
+  }
+  if (period === 'ALL') {
+    return {
+      startDate: '1970-01-01',
+      endDate: '2999-12-31',
+      label: 'All Time',
+      shortTag: 'ALL-TIME',
+      weekDays: [],
+    };
+  }
+  return {
+    startDate: safeAnchor,
+    endDate: safeAnchor,
+    label: `Particular Date (${safeAnchor})`,
+    shortTag: 'DATE-WISE',
+    weekDays: [],
+  };
 }
 
 /** Returns Monday..Sunday date range and list of 7 YYYY-MM-DD strings for the week containing anchorDate. */
@@ -71,6 +141,7 @@ export interface VisualFinanceReportInput {
   companyName: string;
   period: VisualReportPeriod;
   anchorDate: string; // YYYY-MM-DD
+  customEndDate?: string; // YYYY-MM-DD (used when period === 'CUSTOM')
   expenses: Expense[];
   payments: Payment[];
   cashBalance: number;
@@ -90,23 +161,11 @@ export interface GeneratedVisualReport {
 }
 
 export function generateVisualFinanceReport(input: VisualFinanceReportInput): GeneratedVisualReport {
-  const { companyName, period, anchorDate, expenses, payments, cashBalance, bankBalance, cashBookSummary } = input;
-  const monthStr = anchorDate.substring(0, 7);
-
-  let startDate = anchorDate;
-  let endDate = anchorDate;
-  let weekDays: string[] = [];
-
-  if (period === 'WEEK') {
-    const wk = getLocalWeekRange(anchorDate);
-    startDate = wk.startDate;
-    endDate = wk.endDate;
-    weekDays = wk.days;
-  } else if (period === 'MONTH') {
-    const mo = getLocalMonthRange(monthStr);
-    startDate = mo.startDate;
-    endDate = mo.endDate;
-  }
+  const { companyName, period, anchorDate, customEndDate, expenses, payments, cashBalance, bankBalance, cashBookSummary } = input;
+  const resolved = resolveVisualReportRange(period, anchorDate, customEndDate);
+  const startDate = resolved.startDate;
+  const endDate = resolved.endDate;
+  const weekDays = resolved.weekDays;
 
   const activeExpenses = expenses.filter(
     (e) => e.status !== 'REVERSED' && e.expenseDate >= startDate && e.expenseDate <= endDate
@@ -173,8 +232,9 @@ export function generateVisualFinanceReport(input: VisualFinanceReportInput): Ge
   canvas.height = height;
   const ctx = canvas.getContext('2d');
 
-  const periodLabel = period === 'DAY' ? 'DAY-WISE' : period === 'WEEK' ? 'WEEK-WISE' : 'MONTH-WISE';
-  const filename = `YE_${periodLabel}_Report_${startDate}.png`;
+  const periodLabel = resolved.shortTag;
+  const fileDateTag = period === 'ALL' ? 'ALL' : period === 'CUSTOM' ? `${startDate}_to_${endDate}` : startDate;
+  const filename = `YE_${periodLabel}_Report_${fileDateTag}.png`;
   const summaryText = [
     `${companyName} — ${periodLabel} EXPENSE & FINANCE REPORT`,
     `Period: ${startDate} to ${endDate}`,
@@ -442,5 +502,449 @@ export async function shareOrDownloadPng(
     return 'DOWNLOADED';
   } catch {
     return 'PREVIEW_ONLY';
+  }
+}
+
+// ============================================================================
+// UNIVERSAL MODULE VISUAL REPORT, CSV, WHATSAPP TEXT & PRINT GENERATOR
+// ============================================================================
+
+export interface ModuleReportKpi {
+  label: string;
+  value: string;
+  tone?: 'emerald' | 'rose' | 'amber' | 'sky' | 'indigo' | 'slate';
+}
+
+export interface ModuleReportBar {
+  label: string;
+  value: number;
+  displayValue: string;
+}
+
+export interface ModuleReportPayload {
+  moduleKey: string;
+  moduleTitle: string;
+  moduleSubtitle?: string;
+  companyName: string;
+  companyGstin?: string;
+  period: VisualReportPeriod;
+  startDate: string;
+  endDate: string;
+  periodLabel: string;
+  recommendedFormats: ('PNG' | 'CSV' | 'TEXT' | 'PDF' | 'XLSX')[];
+  kpis: ModuleReportKpi[];
+  bars?: ModuleReportBar[];
+  barsTitle?: string;
+  headers: string[];
+  rows: (string | number)[][];
+  notes?: string[];
+}
+
+export interface GeneratedModuleReportOutput {
+  dataUrl: string;
+  pngFilename: string;
+  csvFilename: string;
+  csvContent: string;
+  whatsappText: string;
+  totalRows: number;
+}
+
+const TONE_COLOR_MAP: Record<NonNullable<ModuleReportKpi['tone']>, string> = {
+  emerald: '#34d399',
+  rose: '#fb7185',
+  amber: '#fbbf24',
+  sky: '#38bdf8',
+  indigo: '#a5b4fc',
+  slate: '#f8fafc',
+};
+
+/** Escapes and builds a UTF-8 BOM CSV string safe for Excel & Tamil/Unicode text. */
+export function buildModuleCsv(headers: string[], rows: (string | number)[][]): string {
+  const esc = (v: string | number | undefined | null) => {
+    const s = String(v ?? '');
+    if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  const lines = [headers.map(esc).join(','), ...rows.map((r) => r.map(esc).join(','))];
+  return '\uFEFF' + lines.join('\r\n');
+}
+
+/** Formats a clean WhatsApp / SMS ready text digest for any ERP module report. */
+export function buildModuleWhatsAppText(payload: ModuleReportPayload): string {
+  const lines: string[] = [
+    `*${payload.companyName}*`,
+    `*${payload.moduleTitle}*`,
+    `Period: ${payload.periodLabel}`,
+    `Total Records: ${payload.rows.length}`,
+    '',
+    '*Key Metrics:*',
+    ...payload.kpis.map((k) => `• ${k.label}: ${k.value}`),
+  ];
+
+  if (payload.bars && payload.bars.length > 0) {
+    lines.push('', `*${payload.barsTitle || 'Breakdown'}:*`);
+    payload.bars.slice(0, 6).forEach((b) => {
+      lines.push(`• ${b.label}: ${b.displayValue}`);
+    });
+  }
+
+  if (payload.rows.length > 0) {
+    lines.push('', '*Top Entries:*');
+    payload.rows.slice(0, 8).forEach((row, idx) => {
+      const compact = row
+        .slice(0, 4)
+        .map((c) => String(c ?? ''))
+        .filter(Boolean)
+        .join(' | ');
+      lines.push(`${idx + 1}. ${compact}`);
+    });
+    if (payload.rows.length > 8) {
+      lines.push(`... +${payload.rows.length - 8} more rows (export CSV/PDF for full list)`);
+    }
+  }
+
+  if (payload.notes && payload.notes.length > 0) {
+    lines.push('', ...payload.notes.map((n) => `Note: ${n}`));
+  }
+
+  return lines.join('\n');
+}
+
+/** Generates a high-res branded PNG visual card + CSV + WhatsApp text for ANY ERP module. */
+export function generateModuleVisualReport(payload: ModuleReportPayload): GeneratedModuleReportOutput {
+  const safeSlug = payload.moduleKey.replace(/[^A-Za-z0-9_-]/g, '_').toUpperCase();
+  const dateTag =
+    payload.period === 'ALL'
+      ? 'ALL_TIME'
+      : payload.startDate === payload.endDate
+        ? payload.startDate
+        : `${payload.startDate}_to_${payload.endDate}`;
+
+  const pngFilename = `YE_${safeSlug}_${dateTag}.png`;
+  const csvFilename = `YE_${safeSlug}_${dateTag}.csv`;
+  const csvContent = buildModuleCsv(payload.headers, payload.rows);
+  const whatsappText = buildModuleWhatsAppText(payload);
+
+  if (typeof document === 'undefined') {
+    return {
+      dataUrl: '',
+      pngFilename,
+      csvFilename,
+      csvContent,
+      whatsappText,
+      totalRows: payload.rows.length,
+    };
+  }
+
+  const width = 1080;
+  const visibleKpis = payload.kpis.slice(0, 6);
+  const kpiRowsCount = Math.ceil(visibleKpis.length / 3);
+  const visibleBars = (payload.bars || []).slice(0, 6);
+  const visibleRows = payload.rows.slice(0, 12);
+
+  let height = 140 + kpiRowsCount * 124 + 30;
+  if (visibleBars.length > 0) height += 74 + visibleBars.length * 40 + 20;
+  height += 94 + Math.max(1, visibleRows.length) * 40 + 70;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+
+  if (!ctx) {
+    return {
+      dataUrl: '',
+      pngFilename,
+      csvFilename,
+      csvContent,
+      whatsappText,
+      totalRows: payload.rows.length,
+    };
+  }
+
+  // Dark executive slate canvas
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, 0, width, height);
+
+  // Top crimson bar
+  ctx.fillStyle = '#dc2626';
+  ctx.fillRect(0, 0, width, 10);
+
+  // Header
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = 'bold 28px sans-serif';
+  ctx.fillText(truncateText(ctx, `${payload.companyName.toUpperCase()} — ${payload.moduleTitle.toUpperCase()}`, 1000), 40, 56);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '16px sans-serif';
+  const subMeta = `${payload.periodLabel}   |   Records: ${payload.rows.length}${payload.companyGstin ? `   |   GSTIN: ${payload.companyGstin}` : ''}`;
+  ctx.fillText(truncateText(ctx, subMeta, 1000), 40, 90);
+
+  // KPI Grid (3 per row)
+  let y = 118;
+  const cols = Math.min(3, Math.max(1, visibleKpis.length));
+  const gap = 18;
+  const cardW = Math.floor((1000 - gap * (cols - 1)) / cols);
+  visibleKpis.forEach((k, idx) => {
+    const r = Math.floor(idx / 3);
+    const c = idx % 3;
+    const cx = 40 + c * (cardW + gap);
+    const cy = y + r * 120;
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(cx, cy, cardW, 104);
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.fillText(truncateText(ctx, k.label.toUpperCase(), cardW - 28), cx + 16, cy + 30);
+    ctx.fillStyle = TONE_COLOR_MAP[k.tone || 'slate'];
+    ctx.font = 'bold 24px monospace';
+    ctx.fillText(truncateText(ctx, k.value, cardW - 28), cx + 16, cy + 76);
+  });
+  y += kpiRowsCount * 124 + 14;
+
+  // Optional Breakdown Bars
+  if (visibleBars.length > 0) {
+    const boxH = 56 + visibleBars.length * 40;
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(40, y, 1000, boxH);
+    ctx.fillStyle = '#f8fafc';
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText((payload.barsTitle || 'BREAKDOWN').toUpperCase(), 58, y + 30);
+
+    const maxVal = Math.max(1, ...visibleBars.map((b) => Math.abs(b.value)));
+    let by = y + 60;
+    for (const b of visibleBars) {
+      ctx.fillStyle = '#cbd5e1';
+      ctx.font = '14px sans-serif';
+      ctx.fillText(truncateText(ctx, b.label, 260), 58, by);
+
+      const trackX = 330;
+      const trackW = 470;
+      const fillW = Math.max(8, Math.round((Math.abs(b.value) / maxVal) * trackW));
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(trackX, by - 13, trackW, 16);
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(trackX, by - 13, fillW, 16);
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = 'bold 14px monospace';
+      ctx.fillText(truncateText(ctx, b.displayValue, 210), 820, by);
+      by += 40;
+    }
+    y += boxH + 20;
+  }
+
+  // Tabular Data Preview (up to 5 columns, 12 rows)
+  const displayCols = Math.min(5, payload.headers.length);
+  const tableH = 84 + Math.max(1, visibleRows.length) * 40;
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(40, y, 1000, tableH);
+
+  ctx.fillStyle = '#f8fafc';
+  ctx.font = 'bold 16px sans-serif';
+  ctx.fillText(
+    `DETAILED REGISTER (${visibleRows.length} of ${payload.rows.length} shown${payload.rows.length > visibleRows.length ? ' — Export CSV for all' : ''})`,
+    58,
+    y + 30
+  );
+
+  // Column Header Strip
+  const colW = Math.floor(964 / Math.max(1, displayCols));
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(56, y + 42, 968, 28);
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = 'bold 13px sans-serif';
+  for (let c = 0; c < displayCols; c++) {
+    ctx.fillText(truncateText(ctx, payload.headers[c], colW - 10), 64 + c * colW, y + 61);
+  }
+
+  let ry = y + 96;
+  if (visibleRows.length === 0) {
+    ctx.fillStyle = '#94a3b8';
+    ctx.font = '15px sans-serif';
+    ctx.fillText('No records found for the selected date / range.', 64, ry);
+  } else {
+    visibleRows.forEach((row, idx) => {
+      if (idx % 2 === 1) {
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(56, ry - 22, 968, 34);
+      }
+      for (let c = 0; c < displayCols; c++) {
+        ctx.fillStyle = c === displayCols - 1 ? '#34d399' : c === 0 ? '#f8fafc' : '#cbd5e1';
+        ctx.font = c === 0 || c === displayCols - 1 ? 'bold 13px monospace' : '13px sans-serif';
+        ctx.fillText(truncateText(ctx, String(row[c] ?? ''), colW - 10), 64 + c * colW, ry);
+      }
+      ry += 40;
+    });
+  }
+
+  // Footer
+  ctx.fillStyle = '#64748b';
+  ctx.font = '13px sans-serif';
+  ctx.fillText(
+    `Yashoth Enterprises ERP • Generated ${new Date().toLocaleString('en-IN')} • Share PNG / Export CSV / Print PDF`,
+    40,
+    height - 22
+  );
+
+  return {
+    dataUrl: canvas.toDataURL('image/png'),
+    pngFilename,
+    csvFilename,
+    csvContent,
+    whatsappText,
+    totalRows: payload.rows.length,
+  };
+}
+
+/** Exports or shares a CSV file safely on Android WebView and desktop browsers. */
+export async function shareOrDownloadCsv(
+  csvContent: string,
+  filename: string,
+  title: string
+): Promise<'SHARED' | 'DOWNLOADED'> {
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  try {
+    const file = new File([blob], filename, { type: 'text/csv' });
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      const canShareFiles =
+        typeof navigator.canShare === 'function' ? navigator.canShare({ files: [file] }) : false;
+      if (canShareFiles) {
+        await navigator.share({ files: [file], title });
+        return 'SHARED';
+      }
+    }
+  } catch (err: any) {
+    if (err?.name === 'AbortError') return 'DOWNLOADED';
+  }
+
+  const nativeBridge = (window as any)?.AndroidNative;
+  if (nativeBridge && typeof nativeBridge.saveFileToDownloads === 'function') {
+    try {
+      nativeBridge.saveFileToDownloads(filename, csvContent, 'text/csv');
+      return 'DOWNLOADED';
+    } catch {
+      // fall through to anchor download
+    }
+  }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return 'DOWNLOADED';
+}
+
+/** Shares text natively via Android/Web Share API or copies to clipboard. */
+export async function shareOrCopyReportText(
+  text: string,
+  title: string
+): Promise<'SHARED' | 'COPIED' | 'FAILED'> {
+  const nativeBridge = (window as any)?.AndroidNative;
+  if (nativeBridge && typeof nativeBridge.shareText === 'function') {
+    try {
+      nativeBridge.shareText(title, text);
+      return 'SHARED';
+    } catch {
+      // fallback
+    }
+  }
+  if (typeof navigator !== 'undefined' && navigator.share) {
+    try {
+      await navigator.share({ title, text });
+      return 'SHARED';
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return 'FAILED';
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    return 'COPIED';
+  } catch {
+    return 'FAILED';
+  }
+}
+
+/** Opens a formatted print/PDF document for any module report. */
+export function printModuleReport(payload: ModuleReportPayload): void {
+  const escHtml = (s: string | number | undefined | null) =>
+    String(s ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+  const kpiHtml = payload.kpis
+    .map(
+      (k) =>
+        `<div style="border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;background:#f8fafc;">
+          <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;">${escHtml(k.label)}</div>
+          <div style="font-size:16px;font-weight:900;color:#0f172a;margin-top:4px;font-family:monospace;">${escHtml(k.value)}</div>
+        </div>`
+    )
+    .join('');
+
+  const headHtml = payload.headers
+    .map((h) => `<th style="text-align:left;padding:8px;border-bottom:2px solid #0f172a;font-size:11px;background:#f1f5f9;">${escHtml(h)}</th>`)
+    .join('');
+
+  const bodyHtml =
+    payload.rows.length === 0
+      ? `<tr><td colspan="${payload.headers.length}" style="padding:16px;text-align:center;color:#64748b;">No records for ${escHtml(payload.periodLabel)}</td></tr>`
+      : payload.rows
+          .map(
+            (r) =>
+              `<tr>${r
+                .map((c) => `<td style="padding:7px 8px;border-bottom:1px solid #e2e8f0;font-size:11px;">${escHtml(c)}</td>`)
+                .join('')}</tr>`
+          )
+          .join('');
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>${escHtml(payload.companyName)} — ${escHtml(payload.moduleTitle)}</title>
+  <style>
+    @page { size: A4 landscape; margin: 12mm; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #0f172a; margin: 0; padding: 16px; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0 18px; }
+    table { width: 100%; border-collapse: collapse; }
+  </style>
+</head>
+<body>
+  <div style="border-bottom:3px solid #dc2626;padding-bottom:10px;display:flex;justify-content:space-between;align-items:flex-end;">
+    <div>
+      <div style="font-size:20px;font-weight:900;">${escHtml(payload.companyName)}</div>
+      <div style="font-size:13px;font-weight:700;color:#dc2626;margin-top:2px;">${escHtml(payload.moduleTitle)}</div>
+      ${payload.companyGstin ? `<div style="font-size:11px;color:#475569;">GSTIN: ${escHtml(payload.companyGstin)}</div>` : ''}
+    </div>
+    <div style="text-align:right;font-size:11px;color:#475569;">
+      <div><strong>Period:</strong> ${escHtml(payload.periodLabel)}</div>
+      <div><strong>Records:</strong> ${payload.rows.length}</div>
+      <div>Generated: ${escHtml(new Date().toLocaleString('en-IN'))}</div>
+    </div>
+  </div>
+  <div class="grid">${kpiHtml}</div>
+  <table>
+    <thead><tr>${headHtml}</tr></thead>
+    <tbody>${bodyHtml}</tbody>
+  </table>
+</body>
+</html>`;
+
+  const w = window.open('', '_blank');
+  if (w) {
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => {
+      w.focus();
+      w.print();
+    }, 250);
+  } else {
+    window.print();
   }
 }
